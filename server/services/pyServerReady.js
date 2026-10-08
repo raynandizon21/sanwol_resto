@@ -1,4 +1,4 @@
-const PYSERVER_BASE_URL = process.env.PYSERVER_BASE_URL || 'http://127.0.0.1:2100';
+const PYSERVER_BASE_URL = process.env.PYSERVER_BASE_URL || 'http://127.0.0.1:2400';
 const DEFAULT_MAX_WAIT_MS = Number(process.env.PYSERVER_BOOT_WAIT_MS || 60000);
 const DEFAULT_POLL_MS = Number(process.env.PYSERVER_BOOT_POLL_MS || 500);
 

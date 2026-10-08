@@ -1,14 +1,15 @@
 module.exports = {
   apps: [
     {
-      name: 'resto-nodeserver',
+      name: 'SanwolResto-nodeserver',
       cwd: './server',
       script: 'app.js',
       instances: 1,
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'development',
-        PORT: 2000,
+        PORT: 2300,
+        PYSERVER_PORT: 2400,
         // BRANCH_COMPARE_PUBLIC_URL and TELEGRAM_MINIAPP_SECRET come from .env (see .env.example).
         // Avoid inherited IDE/sandbox proxy breaking outbound HTTPS calls (Telegram, Google APIs).
         HTTP_PROXY: '',
@@ -28,7 +29,7 @@ module.exports = {
       },
     },
     {
-      name: 'resto-frontend',
+      name: 'SanwolResto-frontend',
       cwd: '.',
       script: 'npm',
       args: 'run dev',
@@ -36,19 +37,19 @@ module.exports = {
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'development',
-        PORT: 3000,
+        PORT: 3600,
       },
     },
     {
-      name: 'resto-pyserver',
+      name: 'SanwolResto-pyserver',
       cwd: './pyserver',
       script: './.venv/bin/python',
-      args: '-m uvicorn main:app --host 0.0.0.0 --port 2100 --no-access-log',
+      args: '-m uvicorn main:app --host 0.0.0.0 --port 2400 --no-access-log',
       instances: 1,
       exec_mode: 'fork',
       env: {
         PYTHONUNBUFFERED: '1',
-        PORT: 2100,
+        PORT: 2400,
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',

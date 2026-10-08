@@ -1,6 +1,6 @@
 const { LRUCache } = require('lru-cache');
 
-const PYSERVER_BASE_URL = process.env.PYSERVER_BASE_URL || 'http://127.0.0.1:2100';
+const PYSERVER_BASE_URL = process.env.PYSERVER_BASE_URL || 'http://127.0.0.1:2400';
 const PYSERVER_TIMEOUT_MS = Number(process.env.ANALYTICS_PYSERVER_TIMEOUT_MS || 15000);
 const CACHE_TTL_MS = Number(process.env.ANALYTICS_PY_CACHE_TTL_MS || 30000);
 const CACHE_MAX = Number(process.env.ANALYTICS_PY_CACHE_MAX || 64);

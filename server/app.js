@@ -109,7 +109,7 @@ app.use(session({
     secure: false,
     httpOnly: true,
     maxAge: 1000 * 60 * 60 * 24,
-    sameSite: 'lax', // so cookie is sent on GET from frontend (e.g. localhost:3000 -> localhost:2000)
+    sameSite: 'lax', // so cookie is sent on GET from frontend (e.g. localhost:3600 -> localhost:2300)
   }
 }));
 app.use(flash());
@@ -130,7 +130,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // Set port
-app.set('port', process.env.PORT || 2000);
+app.set('port', process.env.PORT || 2300);
 // EJS view engine removed - pure REST API backend
 
 // Static files removed - frontend should serve its own assets
@@ -289,7 +289,7 @@ app.use((err, req, res, next) => {
 		const pyServerPingEnabled = String(process.env.PYSERVER_STARTUP_PING || '').toLowerCase() === 'true';
 		if (pyServerPingEnabled) {
 			// Prefer IPv4 loopback first to avoid localhost -> ::1 resolution issues.
-			const pyServerPort = Number(process.env.PYSERVER_PORT || 2100);
+			const pyServerPort = Number(process.env.PYSERVER_PORT || 2400);
 			const samplePath = '/api/analytics/sample';
 			const pyServerHosts = ['127.0.0.1', 'localhost'];
 

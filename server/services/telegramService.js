@@ -6,7 +6,7 @@ const pool = require('../config/db');
 const { resolveNetSalesFromRow, sumNetSalesFromDailyRows } = require('../utils/analyticsSales');
 const { buildAdminDashboardBundle } = require('./adminDashboardBundle');
 const { buildBranchDashboardBundle } = require('./branchDashboardBundle');
-const PYSERVER_BASE_URL = process.env.PYSERVER_BASE_URL || 'http://localhost:2100';
+const PYSERVER_BASE_URL = process.env.PYSERVER_BASE_URL || 'http://localhost:2400';
 // Public HTTPS URL of the mobile branch-comparison board (set BRANCH_COMPARE_PUBLIC_URL).
 // Reply-keyboard Web App requires HTTPS; when it's unset or not https the compare button is hidden.
 const BRANCH_COMPARE_PUBLIC_URL = (() => {

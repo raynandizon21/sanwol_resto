@@ -31,7 +31,7 @@ const {
 } = require('../services/adminDashboardBundleCache');
 
 // Python analytics service (PyServer) base URL - internal only
-const PYSERVER_BASE_URL = process.env.PYSERVER_BASE_URL || 'http://127.0.0.1:2100';
+const PYSERVER_BASE_URL = process.env.PYSERVER_BASE_URL || 'http://127.0.0.1:2400';
 const PYSERVER_TIMEOUT_MS = Number(process.env.PYSERVER_TIMEOUT_MS || 15000);
 // node-fetch v3 is ESM-only; use dynamic import bridge for CommonJS
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
