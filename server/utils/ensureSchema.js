@@ -57,6 +57,36 @@ async function ensureOrdersFloorColumn() {
 	}
 }
 
+/**
+ * restaurant_tables columns set from the Table Settings page:
+ * - FLOOR ('gf' / '2f' / NULL): only multi-floor branches (FLOOR_ENABLED_BRANCH_IDS in src/utils/floorScope.ts) set it.
+ * - ROOM_CHARGE: per-table room/service charge used by tableModel and the Orders UI.
+ */
+async function ensureRestaurantTablesColumns() {
+	const columns = [
+		{ name: 'FLOOR', ddl: 'ADD COLUMN FLOOR VARCHAR(10) NULL DEFAULT NULL AFTER TABLE_NUMBER' },
+		{ name: 'ROOM_CHARGE', ddl: 'ADD COLUMN ROOM_CHARGE DECIMAL(12,2) NULL DEFAULT NULL AFTER CAPACITY' },
+	];
+	const connection = await pool.getConnection();
+	try {
+		for (const col of columns) {
+			const [rows] = await connection.execute(
+				`SELECT 1 FROM information_schema.COLUMNS
+				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'restaurant_tables' AND COLUMN_NAME = ?
+				 LIMIT 1`,
+				[col.name]
+			);
+			if (rows.length > 0) continue;
+			await connection.execute(`ALTER TABLE restaurant_tables ${col.ddl}`);
+			console.log(`[Schema] restaurant_tables.${col.name} created`);
+		}
+	} catch (err) {
+		console.error('[Schema] ensure restaurant_tables columns failed:', err.message || err);
+	} finally {
+		connection.release();
+	}
+}
+
 async function ensureReceiptScanHistoryTable() {
 	const connection = await pool.getConnection();
 	try {
@@ -284,6 +314,7 @@ async function ensureAnalyticsPerformanceIndexes() {
 module.exports = {
 	ensureOrderItemsLineCostColumn,
 	ensureOrdersFloorColumn,
+	ensureRestaurantTablesColumns,
 	ensureReceiptScanHistoryTable,
 	ensureTelegramSettingsTable,
 	ensureBankPaymentMethodEnum,
