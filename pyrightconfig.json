@@ -1,0 +1,10 @@
+{
+  "include": ["pyserver"],
+  "exclude": ["**/node_modules", "pyserver/.venv"],
+  "venvPath": "pyserver",
+  "venv": ".venv",
+  "reportArgumentType": "none",
+  "reportCallIssue": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportIndexIssue": "none"
+}

@@ -1,0 +1,27 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+pyserver/.venv/
+__pycache__/
+*.pyc
+core-api-495501-4096e683bc08.json
+
+# APK release binaries - large, versioned, copied straight to the server
+# (never committed) - only latest.json (small metadata) may be tracked.
+server/public/uploads/app-releases/*.apk
+
+# User uploads (receipts, menu photos, branch logos) are client data, not source.
+# Only the default "All Branches" logo is part of the app.
+server/public/uploads/expense-receipts/
+server/public/uploads/receipt-scan-history/
+server/public/uploads/menu/
+server/public/uploads/branches/*
+!server/public/uploads/branches/GENERAL_ALL_BRANCHES.png
+
+# Claude Code: per-machine settings stay local; skills in .claude/skills are shared.
+.claude/settings.local.json
