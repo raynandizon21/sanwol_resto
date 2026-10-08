@@ -36,6 +36,9 @@ export type SidebarFeatureConfig = {
   children?: SidebarFeatureConfig[];
 };
 
+/** AI Sales Assistant (admin, All Branches). Hidden for now; set to true to show it again. */
+export const SHOW_AI_SALES_ASSISTANT = false;
+
 export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
   {
     key: 'dashboard',

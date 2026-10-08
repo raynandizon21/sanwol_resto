@@ -20,7 +20,7 @@ import {
 import { useUser } from '../../context/UserContext';
 import { cn } from '../../lib/utils';
 import { type Branch } from './Header';
-import { SIDEBAR_FEATURES, type SidebarFeatureConfig } from '../../constants/sidebarFeatures';
+import { SHOW_AI_SALES_ASSISTANT, SIDEBAR_FEATURES, type SidebarFeatureConfig } from '../../constants/sidebarFeatures';
 import {
   prepareAllBranchesSidebarLogos,
   resolveBranchLogoUrl,
@@ -508,7 +508,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, select
                     />
                   ))}
                 </SidebarItem>
-                {isAdmin && !isSpecificBranch && (
+                {SHOW_AI_SALES_ASSISTANT && isAdmin && !isSpecificBranch && (
                   <SidebarItem
                     icon={Sparkles}
                     label={t('sidebar.ai_sales_assistant')}
@@ -574,7 +574,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, select
       <div className="mt-auto px-4">
         <button
           onClick={logout}
-          className="w-full flex items-center gap-3 px-6 py-4 text-brand-muted hover:text-red-500 hover:bg-red-50/50 rounded-2xl transition-all group border border-transparent hover:border-red-100"
+          className="w-full flex items-center gap-3 px-6 py-4 text-brand-primary bg-brand-primary/5 hover:bg-brand-primary/10 rounded-2xl transition-all group border border-brand-primary/20 hover:border-brand-primary/30"
         >
           <LogOut size={20} className="group-hover:rotate-12 transition-transform" />
           <span className="font-bold text-base">{t('sidebar.logout')}</span>
