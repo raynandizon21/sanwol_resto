@@ -3,6 +3,8 @@
 export interface MenuCategory {
     id: string;
     name: string;
+    /** Korean name shown when the UI language is Korean (falls back to `name`) */
+    nameKo: string | null;
     branchId: string | null;
     /** If set, this category is a subcategory of the given main category id */
     parentId: string | null;
@@ -16,8 +18,12 @@ export interface MenuRecord {
     branchLabel?: string;
     categoryId: string | null;
     categoryName: string;
+    categoryNameKo: string | null;
     name: string;
+    /** Korean name/description shown when the UI language is Korean (fall back to English) */
+    nameKo: string | null;
     description: string | null;
+    descriptionKo: string | null;
     imageUrl: string | null;
     price: number;
     isAvailable: boolean;
@@ -49,8 +55,11 @@ type MenuApiRecord = {
     BRANCH_LABEL?: string;
     CATEGORY_ID?: number | null;
     CATEGORY_NAME?: string;
+    CATEGORY_NAME_KO?: string | null;
     MENU_NAME?: string;
+    MENU_NAME_KO?: string | null;
     MENU_DESCRIPTION?: string | null;
+    MENU_DESCRIPTION_KO?: string | null;
     MENU_IMG?: string | null;
     MENU_PRICE?: number | string;
     IS_AVAILABLE?: number | boolean;
@@ -68,6 +77,7 @@ type MenuApiRecord = {
 type CategoryApiRecord = {
     IDNo: number;
     CATEGORY_NAME?: string;
+    CATEGORY_NAME_KO?: string | null;
     BRANCH_ID?: number | null;
     PARENT_CAT_ID?: number | null;
 };
@@ -109,8 +119,11 @@ const mapMenuRecord = (row: MenuApiRecord): MenuRecord => ({
     branchLabel: row.BRANCH_LABEL,
     categoryId: row.CATEGORY_ID !== null && row.CATEGORY_ID !== undefined ? String(row.CATEGORY_ID) : null,
     categoryName: row.CATEGORY_NAME || 'Uncategorized',
+    categoryNameKo: row.CATEGORY_NAME_KO || null,
     name: row.MENU_NAME || '',
+    nameKo: row.MENU_NAME_KO || null,
     description: row.MENU_DESCRIPTION ?? null,
+    descriptionKo: row.MENU_DESCRIPTION_KO || null,
     imageUrl: row.MENU_IMG ?? null,
     price: Number(row.MENU_PRICE ?? 0),
     isAvailable:
@@ -133,6 +146,7 @@ const mapMenuRecord = (row: MenuApiRecord): MenuRecord => ({
 const mapCategoryRecord = (row: CategoryApiRecord): MenuCategory => ({
     id: String(row.IDNo),
     name: row.CATEGORY_NAME || 'Uncategorized',
+    nameKo: row.CATEGORY_NAME_KO || null,
     branchId: row.BRANCH_ID !== undefined && row.BRANCH_ID !== null ? String(row.BRANCH_ID) : null,
     parentId:
         row.PARENT_CAT_ID !== undefined && row.PARENT_CAT_ID !== null ? String(row.PARENT_CAT_ID) : null,
@@ -158,14 +172,21 @@ export const getMenus = async (
     return data.map(mapMenuRecord);
 };
 
-export const getMenuById = async (id: string): Promise<Pick<MenuRecord, 'description'>> => {
+export const getMenuById = async (id: string): Promise<Pick<MenuRecord, 'description' | 'descriptionKo'>> => {
     const response = await fetch(buildUrl(`/menu/${id}`), {
         credentials: 'include',
         headers: authHeaders(),
     });
-    const data = await handleResponse<{ MENU_DESCRIPTION?: string | null }>(response);
-    return { description: data?.MENU_DESCRIPTION ?? null };
+    const data = await handleResponse<{ MENU_DESCRIPTION?: string | null; MENU_DESCRIPTION_KO?: string | null }>(response);
+    return { description: data?.MENU_DESCRIPTION ?? null, descriptionKo: data?.MENU_DESCRIPTION_KO ?? null };
 };
+
+/** Display helpers: Korean text when the UI is Korean and the item has it, otherwise English. */
+export const isKoreanLanguage = (lang: string | undefined | null) => String(lang || '').toLowerCase().startsWith('ko');
+export const localizedMenuName = (m: Pick<MenuRecord, 'name' | 'nameKo'>, ko: boolean) => (ko && m.nameKo) || m.name;
+export const localizedMenuDescription = (m: Pick<MenuRecord, 'description' | 'descriptionKo'>, ko: boolean) =>
+    (ko && m.descriptionKo) || m.description;
+export const localizedCategoryName = (c: Pick<MenuCategory, 'name' | 'nameKo'>, ko: boolean) => (ko && c.nameKo) || c.name;
 
 export const getMenuCategories = async (branchId?: string): Promise<MenuCategory[]> => {
     // Always send branch_id so the backend doesn't fall back to session branch
@@ -180,12 +201,14 @@ export const getMenuCategories = async (branchId?: string): Promise<MenuCategory
     return data.map(mapCategoryRecord);
 };
 
-export type CreateMenuCategoryPayload = { name: string; description?: string | null; parentId?: string | null };
-export type UpdateMenuCategoryPayload = { name: string; description?: string | null; parentId?: string | null };
+export type CreateMenuCategoryPayload = { name: string; nameKo?: string | null; description?: string | null; parentId?: string | null };
+/** `nameKo` omitted = keep the stored Korean name */
+export type UpdateMenuCategoryPayload = { name: string; nameKo?: string | null; description?: string | null; parentId?: string | null };
 
 export async function createMenuCategory(branchId: string | null, payload: CreateMenuCategoryPayload): Promise<{ id: number }> {
     const body: Record<string, string | number | null> = {
         CAT_NAME: payload.name.trim(),
+        CAT_NAME_KO: payload.nameKo?.trim() || null,
         CAT_DESC: payload.description?.trim() || null,
     };
     if (branchId && branchId !== 'all') body.branch_id = branchId;
@@ -235,6 +258,9 @@ export async function updateMenuCategory(
     const body: Record<string, string | null> = {
         CAT_NAME: payload.name.trim(),
     };
+    if (payload.nameKo !== undefined) {
+        body.CAT_NAME_KO = payload.nameKo?.trim() || null;
+    }
     if (payload.description !== undefined) {
         body.CAT_DESC = payload.description?.trim() || null;
     }
@@ -271,7 +297,9 @@ export type CreateMenuPayload = {
     branchId: string;
     categoryId: string | null;
     name: string;
+    nameKo: string | null;
     description: string | null;
+    descriptionKo: string | null;
     price: number;
     isAvailable: boolean;
     imageFile?: File | null;
@@ -280,7 +308,9 @@ export type CreateMenuPayload = {
 export type UpdateMenuPayload = {
     categoryId: string | null;
     name: string;
+    nameKo: string | null;
     description: string | null;
+    descriptionKo: string | null;
     price: number;
     isAvailable: boolean;
     existingImagePath?: string | null;
@@ -310,7 +340,9 @@ export async function createMenu(payload: CreateMenuPayload): Promise<number> {
         BRANCH_ID: payload.branchId,
         CATEGORY_ID: payload.categoryId || '',
         MENU_NAME: payload.name,
+        MENU_NAME_KO: payload.nameKo || '',
         MENU_DESCRIPTION: payload.description || '',
+        MENU_DESCRIPTION_KO: payload.descriptionKo || '',
         MENU_PRICE: payload.price,
         IS_AVAILABLE: payload.isAvailable ? 1 : 0,
     };
@@ -348,7 +380,9 @@ export async function updateMenu(id: string, payload: UpdateMenuPayload): Promis
     const body: Record<string, string | number | boolean | null> = {
         CATEGORY_ID: payload.categoryId || '',
         MENU_NAME: payload.name,
+        MENU_NAME_KO: payload.nameKo || '',
         MENU_DESCRIPTION: payload.description || '',
+        MENU_DESCRIPTION_KO: payload.descriptionKo || '',
         MENU_PRICE: payload.price,
         IS_AVAILABLE: payload.isAvailable ? 1 : 0,
         MENU_IMG: toRelativeImagePath(payload.existingImagePath) || '',

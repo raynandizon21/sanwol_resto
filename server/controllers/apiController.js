@@ -346,9 +346,10 @@ class ApiController {
 		try {
 			const branchId = req.query.branch_id || req.user?.branch_id || null;
 			const categories = await CategoryModel.getAll(branchId);
+			const useKo = String(targetLanguage).toLowerCase().startsWith('ko');
 			let formattedCategories = categories.map(cat => ({
 				id: cat.IDNo,
-				name: cat.CAT_NAME,
+				name: (useKo && cat.CAT_NAME_KO) || cat.CAT_NAME,
 				description: cat.CAT_DESC || null
 			}));
 
@@ -460,12 +461,13 @@ class ApiController {
 			if (req.get('x-forwarded-proto') === 'https' || req.get('host').includes('resto-admin.3core21.com')) {
 				baseUrl = 'https://' + req.get('host');
 			}
+			const useKo = String(targetLanguage).toLowerCase().startsWith('ko');
 			let formattedMenus = menus.map(menu => ({
 				id: menu.IDNo,
 				category_id: menu.CATEGORY_ID,
-				category_name: menu.CATEGORY_NAME || null,
-				name: menu.MENU_NAME,
-				description: menu.MENU_DESCRIPTION || null,
+				category_name: (useKo && menu.CATEGORY_NAME_KO) || menu.CATEGORY_NAME || null,
+				name: (useKo && menu.MENU_NAME_KO) || menu.MENU_NAME,
+				description: (useKo && menu.MENU_DESCRIPTION_KO) || menu.MENU_DESCRIPTION || null,
 				image: toPublicImageUrl(baseUrl, menu.MENU_IMG),
 				price: parseFloat(menu.MENU_PRICE || 0),
 				is_available: (menu.EFFECTIVE_AVAILABLE ?? menu.IS_AVAILABLE) === 1,

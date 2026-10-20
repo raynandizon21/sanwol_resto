@@ -46,7 +46,7 @@ class CategoryModel {
 
 	static async getAll(branchId = null) {
 		await CategoryModel.ensureSchema();
-		let query = `SELECT IDNo, CAT_NAME, CAT_DESC, PARENT_CAT_ID, ACTIVE, ENCODED_BY, ENCODED_DT, EDITED_BY, EDITED_DT FROM categories WHERE ACTIVE = 1`;
+		let query = `SELECT IDNo, CAT_NAME, CAT_NAME_KO, CAT_DESC, PARENT_CAT_ID, ACTIVE, ENCODED_BY, ENCODED_DT, EDITED_BY, EDITED_DT FROM categories WHERE ACTIVE = 1`;
 		const params = [];
 		if (branchId != null) {
 			query += ` AND BRANCH_ID = ?`;
@@ -67,7 +67,7 @@ class CategoryModel {
 	// IDNo may not be AUTO_INCREMENT; use MAX+1 to avoid duplicate key
 	static async create(data) {
 		await CategoryModel.ensureSchema();
-		const { CAT_NAME, CAT_DESC, BRANCH_ID, PARENT_CAT_ID, user_id } = data;
+		const { CAT_NAME, CAT_NAME_KO, CAT_DESC, BRANCH_ID, PARENT_CAT_ID, user_id } = data;
 		const branchId = BRANCH_ID != null && BRANCH_ID !== '' ? Number(BRANCH_ID) : null;
 		const encodedBy = user_id != null && user_id !== '' ? Number(user_id) : null;
 		let parentId = null;
@@ -96,15 +96,15 @@ class CategoryModel {
 		const now = new Date();
 
 		await pool.execute(
-			'INSERT INTO categories (IDNo, BRANCH_ID, CAT_NAME, CAT_DESC, PARENT_CAT_ID, ACTIVE, ENCODED_BY, ENCODED_DT) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
-			[nextId, branchId, (String(CAT_NAME || '')).trim(), CAT_DESC || null, parentId, encodedBy, now]
+			'INSERT INTO categories (IDNo, BRANCH_ID, CAT_NAME, CAT_NAME_KO, CAT_DESC, PARENT_CAT_ID, ACTIVE, ENCODED_BY, ENCODED_DT) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)',
+			[nextId, branchId, (String(CAT_NAME || '')).trim(), String(CAT_NAME_KO || '').trim() || null, CAT_DESC || null, parentId, encodedBy, now]
 		);
 		return nextId;
 	}
 
 	static async update(id, data) {
 		await CategoryModel.ensureSchema();
-		const { CAT_NAME, CAT_DESC, PARENT_CAT_ID, user_id } = data;
+		const { CAT_NAME, CAT_NAME_KO, CAT_DESC, PARENT_CAT_ID, user_id } = data;
 		const categoryId = Number(id);
 		let parentId = null;
 		if (PARENT_CAT_ID != null && PARENT_CAT_ID !== '') {
@@ -139,9 +139,11 @@ class CategoryModel {
 			}
 		}
 		const now = new Date();
+		// CAT_NAME_KO undefined = caller didn't send it (e.g. parent-only moves): keep the stored value
+		const keepKo = CAT_NAME_KO === undefined;
 		const [result] = await pool.execute(
-			'UPDATE categories SET CAT_NAME = ?, CAT_DESC = ?, PARENT_CAT_ID = ?, EDITED_BY = ?, EDITED_DT = ? WHERE IDNo = ? AND ACTIVE = 1',
-			[CAT_NAME.trim(), CAT_DESC || null, parentId, user_id, now, categoryId]
+			'UPDATE categories SET CAT_NAME = ?, CAT_NAME_KO = IF(?, CAT_NAME_KO, ?), CAT_DESC = ?, PARENT_CAT_ID = ?, EDITED_BY = ?, EDITED_DT = ? WHERE IDNo = ? AND ACTIVE = 1',
+			[CAT_NAME.trim(), keepKo ? 1 : 0, keepKo ? null : String(CAT_NAME_KO || '').trim() || null, CAT_DESC || null, parentId, user_id, now, categoryId]
 		);
 		return result.affectedRows > 0;
 	}

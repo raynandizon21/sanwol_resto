@@ -24,6 +24,7 @@ const {
 	ensureOrderItemsLineCostColumn,
 	ensureOrdersFloorColumn,
 	ensureRestaurantTablesColumns,
+	ensureMenuKoreanColumns,
 	ensureReceiptScanHistoryTable,
 	ensureTelegramSettingsTable,
 	ensureBankPaymentMethodEnum,
@@ -244,6 +245,7 @@ app.use((err, req, res, next) => {
 		await ensureOrderItemsLineCostColumn();
 		await ensureOrdersFloorColumn();
 		await ensureRestaurantTablesColumns();
+		await ensureMenuKoreanColumns();
 		await ensureReceiptScanHistoryTable();
 		await ensureTelegramSettingsTable();
 		await ensureBankPaymentMethodEnum();

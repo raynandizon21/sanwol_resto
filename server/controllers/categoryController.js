@@ -17,6 +17,7 @@ class CategoryController {
 		return {
 			CAT_NAME: req.body.CAT_NAME || req.body.CATEGORY_NAME || req.body.name || '',
 			CAT_DESC: req.body.CAT_DESC || req.body.DESCRIPTION || req.body.description || null,
+			CAT_NAME_KO: req.body.CAT_NAME_KO,
 		};
 	}
 
@@ -124,6 +125,7 @@ class CategoryController {
 
 			const categoryId = await CategoryModel.create({
 				CAT_NAME: payload.CAT_NAME.trim(),
+				CAT_NAME_KO: payload.CAT_NAME_KO,
 				CAT_DESC: payload.CAT_DESC || null,
 				BRANCH_ID: branchId,
 				PARENT_CAT_ID,
@@ -158,6 +160,7 @@ class CategoryController {
 			const user_id = req.session?.user_id || req.user?.user_id || null;
 			const updated = await CategoryModel.update(id, {
 				CAT_NAME: payload.CAT_NAME,
+				CAT_NAME_KO: payload.CAT_NAME_KO,
 				CAT_DESC: payload.CAT_DESC,
 				PARENT_CAT_ID,
 				user_id,
