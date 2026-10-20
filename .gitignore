@@ -19,7 +19,8 @@ server/public/uploads/app-releases/*.apk
 # Only the default "All Branches" logo is part of the app.
 server/public/uploads/expense-receipts/
 server/public/uploads/receipt-scan-history/
-server/public/uploads/menu/
+# Temporarily tracked so the Sanwol menu WebPs ship with the repo — re-enable after pushing.
+# server/public/uploads/menu/
 server/public/uploads/branches/*
 !server/public/uploads/branches/GENERAL_ALL_BRANCHES.png
 

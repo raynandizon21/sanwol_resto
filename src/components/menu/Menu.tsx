@@ -32,6 +32,10 @@ import {
     updateMenu,
     deleteMenu,
     resolveImageUrl,
+    isKoreanLanguage,
+    localizedMenuName,
+    localizedMenuDescription,
+    localizedCategoryName,
     type MenuRecord,
     type MenuCategory,
     type CreateMenuPayload,
@@ -106,7 +110,8 @@ function parsePriceInput(value: string): number {
 }
 
 export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const isKo = isKoreanLanguage(i18n.language);
     const [searchParams, setSearchParams] = useSearchParams();
     const deepLinkCategoryIdRef = useRef<string | null>(searchParams.get('categoryId'));
     const branchId = selectedBranch ? String(selectedBranch.id) : 'all';
@@ -200,6 +205,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const [isCategoryPanelOpen, setIsCategoryPanelOpen] = useState(false);
     const [editingCategory, setEditingCategory] = useState<MenuCategory | null>(null);
     const [categoryName, setCategoryName] = useState('');
+    const [categoryNameKo, setCategoryNameKo] = useState('');
     const [categoryDesc, setCategoryDesc] = useState('');
     const [categorySubmitting, setCategorySubmitting] = useState(false);
     const [categoryToDelete, setCategoryToDelete] = useState<MenuCategory | null>(null);
@@ -222,8 +228,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const [categoryBaseline, setCategoryBaseline] = useState<{
         id: string | null;
         name: string;
+        nameKo: string;
         desc: string;
-    }>({ id: null, name: '', desc: '' });
+    }>({ id: null, name: '', nameKo: '', desc: '' });
 
     // ----- Ingredients modal -----
     const [ingredientsForMenu, setIngredientsForMenu] = useState<MenuRecord | null>(null);
@@ -241,7 +248,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
 
     // ----- Form -----
     const [formName, setFormName] = useState('');
+    const [formNameKo, setFormNameKo] = useState('');
     const [formDesc, setFormDesc] = useState('');
+    const [formDescKo, setFormDescKo] = useState('');
     const [formCategory, setFormCategory] = useState('');
     const [formPrice, setFormPrice] = useState('');
     const [formAvailable, setFormAvailable] = useState(true);
@@ -254,7 +263,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const [itemBaseline, setItemBaseline] = useState<{
         id: string | null;
         name: string;
+        nameKo: string;
         desc: string;
+        descKo: string;
         categoryId: string;
         price: string;
         available: boolean;
@@ -262,7 +273,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     }>({
         id: null,
         name: '',
+        nameKo: '',
         desc: '',
+        descKo: '',
         categoryId: '',
         price: '',
         available: true,
@@ -398,6 +411,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             const matchSearch =
                 !term ||
                 m.name.toLowerCase().includes(term) ||
+                (m.nameKo || '').toLowerCase().includes(term) ||
                 m.categoryName.toLowerCase().includes(term);
             let matchCat = false;
             // When searching, include ALL items in the branch (across all mains/subs),
@@ -434,16 +448,17 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             const main = categories.find((c) => c.id === selectedMainCategoryId);
             const subsUnderMain = categories.filter((c) => c.parentId === selectedMainCategoryId);
             if (subsUnderMain.length === 0) {
-                return main?.name ?? '';
+                return main ? localizedCategoryName(main, isKo) : '';
             }
         }
         if (!selectedCategory) return '';
         const sub = categories.find((c) => c.id === selectedCategory);
         if (!sub) return '';
-        if (!isTwoLevelBranch || !sub.parentId) return sub.name;
+        const subName = localizedCategoryName(sub, isKo);
+        if (!isTwoLevelBranch || !sub.parentId) return subName;
         const main = categories.find((c) => c.id === sub.parentId);
-        return main ? `${main.name} › ${sub.name}` : sub.name;
-    }, [categories, selectedCategory, isTwoLevelBranch, selectedMainCategoryId]);
+        return main ? `${localizedCategoryName(main, isKo)} › ${subName}` : subName;
+    }, [categories, selectedCategory, isTwoLevelBranch, selectedMainCategoryId, isKo]);
 
     const ITEMS_PER_PAGE = 50;
     const shouldPaginate = filteredMenus.length > ITEMS_PER_PAGE;
@@ -467,7 +482,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
 
     // ==================== Form helpers ====================
     const resetForm = () => {
-        setFormName(''); setFormDesc(''); setFormCategory(''); setFormPrice('');
+        setFormName(''); setFormNameKo(''); setFormDesc(''); setFormDescKo(''); setFormCategory(''); setFormPrice('');
         setFormAvailable(true); setFormImage(null); setFormImagePreview(null);
     };
 
@@ -477,7 +492,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         setItemBaseline({
             id: null,
             name: '',
+            nameKo: '',
             desc: '',
+            descKo: '',
             categoryId: '',
             price: '',
             available: true,
@@ -489,7 +506,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const openEdit = async (item: MenuRecord) => {
         scrollMenuItemsToTop();
         setFormName(item.name);
+        setFormNameKo(item.nameKo || '');
         setFormDesc('');
+        setFormDescKo('');
         setFormCategory(item.categoryId || '');
         setFormPrice(formatPriceInput(String(item.price ?? '')));
         setFormAvailable(item.isAvailable);
@@ -500,7 +519,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         setItemBaseline({
             id: String(item.id),
             name: item.name || '',
+            nameKo: item.nameKo || '',
             desc: '',
+            descKo: '',
             categoryId: item.categoryId || '',
             price: formatPriceInput(String(item.price ?? '')),
             available: !!item.isAvailable,
@@ -511,9 +532,10 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         try {
             const full = await getMenuById(item.id);
             setFormDesc(full.description || '');
+            setFormDescKo(full.descriptionKo || '');
             setItemBaseline((prev) =>
                 prev.id === String(item.id)
-                    ? { ...prev, desc: full.description || '' }
+                    ? { ...prev, desc: full.description || '', descKo: full.descriptionKo || '' }
                     : prev
             );
         } catch {
@@ -707,12 +729,13 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         const cat = categories.find((c) => normalizeId(c.id) === normalizeId(categoryId));
         if (!cat) return item.categoryName || 'Uncategorized';
 
+        const catName = localizedCategoryName(cat, isKo);
         if (cat.parentId) {
             const parent = categories.find((c) => normalizeId(c.id) === normalizeId(cat.parentId));
-            return parent ? `${parent.name} › ${cat.name}` : cat.name;
+            return parent ? `${localizedCategoryName(parent, isKo)} › ${catName}` : catName;
         }
-        return cat.name;
-    }, [categories]);
+        return catName;
+    }, [categories, isKo]);
 
     const handleSelectMain = useCallback(
         (e: React.MouseEvent<HTMLButtonElement>, mainId: string) => {
@@ -732,7 +755,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         if (!valid) return false;
         const baselineMatch =
             formName === itemBaseline.name &&
+            formNameKo === itemBaseline.nameKo &&
             formDesc === itemBaseline.desc &&
+            formDescKo === itemBaseline.descKo &&
             (formCategory || '') === (itemBaseline.categoryId || '') &&
             (formPrice === '' ? itemBaseline.price : formPrice) === itemBaseline.price &&
             formAvailable === itemBaseline.available &&
@@ -741,7 +766,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         return !baselineMatch;
     }, [
         formName,
+        formNameKo,
         formDesc,
+        formDescKo,
         formCategory,
         formPrice,
         formAvailable,
@@ -754,8 +781,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const openAddMainCategory = () => {
         setEditingCategory(null);
         setCategoryName('');
+        setCategoryNameKo('');
         setCategoryDesc('');
-        setCategoryBaseline({ id: null, name: '', desc: '' });
+        setCategoryBaseline({ id: null, name: '', nameKo: '', desc: '' });
         setCategoryParentId(null);
         setExistingCategoryToAttachId(null);
         setIsCategoryPanelOpen(true);
@@ -773,8 +801,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         }
         setEditingCategory(null);
         setCategoryName('');
+        setCategoryNameKo('');
         setCategoryDesc('');
-        setCategoryBaseline({ id: null, name: '', desc: '' });
+        setCategoryBaseline({ id: null, name: '', nameKo: '', desc: '' });
         setCategoryParentId(targetParentId);
         setExistingCategoryToAttachId(null);
         setIsCategoryPanelOpen(true);
@@ -785,6 +814,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         setIsCategoryPanelOpen(false);
         setEditingCategory(null);
         setCategoryName('');
+        setCategoryNameKo('');
         setCategoryDesc('');
         setCategoryParentId(null);
         setExistingCategoryToAttachId(null);
@@ -794,8 +824,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         e.stopPropagation();
         setEditingCategory(category);
         setCategoryName(category.name || '');
+        setCategoryNameKo(category.nameKo || '');
         setCategoryDesc('');
-        setCategoryBaseline({ id: String(category.id), name: category.name || '', desc: '' });
+        setCategoryBaseline({ id: String(category.id), name: category.name || '', nameKo: category.nameKo || '', desc: '' });
         setCategoryParentId(category.parentId || null);
         setExistingCategoryToAttachId(null);
         setIsCategoryPanelOpen(true);
@@ -843,6 +874,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             if (editingCategory) {
                 await updateMenuCategory(editingCategory.id, {
                     name,
+                    nameKo: categoryNameKo,
                     description: categoryDesc.trim() || null,
                     parentId: parentPayload,
                 });
@@ -853,6 +885,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 if (isTwoLevelBranch && parentPayload && existingCategoryToAttachId) {
                     await updateMenuCategory(existingCategoryToAttachId, {
                         name,
+                        nameKo: categoryNameKo,
                         description: categoryDesc.trim() || null,
                         parentId: parentPayload,
                     });
@@ -860,6 +893,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 } else {
                     await createMenuCategory(branchId, {
                         name,
+                        nameKo: categoryNameKo,
                         description: categoryDesc.trim() || null,
                         parentId: parentPayload,
                     });
@@ -907,10 +941,11 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 : '';
         const baselineMatch =
             categoryName === categoryBaseline.name &&
+            categoryNameKo === categoryBaseline.nameKo &&
             categoryDesc === categoryBaseline.desc &&
             currentParent === baselineParent;
         return !baselineMatch;
-    }, [categoryName, categoryDesc, categoryBaseline, branchId, categoryParentId, editingCategory, categoryParentOptions]);
+    }, [categoryName, categoryNameKo, categoryDesc, categoryBaseline, branchId, categoryParentId, editingCategory, categoryParentOptions]);
 
     // ==================== Ingredients modal ====================
     const openIngredientsModal = async (item: MenuRecord) => {
@@ -1102,7 +1137,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 const payload: UpdateMenuPayload = {
                     categoryId: formCategory || null,
                     name: formName.trim(),
+                    nameKo: formNameKo.trim() || null,
                     description: formDesc.trim() || null,
+                    descriptionKo: formDescKo.trim() || null,
                     price: effectivePrice,
                     isAvailable: formAvailable,
                     existingImagePath: editingItem.imageUrl,
@@ -1119,7 +1156,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     branchId,
                     categoryId: formCategory || null,
                     name: formName.trim(),
+                    nameKo: formNameKo.trim() || null,
                     description: formDesc.trim() || null,
+                    descriptionKo: formDescKo.trim() || null,
                     price: parsePriceInput(formPrice),
                     isAvailable: formAvailable,
                     imageFile: formImage,
@@ -1160,8 +1199,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             rect.right + gap,
         );
 
-        setHoverPreview({ src, alt: item.name, top, left });
-    }, []);
+        setHoverPreview({ src, alt: localizedMenuName(item, isKo), top, left });
+    }, [isKo]);
 
     const handleImageHoverLeave = useCallback(() => {
         setHoverPreview(null);
@@ -1180,7 +1219,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     >
                         <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
                             {item.imageUrl ? (
-                                <img src={resolveImageUrl(item.imageUrl) || ''} alt={item.name} className="w-full h-full object-cover" />
+                                <img src={resolveImageUrl(item.imageUrl) || ''} alt={localizedMenuName(item, isKo)} className="w-full h-full object-cover" />
                             ) : (
                                 <UtensilsCrossed size={16} className="text-brand-muted" />
                             )}
@@ -1193,7 +1232,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                             className="text-left w-full"
                             title="Go to this item’s category"
                         >
-                            <p className="text-sm font-bold text-brand-text truncate hover:underline">{item.name}</p>
+                            <p className="text-sm font-bold text-brand-text truncate hover:underline">{localizedMenuName(item, isKo)}</p>
                             {searchTerm.trim().length > 0 && (
                                 <p className="text-xs font-semibold text-brand-muted truncate mt-0.5">
                                     {getItemCategoryPathLabel(item)}
@@ -1220,9 +1259,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             render: (item) => (
                 <p
                     className="text-sm text-brand-muted line-clamp-2 max-w-[320px] mx-auto"
-                    title={item.description || undefined}
+                    title={localizedMenuDescription(item, isKo) || undefined}
                 >
-                    {item.description?.trim() || '—'}
+                    {localizedMenuDescription(item, isKo)?.trim() || '—'}
                 </p>
             ),
         },
@@ -1270,7 +1309,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 </div>
             ),
         },
-    ], [t, canUpdate, canDelete, handleImageHoverEnter, handleImageHoverLeave, formatPriceNoDecimals, jumpToItemCategory, searchTerm, getItemCategoryPathLabel]);
+    ], [t, canUpdate, canDelete, handleImageHoverEnter, handleImageHoverLeave, formatPriceNoDecimals, jumpToItemCategory, searchTerm, getItemCategoryPathLabel, isKo]);
 
     // ==================== Modal form content ====================
     const modalContent = (
@@ -1282,6 +1321,18 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
                     placeholder={t('menu_page.modal.item_name_placeholder')}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400"
+                />
+            </div>
+
+            <div>
+                <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.modal.item_name_ko')}</label>
+                <input
+                    type="text"
+                    lang="ko"
+                    value={formNameKo}
+                    onChange={(e) => setFormNameKo(e.target.value)}
+                    placeholder={t('menu_page.modal.korean_optional_placeholder')}
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400"
                 />
             </div>
@@ -1301,7 +1352,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             <div>
                 <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.modal.category')}</label>
                 <Select2
-                    options={leafCategoriesForItemForm.map((c) => ({ value: c.id, label: c.name }))}
+                    options={leafCategoriesForItemForm.map((c) => ({ value: c.id, label: localizedCategoryName(c, isKo) }))}
                     value={formCategory || ''}
                     onChange={(v) => setFormCategory(v ? String(v) : '')}
                     placeholder={t('menu_page.modal.select_category')}
@@ -1328,6 +1379,18 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     value={formDesc}
                     onChange={(e) => setFormDesc(e.target.value)}
                     placeholder={t('menu_page.modal.description_placeholder')}
+                    rows={2}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400 resize-none"
+                />
+            </div>
+
+            <div>
+                <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.modal.description_ko')}</label>
+                <textarea
+                    lang="ko"
+                    value={formDescKo}
+                    onChange={(e) => setFormDescKo(e.target.value)}
+                    placeholder={t('menu_page.modal.korean_optional_placeholder')}
                     rows={2}
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400 resize-none"
                 />
@@ -1523,7 +1586,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                         >
                                                             <div className="flex items-center justify-between gap-2">
                                                                 <span className={cn('flex-1 font-bold break-words text-sm', active ? '' : 'font-semibold')}>
-                                                                    {cat.name}
+                                                                    {localizedCategoryName(cat, isKo)}
                                                                 </span>
                                                                 <span
                                                                     className={cn(
@@ -1617,7 +1680,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                         >
                                                             <div className="flex items-center justify-between gap-2">
                                                                 <span className={cn('flex-1 font-bold break-words text-sm', active ? '' : 'font-semibold')}>
-                                                                    {cat.name}
+                                                                    {localizedCategoryName(cat, isKo)}
                                                                 </span>
                                                                 <span
                                                                     className={cn(
@@ -1720,7 +1783,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                     >
                                                         <div className="flex items-center justify-between gap-3">
                                                             <span className={cn('flex-1 font-bold break-words', active ? '' : 'font-semibold')}>
-                                                                {cat.name}
+                                                                {localizedCategoryName(cat, isKo)}
                                                             </span>
                                                             <span
                                                                 className={cn(
@@ -1819,7 +1882,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                     >
                                                         <div className="flex items-center justify-between gap-2">
                                                             <span className={cn('flex-1 font-bold break-words text-sm', active ? '' : 'font-semibold')}>
-                                                                {cat.name}
+                                                                {localizedCategoryName(cat, isKo)}
                                                             </span>
                                                             <span
                                                                 className={cn(
@@ -2194,6 +2257,17 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                             className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400"
                         />
                     </div>
+                    <div>
+                        <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.modal.category_name_ko')}</label>
+                        <input
+                            type="text"
+                            lang="ko"
+                            value={categoryNameKo}
+                            onChange={(e) => setCategoryNameKo(e.target.value)}
+                            placeholder={t('menu_page.modal.korean_optional_placeholder')}
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400"
+                        />
+                    </div>
                     {isTwoLevelBranch && (editingCategory || !categoryParentId) && (
                         <div>
                             <label className="block text-sm font-bold text-brand-text mb-2">Main Category</label>
@@ -2244,6 +2318,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                     const existing = categories.find((c) => c.id === selectedId);
                                     if (existing) {
                                         setCategoryName(existing.name || '');
+                                        setCategoryNameKo(existing.nameKo || '');
                                         setCategoryDesc('');
                                     }
                                 }}

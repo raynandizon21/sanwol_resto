@@ -87,6 +87,36 @@ async function ensureRestaurantTablesColumns() {
 	}
 }
 
+/**
+ * Korean menu/category text entered by the client (shown when the UI language is Korean).
+ * The English MENU_NAME / CAT_NAME stay the primary values; *_KO falls back to them when empty.
+ */
+async function ensureMenuKoreanColumns() {
+	const columns = [
+		{ table: 'menu', name: 'MENU_NAME_KO', ddl: 'ADD COLUMN MENU_NAME_KO VARCHAR(150) NULL DEFAULT NULL AFTER MENU_NAME' },
+		{ table: 'menu', name: 'MENU_DESCRIPTION_KO', ddl: 'ADD COLUMN MENU_DESCRIPTION_KO TEXT NULL DEFAULT NULL AFTER MENU_DESCRIPTION' },
+		{ table: 'categories', name: 'CAT_NAME_KO', ddl: 'ADD COLUMN CAT_NAME_KO VARCHAR(100) NULL DEFAULT NULL AFTER CAT_NAME' },
+	];
+	const connection = await pool.getConnection();
+	try {
+		for (const col of columns) {
+			const [rows] = await connection.execute(
+				`SELECT 1 FROM information_schema.COLUMNS
+				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+				 LIMIT 1`,
+				[col.table, col.name]
+			);
+			if (rows.length > 0) continue;
+			await connection.execute(`ALTER TABLE ${col.table} ${col.ddl}`);
+			console.log(`[Schema] ${col.table}.${col.name} created`);
+		}
+	} catch (err) {
+		console.error('[Schema] ensure menu Korean columns failed:', err.message || err);
+	} finally {
+		connection.release();
+	}
+}
+
 async function ensureReceiptScanHistoryTable() {
 	const connection = await pool.getConnection();
 	try {
@@ -315,6 +345,7 @@ module.exports = {
 	ensureOrderItemsLineCostColumn,
 	ensureOrdersFloorColumn,
 	ensureRestaurantTablesColumns,
+	ensureMenuKoreanColumns,
 	ensureReceiptScanHistoryTable,
 	ensureTelegramSettingsTable,
 	ensureBankPaymentMethodEnum,

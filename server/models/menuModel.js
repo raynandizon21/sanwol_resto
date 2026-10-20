@@ -21,8 +21,10 @@ class MenuModel {
 				b.BRANCH_NAME AS BRANCH_LABEL,
 				m.CATEGORY_ID,
 				c.CAT_NAME AS CATEGORY_NAME,
+				c.CAT_NAME_KO AS CATEGORY_NAME_KO,
 				m.MENU_NAME,
-				${includeDescription ? 'm.MENU_DESCRIPTION,' : ''}
+				m.MENU_NAME_KO,
+				${includeDescription ? 'm.MENU_DESCRIPTION, m.MENU_DESCRIPTION_KO,' : ''}
 				m.MENU_IMG,
 				m.MENU_PRICE,
 				m.IS_AVAILABLE,
@@ -72,7 +74,9 @@ class MenuModel {
 			BRANCH_ID,
 			CATEGORY_ID,
 			MENU_NAME,
+			MENU_NAME_KO,
 			MENU_DESCRIPTION,
+			MENU_DESCRIPTION_KO,
 			MENU_IMG,
 			MENU_PRICE,
 			IS_AVAILABLE,
@@ -85,21 +89,25 @@ class MenuModel {
 				BRANCH_ID,
 				CATEGORY_ID,
 				MENU_NAME,
+				MENU_NAME_KO,
 				MENU_DESCRIPTION,
+				MENU_DESCRIPTION_KO,
 				MENU_IMG,
 				MENU_PRICE,
 				IS_AVAILABLE,
 				ACTIVE,
 				ENCODED_BY,
 				ENCODED_DT
-			) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
 		`;
 
 		const [result] = await pool.execute(query, [
 			BRANCH_ID,
 			CATEGORY_ID || null,
 			MENU_NAME,
+			MENU_NAME_KO || null,
 			MENU_DESCRIPTION || null,
+			MENU_DESCRIPTION_KO || null,
 			MENU_IMG || null,
 			MENU_PRICE || 0,
 			IS_AVAILABLE || 0,
@@ -115,7 +123,9 @@ class MenuModel {
 		const {
 			CATEGORY_ID,
 			MENU_NAME,
+			MENU_NAME_KO,
 			MENU_DESCRIPTION,
+			MENU_DESCRIPTION_KO,
 			MENU_IMG,
 			MENU_PRICE,
 			IS_AVAILABLE,
@@ -127,7 +137,9 @@ class MenuModel {
 			UPDATE menu SET
 				CATEGORY_ID = ?,
 				MENU_NAME = ?,
+				MENU_NAME_KO = ?,
 				MENU_DESCRIPTION = ?,
+				MENU_DESCRIPTION_KO = ?,
 				MENU_IMG = ?,
 				MENU_PRICE = ?,
 				IS_AVAILABLE = ?,
@@ -139,7 +151,9 @@ class MenuModel {
 		const [result] = await pool.execute(query, [
 			CATEGORY_ID || null,
 			MENU_NAME,
+			MENU_NAME_KO || null,
 			MENU_DESCRIPTION || null,
+			MENU_DESCRIPTION_KO || null,
 			MENU_IMG || null,
 			MENU_PRICE || 0,
 			IS_AVAILABLE || 0,
@@ -171,7 +185,7 @@ class MenuModel {
 	static async getCategories(branchId = null) {
 		await CategoryModel.ensureSchema();
 		let query = `
-			SELECT IDNo, CAT_NAME AS CATEGORY_NAME, PARENT_CAT_ID
+			SELECT IDNo, CAT_NAME AS CATEGORY_NAME, CAT_NAME_KO AS CATEGORY_NAME_KO, PARENT_CAT_ID
 			FROM categories 
 			WHERE ACTIVE = 1 
 		`;
@@ -198,8 +212,11 @@ class MenuModel {
 				m.BRANCH_ID,
 				m.CATEGORY_ID,
 				c.CAT_NAME AS CATEGORY_NAME,
+				c.CAT_NAME_KO AS CATEGORY_NAME_KO,
 				m.MENU_NAME,
+				m.MENU_NAME_KO,
 				m.MENU_DESCRIPTION,
+				m.MENU_DESCRIPTION_KO,
 				m.MENU_IMG,
 				m.MENU_PRICE,
 				m.IS_AVAILABLE,

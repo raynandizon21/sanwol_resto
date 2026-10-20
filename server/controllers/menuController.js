@@ -193,7 +193,9 @@ class MenuController {
 			const {
 				CATEGORY_ID,
 				MENU_NAME,
+				MENU_NAME_KO,
 				MENU_DESCRIPTION,
+				MENU_DESCRIPTION_KO,
 				MENU_PRICE,
 				IS_AVAILABLE
 			} = req.body;
@@ -214,7 +216,9 @@ class MenuController {
 				BRANCH_ID: branchId,
 				CATEGORY_ID,
 				MENU_NAME,
+				MENU_NAME_KO,
 				MENU_DESCRIPTION,
+				MENU_DESCRIPTION_KO,
 				MENU_IMG,
 				MENU_PRICE,
 				IS_AVAILABLE,
@@ -235,7 +239,9 @@ class MenuController {
 			const {
 				CATEGORY_ID,
 				MENU_NAME,
+				MENU_NAME_KO,
 				MENU_DESCRIPTION,
+				MENU_DESCRIPTION_KO,
 				MENU_IMG, // This is the existing image URL from hidden input
 				MENU_PRICE,
 				IS_AVAILABLE
@@ -255,7 +261,9 @@ class MenuController {
 			const updated = await MenuModel.update(id, {
 				CATEGORY_ID,
 				MENU_NAME,
+				MENU_NAME_KO,
 				MENU_DESCRIPTION,
+				MENU_DESCRIPTION_KO,
 				MENU_IMG: imagePath,
 				MENU_PRICE,
 				IS_AVAILABLE,
