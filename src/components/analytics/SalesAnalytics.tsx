@@ -1533,7 +1533,7 @@ const metricConfig = {
                     borderColor: colorWithAlpha(b.color, 0.35),
                     color: b.color,
                   }}
-                  title={`Remove ${b.name}`}
+                  title={t('sales_analytics.remove_branch', { name: b.name })}
                 >
                   <span
                     className="w-2 h-2 rounded-full shrink-0"
@@ -1623,7 +1623,7 @@ const metricConfig = {
               </button>
             ) : (
               <span className="text-[10px] text-brand-muted shrink-0 hidden sm:inline">
-                tap branch → Total sales
+                {t('sales_analytics.tap_branch_total_sales')}
               </span>
             )}
           </div>
@@ -1795,7 +1795,7 @@ const metricConfig = {
                     setChartBranchIds([]);
                   }}
                   className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-semibold border"
-                  title="Clear branch filter"
+                  title={t('sales_analytics.clear_branch_filter')}
                   style={(() => {
                     const branchColor = branchColorById.get(profitDriversBranchId) || CHART_THEME_COLOR;
                     return {

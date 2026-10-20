@@ -667,16 +667,16 @@ export const Users: React.FC = () => {
 
             {/waiter|cashier/i.test(roles.find((r) => String(r.value) === String(formData.roleId))?.label || '') && isFloorEnabledBranch(formData.branchId) && (
               <div className="space-y-2 col-span-2">
-                <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">Floor</label>
+                <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">{t('manage_users.floor')}</label>
                 <Select2
                   options={[
-                    { value: '', label: 'All Floors' },
-                    { value: 'gf', label: 'Ground Floor' },
-                    { value: '2f', label: '2nd Floor' },
+                    { value: '', label: t('manage_users.all_floors') },
+                    { value: 'gf', label: t('manage_users.ground_floor') },
+                    { value: '2f', label: t('manage_users.2nd_floor') },
                   ]}
                   value={formData.floor}
                   onChange={(val) => setFormData({ ...formData, floor: (val as string) || '' })}
-                  placeholder="Select floor"
+                  placeholder={t('manage_users.select_floor')}
                 />
               </div>
             )}

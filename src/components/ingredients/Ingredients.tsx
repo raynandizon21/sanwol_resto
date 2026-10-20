@@ -56,7 +56,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
       setIngredients(ingredientRows);
       setCategories(categoryRows);
     } catch (err: unknown) {
-      toast.error((err as Error)?.message || 'Failed to fetch ingredients');
+      toast.error((err as Error)?.message || t('ingredients_page.failed_to_fetch_ingredients'));
     } finally {
       setLoading(false);
     }
@@ -96,7 +96,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
   const handleSave = async () => {
     const name = form.name.trim();
     if (!name) {
-      toast.error('Ingredient name is required');
+      toast.error(t('ingredients_page.ingredient_name_is_required'));
       return;
     }
     try {
@@ -107,7 +107,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
           categoryId: form.categoryId || null,
           unit: form.unit || 'pcs',
         });
-        toast.success('Ingredient updated');
+        toast.success(t('ingredients_page.ingredient_updated'));
       } else {
         await createIngredient({
           branchId,
@@ -115,12 +115,12 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
           categoryId: form.categoryId || null,
           unit: form.unit || 'pcs',
         });
-        toast.success('Ingredient added');
+        toast.success(t('ingredients_page.ingredient_added'));
       }
       setIsPanelOpen(false);
       fetchData();
     } catch (err: unknown) {
-      toast.error((err as Error)?.message || 'Failed to save');
+      toast.error((err as Error)?.message || t('ingredients_page.failed_to_save'));
     } finally {
       setIsSubmitting(false);
     }
@@ -131,11 +131,11 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
     try {
       setIsSubmitting(true);
       await deleteIngredient(toDelete.id);
-      toast.success('Ingredient removed');
+      toast.success(t('ingredients_page.ingredient_removed'));
       setToDelete(null);
       fetchData();
     } catch (err: unknown) {
-      toast.error((err as Error)?.message || 'Failed to delete');
+      toast.error((err as Error)?.message || t('ingredients_page.failed_to_delete'));
     } finally {
       setIsSubmitting(false);
     }
@@ -145,10 +145,10 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
     try {
       setIsSyncing(true);
       await syncIngredientsFromExpenses();
-      toast.success('Ingredients synced from expenses');
+      toast.success(t('ingredients_page.ingredients_synced_from_expenses'));
       fetchData();
     } catch (err: unknown) {
-      toast.error((err as Error)?.message || 'Failed to sync');
+      toast.error((err as Error)?.message || t('ingredients_page.failed_to_sync'));
     } finally {
       setIsSyncing(false);
     }
@@ -156,7 +156,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
 
   const columns: ColumnDef<Ingredient>[] = [
     {
-      header: 'Name',
+      header: t('ingredients_page.name'),
       render: (row) => (
         <div>
           <span className="font-bold text-brand-text">{row.name}</span>
@@ -167,26 +167,26 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
       ),
     },
     {
-      header: 'Category',
+      header: t('ingredients_page.category'),
       render: (row) => (
         <span className="text-sm text-brand-muted">{row.categoryName || '—'}</span>
       ),
     },
     {
-      header: 'Unit',
+      header: t('ingredients_page.unit'),
       render: (row) => (
         <span className="text-sm font-medium">{getUnitLabel(row.unit || 'pcs')}</span>
       ),
     },
     {
-      header: 'Action',
+      header: t('ingredients_page.action'),
       render: (row) => (
         <div className="flex items-center gap-2">
           {canUpdate('ingredients') && (
             <button
               onClick={() => handleOpenEdit(row)}
               className="p-2 rounded-lg text-brand-muted hover:bg-brand-primary/10 hover:text-brand-primary transition-colors"
-              title="Edit"
+              title={t('common.edit')}
             >
               <Edit2 size={16} />
             </button>
@@ -195,7 +195,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
             <button
               onClick={() => setToDelete(row)}
               className="p-2 rounded-lg text-brand-muted hover:bg-red-50 hover:text-red-500 transition-colors"
-              title="Delete"
+              title={t('common.delete')}
             >
               <Trash2 size={16} />
             </button>
@@ -209,7 +209,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-brand-muted">
         <FlaskConical size={48} className="mb-4 opacity-50" />
-        <p className="font-bold">Select a branch to manage ingredients</p>
+        <p className="font-bold">{t('ingredients_page.select_a_branch_to_manage_ingredients')}</p>
       </div>
     );
   }
@@ -241,9 +241,9 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
           >
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-black text-brand-text">Ingredients</h1>
+                <h1 className="text-2xl font-black text-brand-text">{t('ingredients_page.ingredients')}</h1>
                 <p className="text-sm text-brand-muted mt-1">
-                  Master list for menu recipes. Synced from expenses (inventory categories).
+                  {t('ingredients_page.master_list_for_menu_recipes_synced')}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -253,7 +253,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-100 text-brand-muted hover:bg-gray-200 font-medium text-sm transition-colors disabled:opacity-50"
                 >
                   <RefreshCw size={16} className={cn(isSyncing && 'animate-spin')} />
-                  Sync from Expenses
+                  {t('ingredients_page.sync_from_expenses')}
                 </button>
                 {canCreate('ingredients') && (
                   <button
@@ -261,7 +261,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-primary text-white hover:bg-brand-primary/90 font-bold text-sm shadow-lg shadow-brand-primary/30 transition-all"
                   >
                     <Plus size={18} />
-                    Add Ingredient
+                    {t('ingredients_page.add_ingredient')}
                   </button>
                 )}
               </div>
@@ -272,7 +272,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
                 <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" />
                 <input
                   type="text"
-                  placeholder="Search ingredients..."
+                  placeholder={t('ingredients_page.search_ingredients')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none"
@@ -281,7 +281,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
               <div className="min-w-[220px]">
                 <Select2
                   options={[
-                    { value: '', label: 'All categories' },
+                    { value: '', label: t('ingredients_page.all_categories') },
                     ...categories.map((c) => ({
                       value: c.id,
                       label: c.name,
@@ -289,14 +289,14 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
                   ]}
                   value={categoryFilter ?? ''}
                   onChange={(val) => setCategoryFilter(val ? String(val) : null)}
-                  placeholder="All categories"
+                  placeholder={t('ingredients_page.all_categories')}
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="bg-white p-6 rounded-2xl shadow-sm">
-                <p className="text-brand-muted text-sm font-medium mb-1">Total Ingredients</p>
+                <p className="text-brand-muted text-sm font-medium mb-1">{t('ingredients_page.total_ingredients')}</p>
                 <h3 className="text-3xl font-bold text-brand-text">{filteredIngredients.length}</h3>
               </div>
             </div>
@@ -315,7 +315,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
       <SidePanel
         isOpen={isPanelOpen}
         onClose={() => setIsPanelOpen(false)}
-        title={editingIngredient ? 'Edit Ingredient' : 'Add Ingredient'}
+        title={editingIngredient ? t('ingredients_page.edit_ingredient') : t('ingredients_page.add_ingredient')}
         width="md"
         footer={
           <div className="flex justify-end gap-2">
@@ -323,14 +323,14 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
               onClick={() => setIsPanelOpen(false)}
               className="px-4 py-2 rounded-xl bg-gray-100 text-brand-muted hover:bg-gray-200 font-medium"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleSave}
               disabled={isSubmitting}
               className="px-4 py-2 rounded-xl bg-brand-primary text-white hover:bg-brand-primary/90 font-bold disabled:opacity-50"
             >
-              {isSubmitting ? 'Saving...' : editingIngredient ? 'Update' : 'Add'}
+              {isSubmitting ? t('ingredients_page.saving') : editingIngredient ? t('ingredients_page.update') : t('ingredients_page.add')}
             </button>
           </div>
         }
@@ -338,23 +338,23 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-brand-muted mb-1.5">
-              Name
+              {t('ingredients_page.name')}
             </label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="e.g. Pork, Rice, Soy Sauce"
+              placeholder={t('ingredients_page.e_g_pork_rice_soy_sauce')}
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-primary/20 outline-none"
             />
           </div>
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-brand-muted mb-1.5">
-              Category
+              {t('ingredients_page.category')}
             </label>
             <Select2
               options={[
-                { value: '', label: '— Select category —' },
+                { value: '', label: t('ingredients_page.select_category') },
                 ...categories.map((c) => ({
                   value: c.id,
                   label: c.name,
@@ -364,12 +364,12 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
               onChange={(val) =>
                 setForm((f) => ({ ...f, categoryId: val ? String(val) : '' }))
               }
-              placeholder="— Select category —"
+              placeholder={t('ingredients_page.select_category')}
             />
           </div>
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-brand-muted mb-1.5">
-              Unit
+              {t('ingredients_page.unit')}
             </label>
             <Select2
               options={UOM_OPTIONS.map((u) => ({
@@ -380,7 +380,7 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
               onChange={(val) =>
                 setForm((f) => ({ ...f, unit: (val as string) || 'pcs' }))
               }
-              placeholder="Select unit"
+              placeholder={t('ingredients_page.select_unit')}
             />
           </div>
         </div>
@@ -389,29 +389,28 @@ export const Ingredients: React.FC<IngredientsProps> = ({ selectedBranch }) => {
       <Modal
         isOpen={!!toDelete}
         onClose={() => setToDelete(null)}
-        title="Delete Ingredient"
+        title={t('ingredients_page.delete_ingredient')}
         footer={
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setToDelete(null)}
               className="px-4 py-2 rounded-xl bg-gray-100 text-brand-muted hover:bg-gray-200 font-medium"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleDelete}
               disabled={isSubmitting}
               className="px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 font-bold disabled:opacity-50"
             >
-              {isSubmitting ? 'Deleting...' : 'Delete'}
+              {isSubmitting ? t('ingredients_page.deleting') : t('common.delete')}
             </button>
           </div>
         }
       >
         {toDelete && (
           <p className="text-brand-muted">
-            Remove <strong className="text-brand-text">{toDelete.name}</strong> from the master list?
-            This will not affect expenses or inventory.
+            {t('ingredients_page.remove')} <strong className="text-brand-text">{toDelete.name}</strong> {t('ingredients_page.from_the_master_list_this_will')}
           </p>
         )}
       </Modal>

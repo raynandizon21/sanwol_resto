@@ -1779,7 +1779,10 @@
 		"user_role": "用户角色",
 		"user_access": "用户访问权限",
 		"branches": "分支",
-		"logout": "注销"
+		"logout": "注销",
+		"billing": "账单",
+		"ingredients": "食材",
+		"table_settings": "餐桌设置"
 	},
 	"datatable": {
 		"no_data": "暂无数据",

@@ -136,6 +136,7 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
     key: 'ingredients',
     kind: 'item',
     label: 'Ingredients',
+    i18nKey: 'sidebar.ingredients',
     tab: 'Ingredients',
     icon: 'FlaskConical',
     requiresSpecificBranch: true,
@@ -144,6 +145,7 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
     key: 'table_settings',
     kind: 'item',
     label: 'Table Settings',
+    i18nKey: 'sidebar.table_settings',
     tab: 'Tables',
     icon: 'ClipboardList',
   },
@@ -196,3 +198,13 @@ export const SIDEBAR_FEATURE_LABELS: Record<string, string> = Object.fromEntries
     return [key, findLabel(SIDEBAR_FEATURES) ?? key];
   }),
 );
+
+/** i18n keys for the same items (only those that define one) */
+export const SIDEBAR_FEATURE_I18N_KEYS: Record<string, string> = {};
+const collectI18nKeys = (items: readonly SidebarFeatureConfig[]) => {
+  for (const item of items) {
+    if (item.i18nKey) SIDEBAR_FEATURE_I18N_KEYS[item.key] = item.i18nKey;
+    if (item.children) collectI18nKeys(item.children);
+  }
+};
+collectI18nKeys(SIDEBAR_FEATURES);

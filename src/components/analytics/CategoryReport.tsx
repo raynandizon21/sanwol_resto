@@ -232,7 +232,7 @@ export const CategoryReport: React.FC<CategoryReportProps> = ({ selectedBranch, 
       className: 'min-w-[200px] border-r border-gray-200',
     },
     {
-      header: 'Branch',
+      header: t('category_report.branch'),
       accessorKey: 'branch',
       className: 'min-w-[190px]',
     },

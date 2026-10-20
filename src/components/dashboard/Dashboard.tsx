@@ -1056,7 +1056,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
               />
               <StatCard
                 icon={DollarSign}
-                label="Total Sales"
+                label={t('dashboard.total_sales')}
                 value={
                   dashboardData
                     ? money(dashboardData.stats.totalSales)
@@ -1067,7 +1067,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
               />
               <StatCard
                 icon={Package}
-                label="Total Expenses"
+                label={t('dashboard.total_expenses')}
                 value={
                   dashboardData
                     ? money(dashboardData.stats.totalExpenses)
@@ -1078,7 +1078,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
               />
               <StatCard
                 icon={TrendingUp}
-                label="Total Profit"
+                label={t('dashboard.total_revenue')}
                 value={
                   dashboardData
                     ? money(dashboardData.stats.totalProfit)
@@ -1109,7 +1109,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
                 <div className="h-64 w-full">
                   {dashboardData.revenueData.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-sm text-brand-muted border border-dashed border-slate-200 rounded-2xl">
-                      No data
+                      {t('dashboard.no_data')}
                     </div>
                   ) : (
                   <ChartContainer
@@ -1216,7 +1216,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
                     </div>
                   ) : topCategories.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-sm text-brand-muted border border-dashed border-slate-200 rounded-2xl">
-                      No data
+                      {t('dashboard.no_data')}
                     </div>
                   ) : (
                     <ChartContainer
@@ -1293,7 +1293,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
                 <div className="h-64 w-full">
                   {dashboardData.ordersOverview.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-sm text-brand-muted border border-dashed border-slate-200 rounded-2xl">
-                      No data
+                      {t('dashboard.no_data')}
                     </div>
                   ) : (
                   <ChartContainer
@@ -1372,16 +1372,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
                 </div>
               ) : recentOrders.length === 0 ? (
                 <div className="flex items-center justify-center border border-dashed border-slate-200 rounded-2xl py-12 text-sm font-medium text-brand-muted">
-                  No data
+                  {t('dashboard.no_data')}
                 </div>
               ) : (
                 <div className="border border-slate-100 rounded-2xl overflow-hidden">
                   <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 grid grid-cols-[minmax(0,1fr)_110px_120px_140px_110px] items-center gap-3">
-                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Order #</div>
-                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide text-center">Type</div>
-                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide text-center">Order Items</div>
-                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide text-right">Total Amount</div>
-                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide text-right">Status</div>
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{t('dashboard.order')}</div>
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide text-center">{t('dashboard.type')}</div>
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide text-center">{t('dashboard.order_items')}</div>
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide text-right">{t('dashboard.total_amount')}</div>
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide text-right">{t('dashboard.status')}</div>
                   </div>
                   <div className="divide-y divide-slate-100">
                     {recentOrders.map((o) => {
@@ -1469,7 +1469,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
                   </div>
                 ) : trendingMenusData.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-sm text-brand-muted border border-dashed border-slate-200 rounded-2xl py-8">
-                    No data
+                    {t('dashboard.no_data')}
                   </div>
                 ) : (
                   <VerticalCarousel
@@ -1489,13 +1489,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
           setIsIncomeTopModalOpen(false);
           setIncomeTopReconDay(0);
         }}
-        title={`Top 10 Best Order Menu${incomeTopDate ? ` • ${formatDateLabel(incomeTopDate)}` : ''}`}
+        title={`${t('dashboard.top_10_best_order_menu')}${incomeTopDate ? ` • ${formatDateLabel(incomeTopDate)}` : ''}`}
         maxWidth="3xl"
       >
         {incomeTopLoading ? (
-          <div className="py-10 text-center text-sm text-brand-muted">Loading...</div>
+          <div className="py-10 text-center text-sm text-brand-muted">{t('common.loading')}</div>
         ) : incomeTopRows.length === 0 && incomeTopReconDay <= 0 ? (
-          <div className="py-10 text-center text-sm text-brand-muted">No data</div>
+          <div className="py-10 text-center text-sm text-brand-muted">{t('dashboard.no_data')}</div>
         ) : (
           <div className="space-y-4">
             <div className="overflow-x-auto">
@@ -1503,16 +1503,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ selectedBranch, dateRange 
                 <thead>
                   <tr className="border-b border-slate-200">
                     <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">#</th>
-                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">Menu</th>
-                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">Qty</th>
-                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">Amount</th>
+                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">{t('dashboard.menu')}</th>
+                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">{t('dashboard.qty')}</th>
+                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">{t('dashboard.amount')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {incomeTopRows.map((row, idx) => (
                     <tr key={`${row.IDNo}-${idx}`} className="border-b border-slate-100 last:border-b-0">
                       <td className="px-3 py-2 text-sm font-semibold text-slate-700">{idx + 1}</td>
-                      <td className="px-3 py-2 text-sm text-slate-800">{row.MENU_NAME || 'Unknown'}</td>
+                      <td className="px-3 py-2 text-sm text-slate-800">{row.MENU_NAME || t('dashboard.unknown')}</td>
                       <td className="px-3 py-2 text-sm text-slate-700 text-right tabular-nums">
                         {Number(row.total_quantity || 0).toLocaleString()}
                       </td>

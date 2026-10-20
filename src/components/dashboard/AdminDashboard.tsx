@@ -1130,6 +1130,7 @@ const TrendDrillExpenseAccordion = memo(function TrendDrillExpenseAccordion({
   groups: TrendDrillExpenseGroup[];
   onSubClick: (sub: { main: string; name: string; amount: number }) => void;
 }) {
+  const { t } = useTranslation();
   const [expandedMains, setExpandedMains] = useState<Set<string>>(() => new Set());
 
   return (
@@ -1181,7 +1182,7 @@ const TrendDrillExpenseAccordion = memo(function TrendDrillExpenseAccordion({
                         <p className="text-sm font-semibold text-slate-800 truncate">{sub.name}</p>
                         {sub.count > 0 ? (
                           <p className="text-[11px] text-slate-400">
-                            {sub.count} entr{sub.count === 1 ? 'y' : 'ies'}
+                            {t('admin_dashboard.entries_count', { count: sub.count })}
                           </p>
                         ) : null}
                       </div>
@@ -2693,19 +2694,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
     ];
     if (kind === 'vs_average') {
       rows.push({
-        label: '3-mo total (approx)',
+        label: t('admin_dashboard.3_mo_total_approx'),
         sub: prevThreeMonths ? formatRangeLabel(prevThreeMonths) : undefined,
         value: formatCurrency(prev * TRAILING_AVG_MONTHS),
         tone: 'neutral',
       });
     }
     rows.push({
-      label: 'Difference',
+      label: t('admin_dashboard.difference'),
       value: formatSignedCurrency(diff),
       tone: resultTone,
     });
     rows.push({
-      label: isNewExpense ? 'Status' : 'Index',
+      label: isNewExpense ? t('admin_dashboard.expense_table.status') : t('admin_dashboard.index'),
       value: isNewExpense ? 'NEW' : index == null ? 'N/A' : `${index.toFixed(1)}%`,
       tone: indexTone,
     });
@@ -2791,7 +2792,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
         });
       }
       rows.push({
-        label: 'Total',
+        label: t('admin_dashboard.total'),
         sub: `${parts.length} branches · ${rangeLabel}`,
         value: formatCurrency(den),
         tone: 'neutral',
@@ -2799,13 +2800,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
     } else {
       rows.push(
         {
-          label: numeratorLabel || 'Expenses',
+          label: numeratorLabel || t('admin_dashboard.sections.expenses'),
           sub: rangeLabel,
           value: formatCurrency(num),
           tone: 'neutral',
         },
         {
-          label: 'Sales',
+          label: t('admin_dashboard.sections.sales'),
           value: formatCurrency(den),
           tone: 'neutral',
         },
@@ -2813,7 +2814,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
     }
 
     rows.push({
-      label: isShare ? 'Share' : 'Rate',
+      label: isShare ? t('admin_dashboard.share') : t('admin_dashboard.rate'),
       value: missingDenom ? '—' : `${pct.toFixed(1)}%`,
       tone: 'neutral',
     });
@@ -3366,7 +3367,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
               }}
             >
               <span style={{ width: 8, height: 8, borderRadius: 9999, background: 'rgb(34, 197, 94)', display: 'inline-block' }} />
-              <span style={{ fontSize: 12, color: '#475569', minWidth: 86 }}>Total Profit</span>
+              <span style={{ fontSize: 12, color: '#475569', minWidth: 86 }}>{t('admin_dashboard.total_revenue')}</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: profit < 0 ? '#dc2626' : '#0f172a' }}>
                 {profit < 0 ? '-' : ''}{formatMoney(profit)}
               </span>
@@ -4025,7 +4026,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
           </span>
           <span
             className="inline-flex items-center rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700"
-            title="No expenses in the previous compare window — % change is not shown (would divide by ₱0)."
+            title={t('admin_dashboard.no_expenses_in_the_previous_compare')}
           >
             {t('admin_dashboard.expense_diff.new')}
           </span>
@@ -4557,7 +4558,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                             className={`text-left rounded-xl px-0.5 -mx-0.5 py-0.5 transition-colors hover:bg-brand-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40 ${
                               isBreakdownOpen ? 'bg-brand-primary/10 ring-1 ring-brand-primary/30' : ''
                             }`}
-                            title="Click for computation breakdown"
+                            title={t('admin_dashboard.click_for_computation_breakdown')}
                           >
                             {valueContent}
                           </button>
@@ -4645,7 +4646,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                 color="bg-[rgb(245,158,11)]"
               />
               <SummaryCard
-                title="Total Profit"
+                title={t('admin_dashboard.total_revenue')}
                 value={
                   summaryData
                     ? `₱${Math.trunc(summaryData.totalRevenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
@@ -4664,8 +4665,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {activeBranchId
-                      ? 'Click a sales or expenses bar to view day breakdown'
-                      : 'Click a sales or expenses bar to break down by branch'}
+                      ? t('admin_dashboard.click_a_sales_or_expenses_bar')
+                      : t('admin_dashboard.click_a_sales_or_expenses_bar_2')}
                   </p>
                 </div>
 
@@ -4680,7 +4681,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                         : 'bg-transparent text-slate-600 border-transparent hover:text-slate-900 hover:bg-white/70'
                     }`}
                   >
-                    Weekly
+                    {t('admin_dashboard.weekly')}
                   </button>
                   <button
                     type="button"
@@ -4692,7 +4693,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                         : 'bg-transparent text-slate-600 border-transparent hover:text-slate-900 hover:bg-white/70'
                     }`}
                   >
-                    Monthly
+                    {t('admin_dashboard.monthly')}
                   </button>
                   <button
                     type="button"
@@ -4704,7 +4705,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                         : 'bg-transparent text-slate-600 border-transparent hover:text-slate-900 hover:bg-white/70'
                     }`}
                   >
-                    Yearly
+                    {t('admin_dashboard.yearly')}
                   </button>
                 </div>
               </div>
@@ -4907,7 +4908,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                       <div className="grid grid-cols-[41%_47%_12%] items-center gap-2 px-1 pb-2">
                         <div />
                         <div />
-                        <div className="text-right text-xs font-semibold uppercase tracking-wide text-slate-500">qty sold</div>
+                        <div className="text-right text-xs font-semibold uppercase tracking-wide text-slate-500">{t('admin_dashboard.qty_sold')}</div>
                       </div>
                       <div className="flex-1 flex flex-col justify-evenly">
                         {topProductsChartData.map((entry) => (
@@ -5268,7 +5269,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
           </div>
           <div className="mt-3.5 rounded-lg bg-slate-50 px-3 py-3 border border-slate-100">
             <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">
-              {compareBreakdownPopup.formulaIsNote ? 'Why this shows' : 'How % is computed'}
+              {compareBreakdownPopup.formulaIsNote ? t('admin_dashboard.why_this_shows') : t('admin_dashboard.how_is_computed')}
             </p>
             {compareBreakdownPopup.formulaIsNote ? (
               <div className="space-y-2 text-xs leading-relaxed text-slate-600">
@@ -5329,7 +5330,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                 <button
                   type="button"
                   aria-label="Pick date"
-                  title="Click to pick a date"
+                  title={t('admin_dashboard.click_to_pick_a_date')}
                   onClick={() => setTrendDrillCalendarOpen((open) => !open)}
                   className="text-sm text-slate-700 m-0 min-w-[7.5rem] px-2 py-1 rounded-lg text-center font-semibold tabular-nums cursor-pointer hover:bg-slate-100 border border-transparent hover:border-slate-200"
                 >
@@ -5389,7 +5390,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                 className="inline-flex items-center gap-1 text-sm font-bold text-brand-primary hover:text-brand-utilities cursor-pointer"
               >
                 <ChevronLeft size={16} />
-                Branches
+                {t('admin_dashboard.branches')}
               </button>
             ) : null}
           </div>
@@ -5402,7 +5403,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
             <span className="text-sm text-slate-500">
               {trendDrillStep === 'branches'
                 ? trendDrillBranchesLoading
-                  ? 'Loading…'
+                  ? t('admin_dashboard.loading')
                   : `${trendDrillBranches.filter((b) => !b.residual).length} branch${
                       trendDrillBranches.filter((b) => !b.residual).length === 1 ? '' : 'es'
                     }`
@@ -5410,7 +5411,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
             </span>
             <div className="flex items-center gap-3">
               <span className="text-sm font-bold tabular-nums text-slate-800">
-                Total{' '}
+                {t('admin_dashboard.total')}{' '}
                 {formatModalMoney(
                   trendDrillStep === 'branches'
                     ? trendDrillBranchesTotal
@@ -5424,7 +5425,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                 onClick={closeTrendDrill}
                 className={`px-3 py-1.5 rounded-lg border-0 text-sm font-semibold shadow-sm hover:opacity-90 cursor-pointer ${trendDrillBranchRankClass(trendDrillMetric)}`}
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
           </div>
@@ -5432,9 +5433,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
       >
         {trendDrillStep === 'branches' ? (
           trendDrillBranchesLoading ? (
-            <div className="py-10 text-center text-sm text-slate-500">Loading branches…</div>
+            <div className="py-10 text-center text-sm text-slate-500">{t('admin_dashboard.loading_branches')}</div>
           ) : trendDrillBranches.length === 0 ? (
-            <div className="py-10 text-center text-sm text-slate-500">No branch totals in this range.</div>
+            <div className="py-10 text-center text-sm text-slate-500">{t('admin_dashboard.no_branch_totals_in_this_range')}</div>
           ) : (
             <div className="space-y-2">
               {trendDrillBranches.map((branch, idx) => {
@@ -5503,19 +5504,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
             </div>
           )
         ) : trendDrillBreakdownLoading ? (
-          <div className="py-10 text-center text-sm text-slate-500">Loading breakdown…</div>
+          <div className="py-10 text-center text-sm text-slate-500">{t('admin_dashboard.loading_breakdown')}</div>
         ) : trendDrillMetric === 'sales' ? (
           trendDrillSalesRows.length === 0 && trendDrillSalesRecon <= 0 && trendDrillSalesOther === 0 ? (
-            <div className="py-10 text-center text-sm text-slate-500">No sales items in this range.</div>
+            <div className="py-10 text-center text-sm text-slate-500">{t('admin_dashboard.no_sales_items_in_this_range')}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-slate-200">
                     <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">#</th>
-                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">Menu</th>
-                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">Qty</th>
-                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">Amount</th>
+                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">{t('admin_dashboard.menu')}</th>
+                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">{t('admin_dashboard.qty')}</th>
+                    <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">{t('admin_dashboard.amount')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -5524,7 +5525,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                       <td className="px-3 py-2 text-sm font-semibold text-slate-700 tabular-nums">
                         {idx + 1}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-800">{row.MENU_NAME || 'Unknown'}</td>
+                      <td className="px-3 py-2 text-sm text-slate-800">{row.MENU_NAME || t('admin_dashboard.unknown')}</td>
                       <td className="px-3 py-2 text-sm text-slate-700 text-right tabular-nums">
                         {Number(row.total_quantity || 0).toLocaleString()}
                       </td>
@@ -5549,7 +5550,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                     <tr className="border-b border-slate-100 bg-slate-50/70">
                       <td className="px-3 py-2 text-sm text-slate-500">—</td>
                       <td className="px-3 py-2 text-sm font-medium italic text-slate-500">
-                        Other sales
+                        {t('admin_dashboard.other_sales')}
                       </td>
                       <td className="px-3 py-2 text-sm text-slate-400 text-right tabular-nums">—</td>
                       <td className="px-3 py-2 text-sm font-bold tabular-nums text-slate-600 text-right">
@@ -5562,7 +5563,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
             </div>
           )
         ) : trendDrillExpenseGroups.length === 0 ? (
-          <div className="py-10 text-center text-sm text-slate-500">No expense categories in this range.</div>
+          <div className="py-10 text-center text-sm text-slate-500">{t('admin_dashboard.no_expense_categories_in_this_range')}</div>
         ) : (
           <TrendDrillExpenseAccordion
             key={`${trendDrillBranch?.id ?? 0}|${trendDrillRange.start}|${trendDrillRange.end}`}
@@ -5575,7 +5576,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
       <Modal
         isOpen={trendDrillExpenseSub !== null}
         onClose={closeTrendDrillExpenseItems}
-        title={`${trendDrillExpenseSub?.name ?? 'Items'} · ${trendDrillBranch?.name ?? ''}`}
+        title={`${trendDrillExpenseSub?.name ?? t('admin_dashboard.items')} · ${trendDrillBranch?.name ?? ''}`}
         subtitle={
           <p className="text-sm text-slate-500 m-0">
             {trendDrillExpenseSub?.main ? `${trendDrillExpenseSub.main} · ` : ''}
@@ -5590,12 +5591,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
           <div className="flex items-center justify-between gap-3 w-full">
             <span className="text-sm text-slate-500">
               {trendDrillExpenseItemsLoading
-                ? 'Loading…'
+                ? t('admin_dashboard.loading')
                 : `${trendDrillExpenseItems.length} item${trendDrillExpenseItems.length === 1 ? '' : 's'}`}
             </span>
             <div className="flex items-center gap-3">
               <span className="text-sm font-bold tabular-nums text-slate-800">
-                Total{' '}
+                {t('admin_dashboard.total')}{' '}
                 {formatModalMoney(
                   trendDrillExpenseSub?.amount ?? trendDrillExpenseItemsTotal,
                 )}
@@ -5605,24 +5606,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ selectedBranch, 
                 onClick={closeTrendDrillExpenseItems}
                 className={`px-3 py-1.5 rounded-lg border-0 text-sm font-semibold shadow-sm hover:opacity-90 cursor-pointer ${trendDrillBranchRankClass('expenses')}`}
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
           </div>
         }
       >
         {trendDrillExpenseItemsLoading ? (
-          <div className="py-10 text-center text-sm text-slate-500">Loading items…</div>
+          <div className="py-10 text-center text-sm text-slate-500">{t('admin_dashboard.loading_items')}</div>
         ) : trendDrillExpenseItems.length === 0 ? (
-          <div className="py-10 text-center text-sm text-slate-500">No expense items in this range.</div>
+          <div className="py-10 text-center text-sm text-slate-500">{t('admin_dashboard.no_expense_items_in_this_range')}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-slate-200">
                   <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">#</th>
-                  <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">Item</th>
-                  <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">Amount</th>
+                  <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">{t('admin_dashboard.item')}</th>
+                  <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">{t('admin_dashboard.amount')}</th>
                 </tr>
               </thead>
               <tbody>

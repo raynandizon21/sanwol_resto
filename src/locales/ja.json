@@ -1778,7 +1778,10 @@
 		"user_role": "ユーザー役割",
 		"user_access": "ユーザーアクセス",
 		"branches": "支店",
-		"logout": "ログアウト"
+		"logout": "ログアウト",
+		"billing": "会計",
+		"ingredients": "食材",
+		"table_settings": "テーブル設定"
 	},
 	"datatable": {
 		"no_data": "データがありません",

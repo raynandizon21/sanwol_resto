@@ -1703,7 +1703,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                     : {}
             );
             setReceiptOrderOpen(true);
-            toast.message('Restored previous receipt scan draft.');
+            toast.message(t('orders.restored_previous_receipt_scan_draft'));
         } catch {
             // ignore draft restore errors
         }
@@ -2611,7 +2611,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                     ) : null}
                                     <th className="px-3 py-2 font-bold">{t('orders.receipt_history_source')}</th>
                                     <th className="px-3 py-2 font-bold">{t('orders.order_no')}</th>
-                                    <th className="px-3 py-2 font-bold text-right">Order total</th>
+                                    <th className="px-3 py-2 font-bold text-right">{t('orders.order_total')}</th>
                                     <th className="px-3 py-2 w-28" />
                                 </tr>
                             </thead>
@@ -2697,7 +2697,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                 </div>
                             </div>
                             <div className="min-w-0">
-                                <span className="text-brand-muted">Order total</span>
+                                <span className="text-brand-muted">{t('orders.order_total')}</span>
                                 <div className="tabular-nums font-semibold truncate">
                                     {receiptHistoryDetail.ORDER_GRAND_TOTAL != null
                                         ? `₱${formatPesoUpToTwoDecimals(Number(receiptHistoryDetail.ORDER_GRAND_TOTAL))}`
@@ -2717,7 +2717,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                         if (url) window.open(url, '_blank', 'noopener,noreferrer');
                                     }}
                                     className="w-full p-2"
-                                    title="Click to view full size"
+                                    title={t('orders.click_to_view_full_size')}
                                 >
                                     <img
                                         src={receiptHistoryDetail.receipt_image_data_url}
@@ -2728,7 +2728,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                 </button>
                             ) : (
                                 <div className="h-[40vh] flex items-center justify-center text-brand-muted">
-                                    No receipt image
+                                    {t('orders.no_receipt_image')}
                                 </div>
                             )}
                         </div>
@@ -2737,17 +2737,17 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
                                 <div>
                                     <div className="text-xs font-bold text-brand-muted uppercase tracking-widest">
-                                        Order breakdown
+                                        {t('orders.order_breakdown')}
                                     </div>
                                     <div className="text-[11px] text-brand-muted mt-0.5">
-                                        Click image to view full size
+                                        {t('orders.click_image_to_view_full_size')}
                                     </div>
                                 </div>
                             </div>
 
                             <div className="p-4 space-y-4">
                                 {(receiptHistoryDetail.orders || []).length === 0 ? (
-                                    <div className="text-sm text-brand-muted">No order items found.</div>
+                                    <div className="text-sm text-brand-muted">{t('orders.no_order_items_found')}</div>
                                 ) : (
                                     (receiptHistoryDetail.orders || []).map((o) => {
                                         const items = o.items || [];
@@ -2768,15 +2768,15 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
 
                                                 <div className="p-3">
                                                     {items.length === 0 ? (
-                                                        <div className="text-sm text-brand-muted">No items.</div>
+                                                        <div className="text-sm text-brand-muted">{t('orders.no_items')}</div>
                                                     ) : (
                                                         <div className="overflow-hidden rounded-lg border border-gray-100">
                                                             <table className="w-full text-xs">
                                                                 <thead className="bg-white">
                                                                     <tr className="text-brand-muted">
-                                                                        <th className="px-3 py-2 text-left font-bold uppercase tracking-widest">Item</th>
-                                                                        <th className="px-3 py-2 text-right font-bold uppercase tracking-widest w-[56px]">Qty</th>
-                                                                        <th className="px-3 py-2 text-right font-bold uppercase tracking-widest w-[92px]">Total</th>
+                                                                        <th className="px-3 py-2 text-left font-bold uppercase tracking-widest">{t('orders.item')}</th>
+                                                                        <th className="px-3 py-2 text-right font-bold uppercase tracking-widest w-[56px]">{t('orders.qty')}</th>
+                                                                        <th className="px-3 py-2 text-right font-bold uppercase tracking-widest w-[92px]">{t('orders.total')}</th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-gray-50">
@@ -2811,7 +2811,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                                 <div className="flex flex-col gap-2 text-sm">
                                                                     <div className="flex items-center justify-between gap-3">
                                                                         <span className="text-brand-muted font-bold uppercase tracking-widest text-[11px]">
-                                                                            Subtotal
+                                                                            {t('orders.subtotal')}
                                                                         </span>
                                                                         <span className="font-extrabold tabular-nums w-[92px] text-right text-slate-800">
                                                                             {formatPesoUpToTwoDecimals(Number(o.SUBTOTAL || 0))}
@@ -2819,7 +2819,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                                     </div>
                                                                     <div className="flex items-center justify-between gap-3">
                                                                         <span className="text-brand-muted font-bold uppercase tracking-widest text-[11px]">
-                                                                            Service charge
+                                                                            {t('orders.service_charge')}
                                                                         </span>
                                                                         <span className="font-extrabold tabular-nums w-[92px] text-right text-slate-800">
                                                                             {formatPesoUpToTwoDecimals(Number(o.SERVICE_CHARGE || 0))}
@@ -2827,7 +2827,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                                     </div>
                                                                     <div className="pt-2 mt-1 border-t border-gray-200/80 flex items-center justify-between gap-3">
                                                                         <span className="text-brand-muted font-bold uppercase tracking-widest text-[11px]">
-                                                                            Total
+                                                                            {t('orders.total')}
                                                                         </span>
                                                                         <span className="font-black tabular-nums w-[92px] text-right text-violet-700 text-base">
                                                                             ₱
@@ -3017,7 +3017,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                     className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-brand-muted"
                                                     colSpan={3}
                                                 >
-                                                    Subtotal
+                                                    {t('orders.subtotal')}
                                                 </td>
                                                 <td className="px-4 py-2 text-right font-bold tabular-nums">
                                                     ₱{formatPesoUpToTwoDecimals(newOrderSubtotal)}
@@ -3030,7 +3030,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                         className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-brand-muted"
                                                         colSpan={3}
                                                     >
-                                                        Service charge (10%)
+                                                        {t('orders.service_charge_10')}
                                                     </td>
                                                     <td className="px-4 py-2 text-right font-bold tabular-nums">
                                                         ₱{formatPesoUpToTwoDecimals(newOrderServiceCharge)}
@@ -3087,21 +3087,21 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                 onClick={() => void finishReceiptScan()}
                                 disabled={receiptExtracting || receiptStitching || receiptSegments.length === 0}
                                 className="px-6 py-2.5 rounded-xl font-bold text-white bg-violet-600 shadow-lg shadow-violet-600/30 hover:bg-violet-700 transition-all disabled:opacity-50 flex items-center gap-2"
-                                title={receiptSegments.length === 0 ? 'Add at least 1 page first' : 'Scan receipt'}
+                                title={receiptSegments.length === 0 ? t('orders.add_at_least_1_page_first') : t('orders.scan_receipt')}
                             >
                                 {(receiptExtracting || receiptStitching) && <Loader2 size={16} className="animate-spin" />}
                                 <ScanLine size={16} />
-                                Scan receipt
+                                {t('orders.scan_receipt')}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => receiptFileInputRef.current?.click()}
                                 disabled={receiptExtracting || receiptStitching || receiptSegments.length >= RECEIPT_MAX_PAGES}
                                 className="px-6 py-2.5 rounded-xl font-bold text-brand-text bg-white border border-gray-200 hover:bg-gray-50 transition-all disabled:opacity-50 flex items-center gap-2"
-                                title={receiptSegments.length >= RECEIPT_MAX_PAGES ? 'Max pages reached' : 'Add page'}
+                                title={receiptSegments.length >= RECEIPT_MAX_PAGES ? t('orders.max_pages_reached') : t('orders.add_page')}
                             >
                                 <Upload size={16} />
-                                Add page
+                                {t('orders.add_page')}
                             </button>
                         </div>
                     ) : (
@@ -3214,10 +3214,10 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                         <div className="flex items-center justify-between gap-3 flex-wrap">
                                             <div className="text-left">
                                                 <p className="text-sm font-extrabold text-brand-text">
-                                                    Receipt pages ({receiptSegments.length}/{RECEIPT_MAX_PAGES})
+                                                    {t('orders.receipt_pages')}{receiptSegments.length}/{RECEIPT_MAX_PAGES})
                                                 </p>
                                                 <p className="text-xs text-brand-muted mt-1">
-                                                    Add pages top → bottom with slight overlap, then use the footer buttons below.
+                                                    {t('orders.add_pages_top_bottom_with_slight')}
                                                 </p>
                                             </div>
                                         </div>
@@ -3258,7 +3258,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 text-sm font-bold hover:bg-gray-50"
                                             >
                                                 <Upload size={16} />
-                                                Add from files
+                                                {t('orders.add_from_files')}
                                             </button>
                                             <button
                                                 type="button"
@@ -3311,7 +3311,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                         {receiptSegments.length > 0 && !receiptImage ? (
                                             <div className="mt-4 flex flex-col items-center gap-3">
                                                 <p className="text-xs text-brand-muted">
-                                                    Added {receiptSegments.length} page(s). Use the footer buttons below to scan or add more pages.
+                                                    {t('orders.added')} {receiptSegments.length} {t('orders.page_s_use_the_footer_buttons')}
                                                 </p>
                                             </div>
                                         ) : null}
@@ -3343,7 +3343,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                             <div className="flex items-center justify-between flex-wrap gap-2">
                                 <label className="block text-sm font-bold text-brand-text">{t('orders.receipt_mapped_items')}</label>
                                 <span className="text-xs font-mono text-brand-muted">
-                                    {receiptRows.length} lines · {receiptRowsByOrder.length}{' '}
+                                    {receiptRows.length} {t('orders.lines')} {receiptRowsByOrder.length}{' '}
                                     {receiptRowsByOrder.length === 1 ? 'order' : 'orders'}
                                 </span>
                                 {receiptOrderMenusLoading && (
@@ -3404,7 +3404,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                     return (
                                         <React.Fragment key={`receipt-order-${orderId}`}>
                                             <ReceiptOrderBlockCard
-                                                title={`ORDER ${orderId}`}
+                                                title={t('orders.order_title', { orderId })}
                                             >
                                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                     {metaIsDineIn && (
@@ -3464,22 +3464,22 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                     <div className="space-y-2">
                                                         <div className="flex items-start justify-between gap-3">
                                                             <div className="min-w-0">
-                                                                <div className="text-[11px] uppercase tracking-[0.12em] text-gray-500">Order No</div>
+                                                                <div className="text-[11px] uppercase tracking-[0.12em] text-gray-500">{t('orders.order_no_2')}</div>
                                                                 <div className="text-[13px] font-semibold text-slate-900 break-all">{meta.orderNo || '—'}</div>
                                                             </div>
                                                             <div className="text-right shrink-0">
-                                                                <div className="text-[11px] uppercase tracking-[0.12em] text-gray-500">Type</div>
+                                                                <div className="text-[11px] uppercase tracking-[0.12em] text-gray-500">{t('orders.type')}</div>
                                                                 <div className="text-[13px] font-semibold text-slate-900">{orderTypeLabel(meta.orderType)}</div>
                                                             </div>
                                                         </div>
 
                                                         <div className="flex items-start justify-between gap-3">
                                                             <div className="min-w-0">
-                                                                <div className="text-[11px] uppercase tracking-[0.12em] text-gray-500">Table</div>
+                                                                <div className="text-[11px] uppercase tracking-[0.12em] text-gray-500">{t('orders.table')}</div>
                                                                 <div className="text-[13px] font-semibold text-slate-900 break-words">{tableLabel}</div>
                                                             </div>
                                                             <div className="text-right shrink-0">
-                                                                <div className="text-[11px] uppercase tracking-[0.12em] text-gray-500">Encoded</div>
+                                                                <div className="text-[11px] uppercase tracking-[0.12em] text-gray-500">{t('orders.encoded')}</div>
                                                                 <div className="text-[13px] font-semibold text-slate-900">{encodedLabel}</div>
                                                             </div>
                                                         </div>
@@ -3487,10 +3487,10 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                         <div className="pt-2">
                                                             <div className="border-t border-dashed border-slate-300/70" />
                                                             <div className="mt-2 grid grid-cols-12 gap-2 text-[11px] uppercase tracking-[0.12em] text-gray-500">
-                                                                <div className="col-span-5">Item</div>
-                                                                <div className="col-span-2 text-right">Qty</div>
-                                                                <div className="col-span-2 text-right leading-tight">Unit price</div>
-                                                                <div className="col-span-3 text-right">Amount</div>
+                                                                <div className="col-span-5">{t('orders.item')}</div>
+                                                                <div className="col-span-2 text-right">{t('orders.qty')}</div>
+                                                                <div className="col-span-2 text-right leading-tight">{t('orders.unit_price_2')}</div>
+                                                                <div className="col-span-3 text-right">{t('orders.amount')}</div>
                                                             </div>
                                                             <div className="mt-2 border-t border-dashed border-slate-200" />
                                                         </div>
@@ -3552,17 +3552,17 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                             <div className="border-t border-dashed border-slate-300/70" />
                                                             <div className="mt-2 space-y-1">
                                                                 <div className="flex items-center justify-between text-[13px] font-semibold text-slate-900">
-                                                                    <span className="tracking-[0.12em] uppercase text-[11px] text-gray-500">TOTAL AMOUNT</span>
+                                                                    <span className="tracking-[0.12em] uppercase text-[11px] text-gray-500">{t('orders.total_amount')}</span>
                                                                     <span className="tabular-nums">₱{blockTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                                                                 </div>
                                                                 {shouldAddServiceCharge ? (
                                                                     <>
                                                                         <div className="flex items-center justify-between text-[13px] font-semibold text-slate-900">
-                                                                            <span className="tracking-[0.12em] uppercase text-[11px] text-gray-500">SERVICE CHARGE (10%)</span>
+                                                                            <span className="tracking-[0.12em] uppercase text-[11px] text-gray-500">{t('orders.service_charge_10_2')}</span>
                                                                             <span className="tabular-nums">₱{formatPesoUpToTwoDecimals(blockServiceChargePreview)}</span>
                                                                         </div>
                                                                         <div className="flex items-center justify-between text-[13px] font-semibold text-slate-900">
-                                                                            <span className="tracking-[0.12em] uppercase text-[11px] text-gray-500">TOTAL DUE</span>
+                                                                            <span className="tracking-[0.12em] uppercase text-[11px] text-gray-500">{t('orders.total_due')}</span>
                                                                             <span className="tabular-nums">
                                                                                 ₱{formatPesoUpToTwoDecimals(blockTotal + blockServiceChargePreview)}
                                                                             </span>
@@ -3582,7 +3582,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                         }
                                                         className="text-xs font-bold text-brand-primary hover:underline"
                                                     >
-                                                        {receiptMapOpenByOrderId[orderId] ? 'Hide mapping controls' : 'Show mapping controls'}
+                                                        {receiptMapOpenByOrderId[orderId] ? t('orders.hide_mapping_controls') : t('orders.show_mapping_controls')}
                                                     </button>
                                                 </div>
 
@@ -3662,7 +3662,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                             <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <span className="font-bold text-brand-text">
-                                        {hasDineInServiceCharge(effectiveReceiptBranchId) ? 'Total due (receipt)' : 'Grand Total (receipt)'}
+                                        {hasDineInServiceCharge(effectiveReceiptBranchId) ? t('orders.total_due_receipt') : t('orders.grand_total_receipt')}
                                     </span>
                                     <span className="font-extrabold text-violet-600 tabular-nums">
                                         ₱
@@ -3676,17 +3676,17 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                 {hasDineInServiceCharge(effectiveReceiptBranchId) ? (
                                     <div className="mt-2 text-xs text-brand-muted flex flex-wrap items-center justify-between gap-2">
                                         <span>
-                                            Items ₱{formatPesoUpToTwoDecimals(receiptPreviewReceiptTotal)} + SC ₱
+                                            {t('orders.items')}{formatPesoUpToTwoDecimals(receiptPreviewReceiptTotal)} {t('orders.sc')}
                                             {formatPesoUpToTwoDecimals(receiptPreviewServiceChargeReceipt)}
                                         </span>
                                         <span className="font-mono">
-                                            {receiptRowsByOrder.length} order{receiptRowsByOrder.length === 1 ? '' : 's'}
+                                            {t('orders.orders_count', { count: receiptRowsByOrder.length })}
                                         </span>
                                     </div>
                                 ) : null}
                             </div>
                             <p className="text-xs text-brand-muted">
-                                Totals above are based on receipt extracted amounts (same as tablet UI). Menu mapping affects what will be saved to the order.
+                                {t('orders.totals_above_are_based_on_receipt')}
                             </p>
                         </div>
                     )}
@@ -3726,7 +3726,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-brand-muted hover:bg-gray-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                                         >
                                             <ChevronLeft size={14} />
-                                            Prev
+                                            {t('orders.prev')}
                                         </button>
                                         <span className="text-[11px] font-bold text-brand-muted min-w-[72px] text-center">
                                             {manualMenuPage} / {manualMenuTotalPages}
@@ -3737,7 +3737,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                             disabled={manualMenuPage >= manualMenuTotalPages}
                                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-brand-muted hover:bg-gray-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                                         >
-                                            Next
+                                            {t('orders.pagination.next')}
                                             <ChevronRight size={14} />
                                         </button>
                                     </div>
@@ -3786,7 +3786,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                         </div>
                                     </div>
                                     <p className="text-[11px] text-brand-muted">
-                                        Click item para auto-add. Click ulit para dagdag qty.
+                                        {t('orders.click_item_para_auto_add_click')}
                                     </p>
                                 </div>
                             </div>
@@ -3875,7 +3875,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                         {/* Keep date on its own row for cleaner alignment */}
                                         <div className="space-y-1.5 col-span-12">
                                             <label className="block text-[11px] font-bold text-brand-muted uppercase tracking-wider">
-                                                {t('orders.date') ?? 'Date'}
+                                                {t('orders.date') ?? t('orders.date')}
                                             </label>
                                             <input
                                                 type="date"
@@ -3982,7 +3982,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                                             }}
                                                                             disabled={it.qty <= 0}
                                                                         className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-brand-muted font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                        title="Decrease"
+                                                                        title={t('orders.decrease')}
                                                                     >
                                                                         −
                                                                     </button>
@@ -3996,7 +3996,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                                                 setManualRowFlash({ menuId: MANUAL_ROOM_CHARGE_ITEM_ID, nonce: Date.now() });
                                                                             }}
                                                                         className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-brand-muted font-bold cursor-pointer"
-                                                                        title="Increase"
+                                                                        title={t('orders.increase')}
                                                                     >
                                                                         +
                                                                     </button>
@@ -4007,7 +4007,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                                         type="button"
                                                                         onClick={() => decManualOrderItemQty(it.menuId)}
                                                                         className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-brand-muted font-bold cursor-pointer"
-                                                                        title="Decrease"
+                                                                        title={t('orders.decrease')}
                                                                     >
                                                                         −
                                                                     </button>
@@ -4018,7 +4018,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                                         type="button"
                                                                         onClick={() => addManualMenuById(it.menuId, 1)}
                                                                         className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-brand-muted font-bold cursor-pointer"
-                                                                        title="Increase"
+                                                                        title={t('orders.increase')}
                                                                     >
                                                                         +
                                                                     </button>
@@ -4053,7 +4053,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                                 className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-brand-muted"
                                                                 colSpan={3}
                                                             >
-                                                                Service charge (10%)
+                                                                {t('orders.service_charge_10')}
                                                             </td>
                                                             <td className="px-4 py-2 text-right font-bold tabular-nums">
                                                                 ₱{formatPesoUpToTwoDecimals(manualServiceCharge)}
@@ -4154,8 +4154,8 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                                     <tr key="__ROOM_CHARGE__">
                                                         <td className="px-4 py-2 font-medium">
                                                             {detailIsRoomCharge
-                                                                ? (t('table.room_charge') ?? 'Room charge')
-                                                                : (t('orders.service_charge') ?? 'Service charge')}
+                                                                ? (t('table.room_charge') ?? t('orders.room_charge'))
+                                                                : (t('orders.service_charge') ?? t('orders.service_charge'))}
                                                         </td>
                                                         <td className="px-4 py-2 text-right">{detailRoomChargeQtyForRow}</td>
                                                         <td className="px-4 py-2 text-right tabular-nums">
@@ -4261,7 +4261,7 @@ export const Orders: React.FC<OrdersProps> = ({ selectedBranch, dateRange }) => 
                                     {detailServiceCharge > 0 && (
                                         <div className="flex items-center justify-between text-sm">
                                             <span className="text-brand-muted">
-                                                {detailIsRoomCharge ? (t('table.room_charge') ?? 'Room charge') : t('orders.service_charge')}
+                                                {detailIsRoomCharge ? (t('table.room_charge') ?? t('orders.room_charge')) : t('orders.service_charge')}
                                             </span>
                                             <span className="font-semibold tabular-nums">
                                                 ₱{formatPesoUpToTwoDecimals(detailServiceCharge)}

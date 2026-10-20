@@ -6,6 +6,7 @@ import { cn } from '../../lib/utils';
 import { toUserFriendlyError } from '../../utils/userFriendlyErrors';
 import { type Branch } from '../partials/Header';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { getOperationCategories, createOperationCategory, updateOperationCategory, deleteOperationCategory } from '../../services/operationCategoryService';
 import {
   getAllMasterCategories,
@@ -393,6 +394,7 @@ function expenseMatchesOperationSubCategory(
 }
 
 export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, dateRange }) => {
+  const { t } = useTranslation();
   const location = useLocation();
   const [operations, setOperations] = useState<Operation[]>([]);
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
@@ -834,11 +836,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
 
   const openReceiptHistory = useCallback(() => {
     if (!branchId || branchId === 'all') {
-      toast.error('Select a branch first');
+      toast.error(t('expenses_page.select_a_branch_first'));
       return;
     }
     setReceiptHistoryOpen(true);
-  }, [branchId]);
+  }, [branchId, t]);
 
   useEffect(() => {
     if (!receiptHistoryOpen) return;
@@ -873,7 +875,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
 
   const sendExtractedReceiptToExpenses = useCallback(async () => {
     if (!branchId || branchId === 'all') {
-      toast.error('Select a branch first');
+      toast.error(t('expenses_page.select_a_branch_first'));
       return;
     }
     if (!receiptExtractResult?.items?.length) return;
@@ -962,7 +964,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
 
       const list = await loadExpenseList(branchId);
       setExpenses(list.filter((e) => String(e.branchId) === String(branchId)));
-      toast.success('Receipt items saved to Expenses');
+      toast.success(t('expenses_page.receipt_items_saved_to_expenses'));
       setReceiptSaveConfirmOpen(false);
       setIsReceiptModalOpen(false);
       setExpenseAnalyticsRefreshKey((k) => k + 1);
@@ -979,17 +981,17 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
     receiptEncodedDateYmd,
     uploadedReceiptPath,
     receiptScannedImage,
-    receiptPreviewDataUrl,
+    receiptPreviewDataUrl, t,
   ]);
 
   const openReceiptSaveConfirm = useCallback(() => {
     if (!branchId || branchId === 'all') {
-      toast.error('Select a branch first');
+      toast.error(t('expenses_page.select_a_branch_first'));
       return;
     }
     if (!receiptExtractResult?.items?.length) return;
     setReceiptSaveConfirmOpen(true);
-  }, [branchId, receiptExtractResult]);
+  }, [branchId, receiptExtractResult, t]);
 
   const receiptSaveEncodedDateLabel = useMemo(() => {
     if (!receiptEncodedDateYmd || !/^\d{4}-\d{2}-\d{2}$/.test(receiptEncodedDateYmd)) return 'Not set';
@@ -1444,17 +1446,17 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
   const columns: ColumnDef<ExpenseRecord>[] = useMemo(
     () => [
       {
-        header: 'Date',
+        header: t('expenses_page.form_date'),
         render: (row) => (
           <span>{row.encodedDt ? expenseEncodedYmd(row.encodedDt) ?? '' : ''}</span>
         ),
       },
       {
-        header: 'Item',
+        header: t('expenses_page.maintenance_table.item'),
         render: (row) => <span>{row.expDesc || row.expName}</span>,
       },
       {
-        header: 'Qty',
+        header: t('expenses_page.qty'),
         render: (row: ExpenseRecord) => {
           const qty = expenseLineQty(row);
           const unit = resolveEstablishedUnitForItem(row, itemsForCategory);
@@ -1471,7 +1473,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         cellClassName: 'text-right',
       },
       {
-        header: 'Amount',
+        header: t('expenses_page.form_amount'),
         render: (row) => {
           const stored = expenseLineAmountStored(row);
           const display = dreamMartDiscountEnabled ? dreamMartGrossFromNet(stored) : stored;
@@ -1484,7 +1486,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       ...(dreamMartDiscountEnabled
         ? [
             {
-              header: '15% Off',
+              header: t('expenses_page.15_off'),
               render: (row: ExpenseRecord) => {
                 const net = expenseLineAmountStored(row);
                 return <span className="font-semibold text-emerald-700">{formatExpenseTableAmount(net)}</span>;
@@ -1496,7 +1498,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           ]
         : []),
       {
-        header: 'Action',
+        header: t('expenses_page.action'),
         className: 'text-right',
         headerClassName: 'text-right',
         cellClassName: 'text-right',
@@ -1522,7 +1524,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       if (e.key === 'Escape') handleCancelAddSameItemAmount();
                     }}
                     className="w-20 px-2 py-1 text-sm rounded-lg border border-gray-200 focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary outline-none"
-                    placeholder="Qty"
+                    placeholder={t('expenses_page.qty')}
                     autoFocus
                   />
                   {needsUnitPick ? (
@@ -1533,7 +1535,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       }))}
                       value={addingUnitValue || null}
                       onChange={(val) => setAddingUnitValue((val as string) || '')}
-                      placeholder="Select unit"
+                      placeholder={t('expenses_page.select_unit')}
                       variant="compact"
                       clearable={false}
                       className="w-[8.5rem] min-w-[8.5rem] shrink-0 mt-0"
@@ -1550,11 +1552,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                         if (e.key === 'Escape') handleCancelAddSameItemAmount();
                       }}
                       className="min-w-[7rem] w-32 max-w-[10rem] px-2 py-1 text-sm rounded-lg border border-gray-200 focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary outline-none"
-                      placeholder={dreamMartDiscountEnabled ? 'Before 15% off' : 'Amount'}
+                      placeholder={dreamMartDiscountEnabled ? t('expenses_page.before_15_off') : t('expenses_page.form_amount')}
                     />
                     {dreamMartDiscountEnabled && addingAmountValue.trim() !== '' && Number.isFinite(parseExpenseAmount(addingAmountValue)) ? (
                       <span className="text-[10px] text-emerald-700 whitespace-nowrap">
-                        15% off: {formatExpenseTableAmount(computeDreamMartNetAmount(parseExpenseAmount(addingAmountValue)))}
+                        {t('expenses_page.15_off_2')} {formatExpenseTableAmount(computeDreamMartNetAmount(parseExpenseAmount(addingAmountValue)))}
                       </span>
                     ) : null}
                   </div>
@@ -1619,7 +1621,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       onClick={(e) => {
                         e.stopPropagation();
                         if (isTemplateRow) {
-                          toast.error('Template row cannot be deleted. Delete an existing dated entry instead.');
+                          toast.error(t('expenses_page.template_row_cannot_be_deleted_delete'));
                           return;
                         }
                         setExpenseToDelete(row);
@@ -1637,17 +1639,17 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         },
       },
     ],
-    [masterCategories, addingAmountForId, addingAmountValue, addingQtyValue, addingUnitValue, dreamMartDiscountEnabled, itemsForCategory, isSubmitting, isInventoryCategory, editingQtyForId, editingQtyValue, operations, selectedOperationId, totalForView],
+    [masterCategories, addingAmountForId, addingAmountValue, addingQtyValue, addingUnitValue, dreamMartDiscountEnabled, itemsForCategory, isSubmitting, isInventoryCategory, editingQtyForId, editingQtyValue, operations, selectedOperationId, totalForView, t],
   );
 
   const handleSaveQty = async (row: ExpenseRecord) => {
     if (!isInventoryCategory) {
-      toast.error('Stock updates apply only when Inventory is enabled on the main category.');
+      toast.error(t('expenses_page.stock_updates_apply_only_when_inventory'));
       return;
     }
     const qty = Number(editingQtyValue);
     if (!branchId || !Number.isFinite(qty) || qty < 0) {
-      toast.error('Enter a valid quantity');
+      toast.error(t('expenses_page.enter_a_valid_quantity'));
       return;
     }
     setIsSubmitting(true);
@@ -1658,10 +1660,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       setExpenses(filtered);
       setEditingQtyForId(null);
       setEditingQtyValue('');
-      toast.success('Inventory quantity updated');
+      toast.success(t('expenses_page.inventory_quantity_updated'));
     } catch (error) {
       console.error('Failed to update inventory qty:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to update quantity');
+      toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_update_quantity'));
     } finally {
       setIsSubmitting(false);
     }
@@ -1778,12 +1780,12 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         setEditingExpense(latestReal);
         setExpenseForm(toExpenseFormValues(latestReal));
         setIsExpensePanelOpen(true);
-        toast.success('Opened latest existing entry for this item.');
+        toast.success(t('expenses_page.opened_latest_existing_entry_for_this'));
         return;
       }
       // No historical real row found; fallback to add flow.
       handleStartAddSameItemAmount(row);
-      toast.error('No existing entry found to edit. Added as new item instead.');
+      toast.error(t('expenses_page.no_existing_entry_found_to_edit'));
       return;
     }
     setEditingExpense(row);
@@ -1803,11 +1805,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
     if (!branchId || !selectedCategory?.masterCategoryId) return;
     const amountForSave = parseExpenseAmount(expenseForm.expAmount);
     if (!Number.isFinite(amountForSave) || amountForSave < 0) {
-      toast.error('Enter a valid amount');
+      toast.error(t('expenses_page.enter_a_valid_amount'));
       return;
     }
     if (!expenseForm.unit.trim()) {
-      toast.error('Select a unit of measurement');
+      toast.error(t('expenses_page.select_a_unit_of_measurement'));
       return;
     }
     const qtyRaw = expenseForm.stockQty.trim();
@@ -1841,7 +1843,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
             }
           } catch (error) {
             console.error('Failed to update inventory qty after expense update:', error);
-            toast.error('Expense saved, but failed to update inventory stock.');
+            toast.error(t('expenses_page.expense_saved_but_failed_to_update'));
           }
         }
         const list = await loadExpenseList(branchId);
@@ -1858,7 +1860,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           unit: '',
           encodedDate: getManilaDateStr(new Date()),
         });
-        toast.success('Expense updated');
+        toast.success(t('expenses_page.expense_updated'));
       } else {
         const newId = await createExpense({
           branchId,
@@ -1880,7 +1882,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
             setExpenses(refreshed.filter((e) => String(e.branchId) === branchId));
           } catch (error) {
             console.error('Failed to update inventory qty after creating expense:', error);
-            toast.error('Expense saved, but failed to update inventory stock.');
+            toast.error(t('expenses_page.expense_saved_but_failed_to_update'));
           }
         }
         refreshExpenseAnalyticsFromServer();
@@ -1894,11 +1896,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           unit: '',
           encodedDate: getManilaDateStr(new Date()),
         });
-        toast.success('Expense added');
+        toast.success(t('expenses_page.expense_added'));
       }
     } catch (error) {
       console.error('Failed to save expense:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to save');
+      toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_save'));
     } finally {
       setIsSubmitting(false);
     }
@@ -1914,10 +1916,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       setExpenses(filtered);
       refreshExpenseAnalyticsFromServer();
       setExpenseToDelete(null);
-      toast.success('Expense deleted');
+      toast.success(t('expenses_page.expense_deleted'));
     } catch (error) {
       console.error('Failed to delete expense:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to delete');
+      toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_delete'));
     } finally {
       setIsSubmitting(false);
     }
@@ -1954,7 +1956,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
     if (isQtyOnlyRestock) {
       // Add qty to existing row only — no new expense, no duplicate
       if (!branchId || !row.id) {
-        toast.error('Cannot add quantity');
+        toast.error(t('expenses_page.cannot_add_quantity'));
         return;
       }
       setIsSubmitting(true);
@@ -1966,10 +1968,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         setAddingAmountValue('');
         setAddingQtyValue('');
         setAddingUnitValue('');
-        toast.success(`${qty} qty added to stock`);
+        toast.success(t('expenses_page.qty_added_to_stock', { qty }));
       } catch (error) {
         console.error('Failed to add qty:', error);
-        toast.error(error instanceof Error ? error.message : 'Failed to add quantity');
+        toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_add_quantity'));
       } finally {
         setIsSubmitting(false);
       }
@@ -1977,23 +1979,23 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
     }
 
     if (!branchId || !selectedCategory?.masterCategoryId || !Number.isFinite(amount) || amount < 0) {
-      toast.error('Enter a valid amount');
+      toast.error(t('expenses_page.enter_a_valid_amount'));
       return;
     }
     if (isInventoryCategory) {
       if (!hasQty) {
-        toast.error('Enter quantity for inventory restock');
+        toast.error(t('expenses_page.enter_quantity_for_inventory_restock'));
         return;
       }
       if (!Number.isFinite(qty) || qty < 0) {
-        toast.error('Enter a valid quantity');
+        toast.error(t('expenses_page.enter_a_valid_quantity'));
         return;
       }
     }
     const needsUnitPick = !expenseItemHasEstablishedUnit(row, itemsForCategory);
     if (needsUnitPick) {
       if (!hasQty || !Number.isFinite(qty) || qty < 0) {
-        toast.error('Enter quantity for first entry');
+        toast.error(t('expenses_page.enter_quantity_for_first_entry'));
         return;
       }
     }
@@ -2001,7 +2003,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       ? canonicalUomValue(addingUnitValue)
       : canonicalUomValue(resolveEstablishedUnitForItem(row, itemsForCategory));
     if (!expenseUnitTrimmed(unitForSave)) {
-      toast.error('Select a unit of measurement');
+      toast.error(t('expenses_page.select_a_unit_of_measurement'));
       return;
     }
     setIsSubmitting(true);
@@ -2023,7 +2025,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           await updateInventoryStock(String(newId), qty, branchId, true, unitForSave);
         } catch (error) {
           console.error('Failed to update inventory qty after adding amount:', error);
-          toast.error('Amount saved, but failed to update inventory stock.');
+          toast.error(t('expenses_page.amount_saved_but_failed_to_update'));
         }
       }
       const list = await loadExpenseList(branchId);
@@ -2034,10 +2036,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       setAddingAmountValue('');
       setAddingQtyValue('');
       setAddingUnitValue('');
-      toast.success('Amount added');
+      toast.success(t('expenses_page.amount_added'));
     } catch (error) {
       console.error('Failed to add amount:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to add');
+      toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_add'));
     } finally {
       setIsSubmitting(false);
     }
@@ -2061,7 +2063,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           ),
         );
         handleCloseOperationPanel();
-        toast.success('Operation updated');
+        toast.success(t('expenses_page.operation_updated'));
       } else {
         const newId = await createOperationCategory({
           branchId,
@@ -2081,11 +2083,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           },
         ]);
         handleCloseOperationPanel();
-        toast.success('Operation created');
+        toast.success(t('expenses_page.operation_created'));
       }
     } catch (error) {
       console.error('Failed to save operation category:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to save');
+      toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_save'));
     } finally {
       setIsSubmitting(false);
     }
@@ -2110,7 +2112,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         const filtered = apiCats.filter((c) => String(c.branchId) === branchId);
         setMasterCategories(filtered);
         handleCloseCategoryPanel();
-        toast.success('Category updated');
+        toast.success(t('expenses_page.category_updated'));
       } else {
         const payload: CreateInventoryCategoryPayload = {
           branchId,
@@ -2126,11 +2128,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         const filtered = apiCats.filter((c) => String(c.branchId) === branchId);
         setMasterCategories(filtered);
         handleCloseCategoryPanel();
-        toast.success('Category created');
+        toast.success(t('expenses_page.category_created'));
       }
     } catch (error) {
       console.error('Failed to save category:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to save');
+      toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_save'));
     } finally {
       setIsSubmitting(false);
     }
@@ -2147,10 +2149,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         setSelectedCategoryId(null);
       }
       setOperationToDelete(null);
-      toast.success('Operation deleted');
+      toast.success(t('expenses_page.operation_deleted'));
     } catch (error) {
       console.error('Failed to delete operation:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to delete');
+      toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_delete'));
     } finally {
       setIsSubmitting(false);
     }
@@ -2166,10 +2168,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       setMasterCategories(filtered);
       if (selectedCategoryId === categoryToDelete.id) setSelectedCategoryId(null);
       setCategoryToDelete(null);
-      toast.success('Category deleted');
+      toast.success(t('expenses_page.category_deleted'));
     } catch (error) {
       console.error('Failed to delete category:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to delete');
+      toast.error(error instanceof Error ? error.message : t('expenses_page.failed_to_delete'));
     } finally {
       setIsSubmitting(false);
     }
@@ -2329,7 +2331,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
     return (
       <div className="pt-6">
         <div className="bg-white rounded-2xl shadow-sm p-6 text-brand-muted font-bold">
-          Please select a specific branch (not “All Branches”) to manage expenses.
+          {t('expenses_page.please_select_a_specific_branch_not')}
         </div>
       </div>
     );
@@ -2421,7 +2423,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 navigateToSearchHit(hit, hit.itemName);
               }
             }}
-            placeholder="Search expense items..."
+            placeholder={t('expenses_page.search_expense_items')}
             className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-9 text-sm font-medium text-brand-text outline-none transition-shadow placeholder:text-brand-muted focus:border-brand-primary/40 focus:ring-2 focus:ring-brand-primary/15"
             aria-label="Global search expense items"
             autoComplete="off"
@@ -2446,7 +2448,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           {globalSearchOpen && globalSearch.trim() && (
             <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-40 max-h-72 overflow-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
               {globalSearchHits.length === 0 ? (
-                <div className="px-3 py-2.5 text-xs text-brand-muted">No matching items.</div>
+                <div className="px-3 py-2.5 text-xs text-brand-muted">{t('expenses_page.no_matching_items')}</div>
               ) : (
                 globalSearchHits.map((hit) => (
                   <button
@@ -2476,7 +2478,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-base font-bold text-white shadow-lg shadow-violet-600/20 transition-all hover:bg-violet-700 sm:w-auto"
         >
           <ScanLine size={18} />
-          Upload Receipt
+          {t('expenses_page.upload_receipt')}
         </button>
         <button
           type="button"
@@ -2484,7 +2486,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-700 px-6 py-2.5 text-base font-bold text-white shadow-lg shadow-slate-700/20 transition-all hover:bg-slate-800 sm:w-auto"
         >
           <History size={18} />
-          History
+          {t('expenses_page.history')}
         </button>
       </div>
 
@@ -2493,7 +2495,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-6 py-5 flex-1">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">Grand Total Expenses</div>
+                <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">{t('expenses_page.grand_total_expenses')}</div>
                 {isSpecificBranch && analyticsFinanceLoading ? (
                   <Skeleton className="h-9 w-40 mt-1 rounded-lg" />
                 ) : (
@@ -2514,16 +2516,16 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-6 py-5 flex-1">
             <div className="flex items-start gap-4 flex-wrap">
               <div className="min-w-0 flex-1">
-                <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">Selected Total</div>
+                <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">{t('expenses_page.selected_total')}</div>
                 <div className="text-2xl font-black tracking-tight text-brand-text mt-1">
                   {formatCurrency(totalForView)}
                 </div>
                 <div className="mt-1 text-[11px] text-brand-muted leading-snug">
                   <div
                     className="flex items-center gap-1 tabular-nums whitespace-nowrap"
-                    title={`${formatPercent(percentOf(totalForView, grandTotalDisplayed), 1)} of Grand Total Expenses`}
+                    title={t('expenses_page.pct_of_name', { pct: formatPercent(percentOf(totalForView, grandTotalDisplayed), 1), name: t('expenses_page.grand_total_expenses') })}
                   >
-                    <span>{formatPercent(percentOf(totalForView, grandTotalDisplayed), 1)} of Grand Total Expenses</span>
+                    <span>{formatPercent(percentOf(totalForView, grandTotalDisplayed), 1)} {t('expenses_page.of_grand_total_expenses')}</span>
                   </div>
                 </div>
               </div>
@@ -2533,10 +2535,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                   {selectedCategory ? (
                     <span
                       className="inline tabular-nums text-brand-muted font-black whitespace-nowrap"
-                      title={`${formatPercent(percentOf(totalForView, totalForSelectedMainCategory), 1)} of ${selectedOperation.name}`}
+                      title={t('expenses_page.pct_of_name', { pct: formatPercent(percentOf(totalForView, totalForSelectedMainCategory), 1), name: selectedOperation.name })}
                     >
                       {formatPercent(percentOf(totalForView, totalForSelectedMainCategory), 1)}{' '}
-                      <span className="font-semibold">of</span>{' '}
+                      <span className="font-semibold">{t('expenses_page.of')}</span>{' '}
                       <span className="font-semibold">{selectedOperation.name}</span>
                     </span>
                   ) : (
@@ -2549,7 +2551,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       </span>
                       <span className="shrink-0 tabular-nums text-brand-muted font-black whitespace-nowrap">
                         {formatPercent(percentOf(totalForSelectedMainCategory, grandTotalDisplayed), 1)}{' '}
-                        <span className="font-semibold">of Grand Total Expenses</span>
+                        <span className="font-semibold">{t('expenses_page.of_grand_total_expenses')}</span>
                       </span>
                     </div>
                   )}
@@ -2566,13 +2568,13 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">Expense Breakdown</div>
+              <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">{t('expenses_page.expense_breakdown')}</div>
               <div className="text-xs text-brand-muted mt-1">
                 {selectedCategory
                   ? `By table items • ${selectedCategory.name}`
                   : selectedOperation
                     ? `By sub category • ${selectedOperation.name}`
-                    : 'By main category'}
+                    : t('expenses_page.by_main_category')}
               </div>
             </div>
             {(selectedOperationId || selectedCategoryId) && (
@@ -2587,7 +2589,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 }}
                 className="px-3 py-1.5 rounded-lg text-xs font-bold text-brand-primary border border-brand-primary/30 hover:bg-brand-primary/5 transition-colors cursor-pointer"
               >
-                Back
+                {t('expenses_page.back')}
               </button>
             )}
           </div>
@@ -2595,7 +2597,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           <div className="mt-3 flex-1 w-full min-w-0 min-h-[210px] flex flex-col">
             {expenseBreakdown.rows.length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm text-brand-muted">
-                No data to display
+                {t('expenses_page.no_data_to_display')}
               </div>
             ) : (
               <div className="w-full">
@@ -2741,7 +2743,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         <div className="px-5 py-4 border-b border-gray-100">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-black tracking-wide text-brand-text uppercase">Main Category</div>
+              <div className="text-sm font-black tracking-wide text-brand-text uppercase">{t('expenses_page.main_category')}</div>
             
             </div>
             {canCreate('expenses') && (
@@ -2813,7 +2815,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         <div className="px-5 py-4 border-b border-gray-100">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-black tracking-wide text-brand-text uppercase">Sub Category</div>
+              <div className="text-sm font-black tracking-wide text-brand-text uppercase">{t('expenses_page.sub_category')}</div>
               
             </div>
             {canCreate('expenses') && (
@@ -2841,7 +2843,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 transition={{ duration: 0.18, ease: 'easeOut' }}
                 className="px-4 py-6 text-sm text-brand-muted"
               >
-                Select a Main Category first.
+                {t('expenses_page.select_a_main_category_first')}
               </motion.div>
             ) : (
               <motion.div
@@ -2853,7 +2855,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 className="space-y-1"
               >
                 {categoriesForOperation.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-brand-muted">No Sub Category.</div>
+                  <div className="px-4 py-6 text-sm text-brand-muted">{t('expenses_page.no_sub_category')}</div>
                 ) : (
                   categoriesForOperation.map((cat) => {
                     const active = cat.id === selectedCategoryId;
@@ -2940,7 +2942,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           <div className="px-6 py-5 border-b border-gray-100">
             <div className="flex items-end justify-between gap-4">
               <div>
-                <div className="text-sm font-black tracking-wide text-brand-text uppercase">Item List</div>
+                <div className="text-sm font-black tracking-wide text-brand-text uppercase">{t('expenses_page.item_list')}</div>
               </div>
               {selectedCategoryId && (
                 <div className="flex items-center gap-3">
@@ -2953,7 +2955,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       type="text"
                       value={tableSearch}
                       onChange={(e) => setTableSearch(e.target.value)}
-                      placeholder="Search item..."
+                      placeholder={t('expenses_page.search_item')}
                       className="bg-brand-bg border-none rounded-lg pl-8 pr-3 py-1.5 text-xs w-44 outline-none"
                     />
                   </div>
@@ -2964,7 +2966,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       className="bg-brand-primary text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-brand-primary/20 hover:bg-brand-primary/90 transition-all cursor-pointer"
                     >
                       <Plus size={16} />
-                      New Item
+                      {t('expenses_page.new_item')}
                     </button>
                   )}
                 </div>
@@ -2987,7 +2989,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                     transition={{ duration: 0.18, ease: 'easeOut' }}
                     className="px-6 py-10 text-sm text-brand-muted"
                   >
-                  Choose a Sub Category to load table items.
+                  {t('expenses_page.choose_a_sub_category_to_load')}
                   </motion.div>
                 ) : (
                   <motion.div
@@ -3049,7 +3051,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                             {pagedItems.length === 0 && (
                               <tr>
                                 <td colSpan={columns.length} className="px-6 py-8 text-center text-brand-muted">
-                                  No data
+                                  {t('expenses_page.no_data')}
                                 </td>
                               </tr>
                             )}
@@ -3060,9 +3062,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       {shouldPaginate && (
                         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-white">
                           <div className="text-sm text-brand-muted">
-                            Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{' '}
-                            {Math.min(currentPage * ITEMS_PER_PAGE, filteredItemsForCategory.length)} of {filteredItemsForCategory.length}{' '}
-                            entries
+                            {t('common.showing_entries', {
+                              from: (currentPage - 1) * ITEMS_PER_PAGE + 1,
+                              to: Math.min(currentPage * ITEMS_PER_PAGE, filteredItemsForCategory.length),
+                              total: filteredItemsForCategory.length,
+                            })}
                           </div>
                           <div className="flex items-center gap-2">
                             <button
@@ -3071,7 +3075,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                               disabled={currentPage === 1}
                               className="px-3 py-2 rounded-lg text-sm font-bold text-brand-muted hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent transition-colors cursor-pointer disabled:cursor-not-allowed"
                             >
-                              Prev
+                              {t('expenses_page.prev')}
                             </button>
                             <div className="px-3 py-2 rounded-lg text-sm font-black bg-brand-primary text-white">
                               {currentPage}
@@ -3082,7 +3086,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                               disabled={currentPage === totalPages}
                               className="px-3 py-2 rounded-lg text-sm font-bold text-brand-muted hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent transition-colors cursor-pointer disabled:cursor-not-allowed"
                             >
-                              Next
+                              {t('expenses_page.next')}
                             </button>
                           </div>
                         </div>
@@ -3101,7 +3105,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       <SidePanel
         isOpen={isOperationPanelOpen}
         onClose={handleCloseOperationPanel}
-        title={editingOperation ? 'Edit Main Category' : 'Add Main Category'}
+        title={editingOperation ? t('expenses_page.edit_main_category') : t('expenses_page.add_main_category')}
         footer={
           <div className="flex items-center justify-end gap-3">
             <button
@@ -3110,7 +3114,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="px-5 py-2.5 rounded-xl font-bold text-brand-muted hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               disabled={isSubmitting}
             >
-              Cancel
+              {t('expenses_page.cancel')}
             </button>
             <button
               type="button"
@@ -3118,34 +3122,34 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="px-6 py-2.5 rounded-xl font-bold text-white bg-brand-primary shadow-lg shadow-brand-primary/30 hover:bg-brand-primary/90 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
               disabled={isSubmitting || !operationForm.name.trim()}
             >
-              {isSubmitting ? 'Saving...' : editingOperation ? 'Update' : 'Save'}
+              {isSubmitting ? t('expenses_page.saving') : editingOperation ? t('expenses_page.update') : t('common.save')}
             </button>
           </div>
         }
       >
         <div className="space-y-5">
           <div className="space-y-3">
-            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">Name</label>
+            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">{t('expenses_page.name')}</label>
             <input
               type="text"
               value={operationForm.name}
               onChange={(e) => setOperationForm((prev) => ({ ...prev, name: e.target.value }))}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all"
-              placeholder="Operation name"
+              placeholder={t('expenses_page.operation_name')}
             />
           </div>
           <div className="space-y-3">
-            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">Description</label>
+            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">{t('expenses_page.form_description')}</label>
             <textarea
               value={operationForm.description}
               onChange={(e) => setOperationForm((prev) => ({ ...prev, description: e.target.value }))}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all min-h-[80px]"
-              placeholder="Optional description"
+              placeholder={t('expenses_page.optional_description')}
             />
           </div>
           <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
             <label htmlFor="operation-state" className="text-sm font-medium text-brand-text cursor-pointer select-none">
-              Inventory
+              {t('expenses_page.inventory')}
             </label>
             <label htmlFor="operation-state" className="relative inline-flex items-center cursor-pointer select-none">
               <input
@@ -3166,7 +3170,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       <SidePanel
         isOpen={isCategoryPanelOpen}
         onClose={handleCloseCategoryPanel}
-        title={editingCategory ? 'Edit Sub Category' : 'Add Sub Category'}
+        title={editingCategory ? t('expenses_page.edit_sub_category') : t('expenses_page.add_sub_category')}
         footer={
           <div className="flex items-center justify-end gap-3">
             <button
@@ -3175,7 +3179,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="px-5 py-2.5 rounded-xl font-bold text-brand-muted hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               disabled={isSubmitting}
             >
-              Cancel
+              {t('expenses_page.cancel')}
             </button>
             <button
               type="button"
@@ -3183,29 +3187,29 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="px-6 py-2.5 rounded-xl font-bold text-white bg-brand-primary shadow-lg shadow-brand-primary/30 hover:bg-brand-primary/90 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
               disabled={isSubmitting || !categoryForm.name.trim() || !branchId}
             >
-              {isSubmitting ? 'Saving...' : editingCategory ? 'Update' : 'Save'}
+              {isSubmitting ? t('expenses_page.saving') : editingCategory ? t('expenses_page.update') : t('common.save')}
             </button>
           </div>
         }
       >
         <div className="space-y-5">
           <div className="space-y-3">
-            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">Sub category name</label>
+            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">{t('expenses_page.sub_category_name')}</label>
             <input
               type="text"
               value={categoryForm.name}
               onChange={(e) => setCategoryForm((prev) => ({ ...prev, name: e.target.value }))}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all"
-              placeholder="Sub category name"
+              placeholder={t('expenses_page.sub_category_name')}
             />
           </div>
           <div className="space-y-3">
-            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">Description</label>
+            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">{t('expenses_page.form_description')}</label>
             <textarea
               value={categoryForm.description}
               onChange={(e) => setCategoryForm((prev) => ({ ...prev, description: e.target.value }))}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all min-h-[80px]"
-              placeholder="Optional description"
+              placeholder={t('expenses_page.optional_description')}
             />
           </div>
           <div className="flex items-center gap-3">
@@ -3217,7 +3221,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="h-4 w-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary/20"
             />
             <label htmlFor="category-manual-stock" className="text-sm font-medium text-brand-text cursor-pointer">
-              Enable manual stock adjustment (e.g. for seasonings not in menu)
+              {t('expenses_page.enable_manual_stock_adjustment_e_g')}
             </label>
           </div>
         </div>
@@ -3227,7 +3231,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       <Modal
         isOpen={!!operationToDelete}
         onClose={() => !isSubmitting && setOperationToDelete(null)}
-        title="Delete Operation"
+        title={t('expenses_page.delete_operation')}
         maxWidth="sm"
         footer={
           <div className="flex items-center justify-end gap-3">
@@ -3237,7 +3241,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               disabled={isSubmitting}
               className="px-5 py-2.5 rounded-xl font-bold text-brand-muted hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              Cancel
+              {t('expenses_page.cancel')}
             </button>
             <button
               type="button"
@@ -3245,15 +3249,14 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               disabled={isSubmitting}
               className="px-6 py-2.5 rounded-xl font-bold text-white bg-red-500 shadow-lg shadow-red-500/30 hover:bg-red-600 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
-              {isSubmitting ? 'Deleting...' : 'Delete'}
+              {isSubmitting ? t('expenses_page.deleting') : t('common.delete')}
             </button>
           </div>
         }
       >
         <div className="space-y-3">
           <p className="text-brand-muted text-sm">
-            Are you sure you want to delete the operation <span className="font-bold text-brand-text">{operationToDelete?.name}</span>?
-            This will not delete its categories or expense records.
+            {t('expenses_page.are_you_sure_you_want_to')} <span className="font-bold text-brand-text">{operationToDelete?.name}</span>{t('expenses_page.this_will_not_delete_its_categories')}
           </p>
         </div>
       </Modal>
@@ -3262,7 +3265,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       <Modal
         isOpen={!!categoryToDelete}
         onClose={() => !isSubmitting && setCategoryToDelete(null)}
-        title="Delete Category"
+        title={t('expenses_page.delete_category')}
         maxWidth="sm"
         footer={
           <div className="flex items-center justify-end gap-3">
@@ -3272,7 +3275,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               disabled={isSubmitting}
               className="px-5 py-2.5 rounded-xl font-bold text-brand-muted hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              Cancel
+              {t('expenses_page.cancel')}
             </button>
             <button
               type="button"
@@ -3280,15 +3283,14 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               disabled={isSubmitting}
               className="px-6 py-2.5 rounded-xl font-bold text-white bg-red-500 shadow-lg shadow-red-500/30 hover:bg-red-600 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
-              {isSubmitting ? 'Deleting...' : 'Delete'}
+              {isSubmitting ? t('expenses_page.deleting') : t('common.delete')}
             </button>
           </div>
         }
       >
         <div className="space-y-3">
           <p className="text-brand-muted text-sm">
-            Are you sure you want to delete the category <span className="font-bold text-brand-text">{categoryToDelete?.name}</span>?
-            Expense entries under this category will remain but may show as uncategorized.
+            {t('expenses_page.are_you_sure_you_want_to_2')} <span className="font-bold text-brand-text">{categoryToDelete?.name}</span>{t('expenses_page.expense_entries_under_this_category_will')}
           </p>
         </div>
       </Modal>
@@ -3297,7 +3299,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       <SidePanel
         isOpen={isExpensePanelOpen}
         onClose={handleCloseExpensePanel}
-        title={editingExpense ? 'Edit Expense' : 'Add Expense'}
+        title={editingExpense ? t('expenses_page.table.edit_title') : t('expenses_page.add_expense')}
         footer={
           <div className="flex items-center justify-end gap-3">
             <button
@@ -3306,7 +3308,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="px-5 py-2.5 rounded-xl font-bold text-brand-muted hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               disabled={isSubmitting}
             >
-              Cancel
+              {t('expenses_page.cancel')}
             </button>
             <button
               type="button"
@@ -3320,25 +3322,25 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="px-6 py-2.5 rounded-xl font-bold text-white bg-brand-primary shadow-lg shadow-brand-primary/30 hover:bg-brand-primary/90 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
               {isSubmitting && <Loader2 size={16} className="animate-spin" />}
-              {editingExpense ? 'Update' : 'Save'}
+              {editingExpense ? t('expenses_page.update') : t('common.save')}
             </button>
           </div>
         }
       >
         <div className="space-y-5">
           <div className="space-y-3">
-            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">Item / Description</label>
+            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">{t('expenses_page.item_description')}</label>
             <input
               type="text"
               value={expenseForm.expDesc}
               onChange={(e) => setExpenseForm((prev) => ({ ...prev, expDesc: e.target.value }))}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all"
-              placeholder="Item or description"
+              placeholder={t('expenses_page.item_or_description')}
             />
           </div>
           <div className="space-y-3">
             <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">
-              Amount *{dreamMartDiscountEnabled ? ' (before 15% off)' : ''}
+              {t('expenses_page.amount')}{dreamMartDiscountEnabled ? t('expenses_page.before_15_off_2') : ''}
             </label>
             <input
               type="text"
@@ -3348,17 +3350,17 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 setExpenseForm((prev) => ({ ...prev, expAmount: formatExpenseAmountInput(e.target.value) }));
               }}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all"
-              placeholder={dreamMartDiscountEnabled ? 'Before 15% off' : '0.00'}
+              placeholder={dreamMartDiscountEnabled ? t('expenses_page.before_15_off') : '0.00'}
             />
             {dreamMartDiscountEnabled && expenseForm.expAmount.trim() !== '' && Number.isFinite(parseExpenseAmount(expenseForm.expAmount)) ? (
               <p className="text-xs text-emerald-700 font-medium">
-                After 15% off: {formatExpenseTableAmount(computeDreamMartNetAmount(parseExpenseAmount(expenseForm.expAmount)))}
+                {t('expenses_page.after_15_off')} {formatExpenseTableAmount(computeDreamMartNetAmount(parseExpenseAmount(expenseForm.expAmount)))}
               </p>
             ) : null}
           </div>
           <div className="space-y-3">
             <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">
-              Unit <span className="text-red-500">*</span>
+              {t('expenses_page.unit')} <span className="text-red-500">*</span>
             </label>
             <Select2
               options={UOM_OPTIONS.map((u) => ({
@@ -3369,13 +3371,13 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               onChange={(val) =>
                 setExpenseForm((prev) => ({ ...prev, unit: (val as string) || '' }))
               }
-              placeholder="Select unit"
+              placeholder={t('expenses_page.select_unit')}
               className="mt-0"
             />
           </div>
           <div className="space-y-3">
             <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">
-              Qty
+              {t('expenses_page.qty')}
               {expenseFormUnit ? (
                 <span className="text-brand-muted font-normal normal-case"> — {getUnitLabel(expenseFormUnit)}</span>
               ) : null}
@@ -3397,7 +3399,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           </div>
           <div className="space-y-3">
             <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">
-              Encoded Date
+              {t('expenses_page.encoded_date')}
             </label>
             <input
               type="date"
@@ -3407,13 +3409,13 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
             />
           </div>
           <div className="space-y-3">
-            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">Source (optional)</label>
+            <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">{t('expenses_page.source_optional')}</label>
             <input
               type="text"
               value={expenseForm.expSource}
               onChange={(e) => setExpenseForm((prev) => ({ ...prev, expSource: e.target.value }))}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all"
-              placeholder="e.g. receipt, vendor"
+              placeholder={t('expenses_page.e_g_receipt_vendor')}
             />
           </div>
         </div>
@@ -3422,7 +3424,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       <Modal
         isOpen={isReceiptModalOpen}
         onClose={closeReceiptModal}
-        title="Receipt scanner → Expenses"
+        title={t('expenses_page.receipt_scanner_expenses')}
         maxWidth="4xl"
         footer={
           <div className="flex items-center justify-between gap-3">
@@ -3434,7 +3436,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 disabled={receiptUploadLoading || receiptExtractLoading || receiptSendLoading}
                 className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Close
+                {t('common.close')}
               </button>
               <button
                 type="button"
@@ -3449,7 +3451,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 className="inline-flex items-center gap-2 rounded-xl bg-brand-primary px-4 py-2 text-sm font-bold text-white shadow-lg shadow-brand-primary/20 hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {receiptSendLoading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                Save to Expenses
+                {t('expenses_page.save_to_expenses')}
               </button>
             </div>
           </div>
@@ -3467,7 +3469,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 >
                   1
                 </span>
-                <span>Scan</span>
+                <span>{t('expenses_page.scan')}</span>
               </div>
               <div className="h-px w-10 bg-gray-200" />
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-brand-muted">
@@ -3479,7 +3481,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 >
                   2
                 </span>
-                <span>Preview</span>
+                <span>{t('expenses_page.preview')}</span>
               </div>
               <div className="h-px w-10 bg-gray-200" />
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-brand-muted">
@@ -3493,7 +3495,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 >
                   3
                 </span>
-                <span>Submit</span>
+                <span>{t('expenses_page.submit')}</span>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -3503,7 +3505,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                   uploadedReceiptPath ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-brand-muted',
                 )}
               >
-                {uploadedReceiptPath ? 'Saved' : 'Not saved'}
+                {uploadedReceiptPath ? t('expenses_page.saved') : t('expenses_page.not_saved')}
               </span>
               <span
                 className={cn(
@@ -3513,7 +3515,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                     : 'border-gray-200 bg-gray-50 text-brand-muted',
                 )}
               >
-                {receiptExtractResult?.items?.length ? `${receiptExtractResult.items.length} items` : 'Not extracted'}
+                {receiptExtractResult?.items?.length ? `${receiptExtractResult.items.length} items` : t('expenses_page.not_extracted')}
               </span>
             </div>
           </div>
@@ -3528,7 +3530,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                     <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-xl border border-brand-primary/10 bg-brand-primary/10">
                       <Receipt size={14} className="text-brand-primary" />
                     </div>
-                    <div className="text-sm font-black text-brand-text">Drop your receipt here</div>
+                    <div className="text-sm font-black text-brand-text">{t('expenses_page.drop_your_receipt_here')}</div>
                   </div>
                   <input
                     type="date"
@@ -3544,7 +3546,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-primary/10 bg-brand-primary/10">
                         <ScanLine size={20} className="text-brand-primary" />
                       </div>
-                      <div className="mt-4 text-2xl font-black tracking-tight text-brand-text">Drop your receipt here</div>
+                      <div className="mt-4 text-2xl font-black tracking-tight text-brand-text">{t('expenses_page.drop_your_receipt_here')}</div>
                       <div className="mt-5 flex justify-center">
                         <label
                           className={cn(
@@ -3564,7 +3566,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                               files.forEach((f) => void handleReceiptFilePicked(f));
                             }}
                           />
-                          Browse file
+                          {t('expenses_page.browse_file')}
                         </label>
                       </div>
                     </div>
@@ -3578,11 +3580,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                         className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-brand-primary px-4 py-2 text-sm font-black text-white hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {receiptScanLoading ? <Loader2 size={16} className="animate-spin" /> : <ScanLine size={16} />}
-                        Scan receipt
+                        {t('expenses_page.scan_receipt')}
                       </button>
                       <div className="inline-flex min-w-0 items-center gap-3 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-xs text-brand-muted">
                         <span>
-                          <span className="font-black uppercase tracking-wide">Segments</span>: {receiptSegments.length}
+                          <span className="font-black uppercase tracking-wide">{t('expenses_page.segments')}</span>: {receiptSegments.length}
                         </span>
                         <button
                           type="button"
@@ -3595,7 +3597,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                           disabled={receiptScanLoading || receiptExtractLoading || receiptSendLoading}
                           className="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          Clear
+                          {t('expenses_page.clear')}
                         </button>
                       </div>
                     </div>
@@ -3614,7 +3616,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       {receiptFileError
                         ? receiptFileError
                         : receiptUploadLoading
-                          ? 'Saving receipt (WebP)…'
+                          ? t('expenses_page.saving_receipt_webp')
                           : uploadedReceiptPath
                             ? `Saved: ${uploadedReceiptPath}`
                             : ''}
@@ -3636,7 +3638,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                       <div className="flex h-6 w-6 items-center justify-center rounded-xl border border-gray-900/10 bg-gray-900/5">
                         <Receipt size={14} className="text-brand-muted" />
                       </div>
-                      <div className="text-sm font-black text-brand-text">Preview</div>
+                      <div className="text-sm font-black text-brand-text">{t('expenses_page.preview')}</div>
                     </div>
                     <div />
                   </div>
@@ -3646,16 +3648,16 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                         type="button"
                         onClick={() => setReceiptPreviewLightboxOpen(true)}
                         className="group relative w-full shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40"
-                        title="View full receipt"
+                        title={t('expenses_page.view_full_receipt')}
                       >
                         <img src={receiptScannedImage} alt="Receipt preview" className="block h-auto w-full" />
                         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 via-black/20 to-transparent px-3 py-3 opacity-0 transition-opacity group-hover:opacity-100">
-                          <span className="text-xs font-bold text-white drop-shadow-sm">Click to open full receipt</span>
+                          <span className="text-xs font-bold text-white drop-shadow-sm">{t('expenses_page.click_to_open_full_receipt')}</span>
                         </div>
                       </button>
                     ) : (
                       <div className="flex min-h-[8rem] flex-1 items-center justify-center rounded-2xl border border-dashed border-gray-200 p-10 text-center text-sm text-brand-muted">
-                        Preview will appear after you scan.
+                        {t('expenses_page.preview_will_appear_after_you_scan')}
                       </div>
                     )}
                   </div>
@@ -3670,10 +3672,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 <div className="flex h-6 w-6 items-center justify-center rounded-xl border border-emerald-500/10 bg-emerald-500/10">
                   <Check size={14} className="text-emerald-600" />
                 </div>
-                <div className="text-sm font-black text-brand-text">Extracted items</div>
+                <div className="text-sm font-black text-brand-text">{t('expenses_page.extracted_items')}</div>
               </div>
               {receiptExtractResult?.items?.length ? (
-                <div className="text-xs text-brand-muted">{receiptExtractResult.items.length} item(s)</div>
+                <div className="text-xs text-brand-muted">{receiptExtractResult.items.length} {t('expenses_page.item_s')}</div>
               ) : (
                 <div />
               )}
@@ -3684,11 +3686,11 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                   <table className="min-w-full text-sm">
                     <thead className="sticky top-0 z-[1] border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-brand-muted shadow-[0_1px_0_0_rgb(15_23_42/0.06)]">
                       <tr>
-                        <th className="bg-gray-50 px-4 py-3 text-left">Name</th>
-                        <th className="bg-gray-50 px-4 py-3 text-left">Category</th>
-                        <th className="bg-gray-50 px-4 py-3 text-right">Qty</th>
-                        <th className="bg-gray-50 px-4 py-3 text-left">Unit</th>
-                        <th className="bg-gray-50 px-4 py-3 text-right">Price</th>
+                        <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.name')}</th>
+                        <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.form_category')}</th>
+                        <th className="bg-gray-50 px-4 py-3 text-right">{t('expenses_page.qty')}</th>
+                        <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.unit')}</th>
+                        <th className="bg-gray-50 px-4 py-3 text-right">{t('expenses_page.price')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3699,7 +3701,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                           </td>
                           <td className="px-4 py-3 text-brand-muted">
                             <span className="inline-flex rounded-lg border border-gray-200 bg-gray-100 px-2 py-1 text-[11px] font-bold">
-                              {String(it.category || '').trim() || 'Others'}
+                              {String(it.category || '').trim() || t('expenses_page.others')}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums">{Number(it.qty || 0) || 0}</td>
@@ -3715,14 +3717,14 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                   </table>
                 </div>
                 <div className="flex shrink-0 items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/90 px-5 py-3">
-                  <span className="text-xs font-black uppercase tracking-wide text-brand-muted">Total</span>
+                  <span className="text-xs font-black uppercase tracking-wide text-brand-muted">{t('expenses_page.total')}</span>
                   <span className="text-base font-black tabular-nums text-brand-text">
                     {formatCurrency(Number(receiptExtractResult.receipt_grand_total || 0))}
                   </span>
                 </div>
               </>
             ) : (
-              <div className="p-5 text-sm text-brand-muted">No extracted items yet.</div>
+              <div className="p-5 text-sm text-brand-muted">{t('expenses_page.no_extracted_items_yet')}</div>
             )}
           </div>
         </div>
@@ -3734,7 +3736,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           if (receiptHistoryDetailOpen) return;
           setReceiptHistoryOpen(false);
         }}
-        title="Receipt History"
+        title={t('expenses_page.receipt_history')}
         maxWidth="4xl"
         containerClassName="items-start pt-10"
         footer={
@@ -3744,7 +3746,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               onClick={() => setReceiptHistoryOpen(false)}
               className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold hover:bg-gray-50"
             >
-              Close
+              {t('common.close')}
             </button>
           </div>
         }
@@ -3758,10 +3760,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
 
           <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
-              <div className="text-sm font-black text-brand-text">Scanned receipts</div>
+              <div className="text-sm font-black text-brand-text">{t('expenses_page.scanned_receipts')}</div>
               <div className="flex flex-wrap items-center gap-3">
                 <label className="text-[11px] font-black uppercase tracking-wide text-brand-muted">
-                  Source
+                  {t('expenses_page.source')}
                 </label>
                 <select
                   value={receiptHistorySourceFilter}
@@ -3770,12 +3772,12 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                   }
                   className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-brand-text"
                 >
-                  <option value="all">All</option>
+                  <option value="all">{t('expenses_page.all')}</option>
                   <option value="resto_admin">Resto Admin</option>
                   <option value="receiptlens">ReceiptLens</option>
                 </select>
                 <label className="text-[11px] font-black uppercase tracking-wide text-brand-muted">
-                  Page length
+                  {t('expenses_page.page_length')}
                 </label>
                 <select
                   value={String(receiptHistoryPageSize)}
@@ -3789,7 +3791,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                   ))}
                 </select>
                 <div className="text-xs text-brand-muted">
-                  {receiptHistoryLoading ? 'Loading…' : `${receiptHistoryRowsInRange.length} record(s)`}
+                  {receiptHistoryLoading ? t('expenses_page.loading') : `${receiptHistoryRowsInRange.length} record(s)`}
                 </div>
               </div>
             </div>
@@ -3797,17 +3799,17 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               <table className="min-w-full text-sm">
                 <thead className="sticky top-0 z-[1] border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-brand-muted">
                   <tr>
-                    <th className="bg-gray-50 px-4 py-3 text-left">Date</th>
-                    <th className="bg-gray-50 px-4 py-3 text-left">Source</th>
-                    <th className="bg-gray-50 px-4 py-3 text-right">Total</th>
-                    <th className="bg-gray-50 px-4 py-3 text-right">Actions</th>
+                    <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.form_date')}</th>
+                    <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.source')}</th>
+                    <th className="bg-gray-50 px-4 py-3 text-right">{t('expenses_page.total')}</th>
+                    <th className="bg-gray-50 px-4 py-3 text-right">{t('expenses_page.table.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {receiptHistoryLoading ? (
                     <tr>
                       <td className="px-4 py-6 text-center text-sm text-brand-muted" colSpan={4}>
-                        Loading…
+                        {t('expenses_page.loading')}
                       </td>
                     </tr>
                   ) : receiptHistoryRowsInRange.length ? (
@@ -3830,7 +3832,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                             className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold hover:bg-gray-50"
                           >
                             <Eye size={14} />
-                            View
+                            {t('expenses_page.view')}
                           </button>
                         </td>
                       </tr>
@@ -3838,7 +3840,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                   ) : (
                     <tr>
                       <td className="px-4 py-6 text-center text-sm text-brand-muted" colSpan={4}>
-                        No history yet.
+                        {t('expenses_page.no_history_yet')}
                       </td>
                     </tr>
                   )}
@@ -3855,7 +3857,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           setReceiptHistoryDetailOpen(false);
           setReceiptHistoryDetail(null);
         }}
-        title="Receipt Detail"
+        title={t('expenses_page.receipt_detail')}
         maxWidth="5xl"
         footer={
           <div className="flex items-center justify-end gap-2">
@@ -3867,19 +3869,19 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               }}
               className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold hover:bg-gray-50"
             >
-              Close
+              {t('common.close')}
             </button>
           </div>
         }
       >
         <div className="space-y-4">
           {receiptHistoryDetailLoading ? (
-            <div className="text-sm text-brand-muted">Loading…</div>
+            <div className="text-sm text-brand-muted">{t('expenses_page.loading')}</div>
           ) : receiptHistoryDetail ? (
             <>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:items-stretch">
                 <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm flex flex-col min-h-0 lg:h-[60vh]">
-                  <div className="border-b border-gray-100 px-5 py-4 text-sm font-black text-brand-text shrink-0">Receipt</div>
+                  <div className="border-b border-gray-100 px-5 py-4 text-sm font-black text-brand-text shrink-0">{t('expenses_page.receipt')}</div>
                   <div className="custom-scrollbar flex-1 min-h-0 overflow-auto bg-slate-50 p-4">
                     {receiptHistoryDetail.receiptImageDisplayUrl ? (
                       <a
@@ -3887,7 +3889,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                         target="_blank"
                         rel="noreferrer"
                         className="group relative block overflow-hidden rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40"
-                        title="Open receipt in new tab"
+                        title={t('expenses_page.open_receipt_in_new_tab')}
                       >
                         <img
                           src={receiptHistoryDetail.receiptImageDisplayUrl}
@@ -3895,12 +3897,12 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                           className="mx-auto block h-auto w-full max-w-full"
                         />
                         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 via-black/20 to-transparent px-3 py-3 opacity-0 transition-opacity group-hover:opacity-100">
-                          <span className="text-xs font-bold text-white drop-shadow-sm">Click to view</span>
+                          <span className="text-xs font-bold text-white drop-shadow-sm">{t('expenses_page.click_to_view')}</span>
                         </div>
                       </a>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-gray-200 p-10 text-center text-sm text-brand-muted">
-                        No receipt image.
+                        {t('expenses_page.no_receipt_image')}
                       </div>
                     )}
                   </div>
@@ -3908,7 +3910,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
 
                 <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm flex flex-col min-h-0 lg:h-[60vh]">
                   <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-                    <div className="text-sm font-black text-brand-text">Expenses created</div>
+                    <div className="text-sm font-black text-brand-text">{t('expenses_page.expenses_created')}</div>
                     <div className="text-xs text-brand-muted">
                       {(() => {
                         const key = String(receiptHistoryDetail.receiptImagePath || '');
@@ -3924,7 +3926,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                     if (!rows.length) {
                       return (
                         <div className="h-full flex items-center justify-center p-5 text-sm text-brand-muted">
-                          No matching expenses found for this receipt in the current list.
+                          {t('expenses_page.no_matching_expenses_found_for_this')}
                         </div>
                       );
                     }
@@ -3940,10 +3942,10 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                           <table className="min-w-full text-sm">
                             <thead className="sticky top-0 z-[1] border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-brand-muted">
                               <tr>
-                                <th className="bg-gray-50 px-4 py-3 text-left">Name</th>
-                                <th className="bg-gray-50 px-4 py-3 text-right">Qty</th>
-                                <th className="bg-gray-50 px-4 py-3 text-left">Unit</th>
-                                <th className="bg-gray-50 px-4 py-3 text-right">Amount</th>
+                                <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.name')}</th>
+                                <th className="bg-gray-50 px-4 py-3 text-right">{t('expenses_page.qty')}</th>
+                                <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.unit')}</th>
+                                <th className="bg-gray-50 px-4 py-3 text-right">{t('expenses_page.form_amount')}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -3971,7 +3973,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                         </div>
 
                         <div className="flex shrink-0 items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/90 px-5 py-3">
-                          <span className="text-xs font-black uppercase tracking-wide text-brand-muted">Total</span>
+                          <span className="text-xs font-black uppercase tracking-wide text-brand-muted">{t('expenses_page.total')}</span>
                           <span className="text-base font-black tabular-nums text-brand-text">{formatCurrency(total)}</span>
                         </div>
                       </div>
@@ -3982,7 +3984,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               </div>
             </>
           ) : (
-            <div className="text-sm text-brand-muted">No data.</div>
+            <div className="text-sm text-brand-muted">{t('expenses_page.no_data_2')}</div>
           )}
         </div>
       </Modal>
@@ -3993,7 +3995,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
           if (receiptSendLoading || receiptUploadLoading) return;
           setReceiptSaveConfirmOpen(false);
         }}
-        title="Are you sure you want to add in expense?"
+        title={t('expenses_page.are_you_sure_you_want_to_3')}
         maxWidth="3xl"
         footer={
           <div className="flex items-center justify-end gap-2">
@@ -4003,7 +4005,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               disabled={receiptSendLoading || receiptUploadLoading}
               className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Cancel
+              {t('expenses_page.cancel')}
             </button>
             <button
               type="button"
@@ -4012,14 +4014,14 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="inline-flex items-center gap-2 rounded-xl bg-brand-primary px-4 py-2 text-sm font-bold text-white shadow-lg shadow-brand-primary/20 hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {receiptSendLoading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-              Confirm
+              {t('expenses_page.confirm')}
             </button>
           </div>
         }
       >
         <div className="space-y-4 text-sm text-brand-text">
           <div>
-            <div className="text-[11px] font-black uppercase tracking-wide text-brand-muted">Encoded date</div>
+            <div className="text-[11px] font-black uppercase tracking-wide text-brand-muted">{t('expenses_page.encoded_date_2')}</div>
             <div className="mt-1 font-semibold">{receiptSaveEncodedDateLabel}</div>
           </div>
           {receiptExtractResult?.items?.length ? (
@@ -4029,19 +4031,19 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                   <div className="flex h-6 w-6 items-center justify-center rounded-xl border border-emerald-500/10 bg-emerald-500/10">
                     <Check size={14} className="text-emerald-600" />
                   </div>
-                  <div className="text-sm font-black text-brand-text">Extracted items</div>
+                  <div className="text-sm font-black text-brand-text">{t('expenses_page.extracted_items')}</div>
                 </div>
-                <div className="text-xs text-brand-muted">{receiptExtractResult.items.length} item(s)</div>
+                <div className="text-xs text-brand-muted">{receiptExtractResult.items.length} {t('expenses_page.item_s')}</div>
               </div>
               <div className="custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto">
                 <table className="min-w-full text-sm">
                   <thead className="sticky top-0 z-[1] border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-brand-muted shadow-[0_1px_0_0_rgb(15_23_42/0.06)]">
                     <tr>
-                      <th className="bg-gray-50 px-4 py-3 text-left">Name</th>
-                      <th className="bg-gray-50 px-4 py-3 text-left">Category</th>
-                      <th className="bg-gray-50 px-4 py-3 text-right">Qty</th>
-                      <th className="bg-gray-50 px-4 py-3 text-left">Unit</th>
-                      <th className="bg-gray-50 px-4 py-3 text-right">Price</th>
+                      <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.name')}</th>
+                      <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.form_category')}</th>
+                      <th className="bg-gray-50 px-4 py-3 text-right">{t('expenses_page.qty')}</th>
+                      <th className="bg-gray-50 px-4 py-3 text-left">{t('expenses_page.unit')}</th>
+                      <th className="bg-gray-50 px-4 py-3 text-right">{t('expenses_page.price')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4052,7 +4054,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                         </td>
                         <td className="px-4 py-3 text-brand-muted">
                           <span className="inline-flex rounded-lg border border-gray-200 bg-gray-100 px-2 py-1 text-[11px] font-bold">
-                            {String(it.category || '').trim() || 'Others'}
+                            {String(it.category || '').trim() || t('expenses_page.others')}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">{Number(it.qty || 0) || 0}</td>
@@ -4068,7 +4070,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 </table>
               </div>
               <div className="flex shrink-0 items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/90 px-5 py-3">
-                <span className="text-xs font-black uppercase tracking-wide text-brand-muted">Total</span>
+                <span className="text-xs font-black uppercase tracking-wide text-brand-muted">{t('expenses_page.total')}</span>
                 <span className="text-base font-black tabular-nums text-brand-text">
                   {formatCurrency(Number(receiptExtractResult.receipt_grand_total || 0))}
                 </span>
@@ -4103,13 +4105,13 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
             >
               <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-5 py-4">
                 <h3 id="receipt-preview-lightbox-title" className="text-lg font-bold text-brand-text">
-                  Receipt Preview
+                  {t('expenses_page.receipt_preview')}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setReceiptPreviewLightboxOpen(false)}
                   className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-50 text-brand-muted transition-colors hover:bg-red-50 hover:text-red-500"
-                  title="Close"
+                  title={t('common.close')}
                 >
                   <X size={18} />
                 </button>
@@ -4125,7 +4127,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       <Modal
         isOpen={breakdownDetailModal !== null}
         onClose={() => setBreakdownDetailModal(null)}
-        title={breakdownDetailModal?.title ?? 'Expense items'}
+        title={breakdownDetailModal?.title ?? t('expenses_page.expense_items')}
         maxWidth="3xl"
         bodyClassName="p-0"
         footer={
@@ -4133,8 +4135,8 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
             <div className="text-sm text-brand-muted">
               {breakdownDetailModal ? (
                 <>
-                  <span className="font-bold text-brand-text">{breakdownDetailModal.expenses.length}</span> item
-                  {breakdownDetailModal.expenses.length === 1 ? '' : 's'}
+                  <span className="font-bold text-brand-text">{breakdownDetailModal.expenses.length}</span>{' '}
+                  {t('expenses_page.items_label', { count: breakdownDetailModal.expenses.length })}
                   {breakdownDetailModal.subtitle ? (
                     <span className="ml-2">• {breakdownDetailModal.subtitle}</span>
                   ) : null}
@@ -4144,7 +4146,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
             <div className="flex items-center gap-3">
               {breakdownDetailModal ? (
                 <span className="text-sm font-black tabular-nums text-brand-text">
-                  Total {formatCurrency(breakdownDetailModal.total)}
+                  {t('expenses_page.total')} {formatCurrency(breakdownDetailModal.total)}
                 </span>
               ) : null}
               <button
@@ -4152,7 +4154,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
                 onClick={() => setBreakdownDetailModal(null)}
                 className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold hover:bg-gray-50 cursor-pointer"
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
           </div>
@@ -4161,14 +4163,14 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
         {breakdownDetailModal ? (
           <div className="custom-scrollbar max-h-[min(60vh,520px)] overflow-auto">
             {breakdownDetailModal.expenses.length === 0 ? (
-              <div className="px-6 py-10 text-center text-sm text-brand-muted">No expense items in this range.</div>
+              <div className="px-6 py-10 text-center text-sm text-brand-muted">{t('expenses_page.no_expense_items_in_this_range')}</div>
             ) : (
               <table className="min-w-full text-sm">
                 <thead className="sticky top-0 z-[1] border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-brand-muted">
                   <tr>
-                    <th className="bg-gray-50 px-5 py-3 text-left">Date</th>
-                    <th className="bg-gray-50 px-5 py-3 text-left">Item</th>
-                    <th className="bg-gray-50 px-5 py-3 text-right">Amount</th>
+                    <th className="bg-gray-50 px-5 py-3 text-left">{t('expenses_page.form_date')}</th>
+                    <th className="bg-gray-50 px-5 py-3 text-left">{t('expenses_page.maintenance_table.item')}</th>
+                    <th className="bg-gray-50 px-5 py-3 text-right">{t('expenses_page.form_amount')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -4196,7 +4198,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
       <Modal
         isOpen={!!expenseToDelete}
         onClose={() => !isSubmitting && setExpenseToDelete(null)}
-        title="Delete Expense"
+        title={t('expenses_page.table.delete_title')}
         maxWidth="sm"
         footer={
           <div className="flex items-center justify-end gap-3">
@@ -4206,7 +4208,7 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               disabled={isSubmitting}
               className="px-5 py-2.5 rounded-xl font-bold text-brand-muted hover:bg-gray-100 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              Cancel
+              {t('expenses_page.cancel')}
             </button>
             <button
               type="button"
@@ -4215,14 +4217,14 @@ export const ExpensesMock: React.FC<ExpensesMockProps> = ({ selectedBranch, date
               className="px-6 py-2.5 rounded-xl font-bold text-white bg-red-500 shadow-lg shadow-red-500/30 hover:bg-red-600 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
               {isSubmitting && <Loader2 size={16} className="animate-spin" />}
-              {isSubmitting ? 'Deleting...' : 'Delete'}
+              {isSubmitting ? t('expenses_page.deleting') : t('common.delete')}
             </button>
           </div>
         }
       >
         <div className="space-y-3">
           <p className="text-brand-muted text-sm">
-            Are you sure you want to delete this expense?
+            {t('expenses_page.are_you_sure_you_want_to_4')}
             {expenseToDelete && (
               <>
                 {' '}

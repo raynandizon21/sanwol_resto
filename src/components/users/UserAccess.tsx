@@ -8,6 +8,7 @@ import { Navigate } from 'react-router-dom';
 import {
   SIDEBAR_FEATURE_KEYS,
   SIDEBAR_FEATURE_LABELS,
+  SIDEBAR_FEATURE_I18N_KEYS,
   type SidebarFeatureKey,
 } from '../../constants/sidebarFeatures';
 import {
@@ -410,13 +411,13 @@ export const UserAccess: React.FC = () => {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">
-                  Branches
+                  {t('user_access.branches')}
                 </div>
                 <div className="text-2xl font-black tracking-tight text-brand-text mt-1">
                   {branches.length}
                 </div>
                 <div className="text-xs text-brand-muted mt-1">
-                  Manage which sidebar items each branch can see.
+                  {t('user_access.manage_which_sidebar_items_each_branch')}
                 </div>
               </div>
               <div className="h-11 w-11 rounded-2xl bg-brand-primary/10 border border-brand-primary/10 flex items-center justify-center">
@@ -438,13 +439,13 @@ export const UserAccess: React.FC = () => {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">
-                  User Role
+                  {t('user_access.user_role')}
                 </div>
                 <div className="text-2xl font-black tracking-tight text-brand-text mt-1">
                   {roles.length || '—'}
                 </div>
                 <div className="text-xs text-brand-muted mt-1">
-                  Configure add, edit, and delete permissions per role.
+                  {t('user_access.configure_add_edit_and_delete_permissions')}
                 </div>
               </div>
               <div className="h-11 w-11 rounded-2xl bg-brand-orange/10 border border-brand-orange/10 flex items-center justify-center">
@@ -471,10 +472,10 @@ export const UserAccess: React.FC = () => {
               <div className="px-5 py-4 border-b border-gray-100">
                 <div>
                   <div className="text-sm font-black tracking-wide text-brand-text uppercase">
-                    Branches
+                    {t('user_access.branches')}
                   </div>
                   <div className="text-xs text-brand-muted mt-1">
-                    Select a branch to show its menu items.
+                    {t('user_access.select_a_branch_to_show_its')}
                   </div>
                 </div>
               </div>
@@ -490,7 +491,7 @@ export const UserAccess: React.FC = () => {
                     className="space-y-1"
                   >
                     {branches.length === 0 ? (
-                      <div className="px-4 py-6 text-sm text-brand-muted">No branches.</div>
+                      <div className="px-4 py-6 text-sm text-brand-muted">{t('user_access.no_branches')}</div>
                     ) : (
                       branches.map((b) => {
                         const active = String(b.id) === String(selectedBranchId);
@@ -527,7 +528,7 @@ export const UserAccess: React.FC = () => {
                                       ? 'bg-brand-orange/15 text-brand-utilities'
                                       : 'bg-gray-100 text-brand-muted',
                                   )}
-                                  title={`${count} menu items visible`}
+                                  title={t('user_access.menu_items_visible', { count })}
                                 >
                                   {count}
                                 </span>
@@ -554,19 +555,19 @@ export const UserAccess: React.FC = () => {
                   <div className="flex items-end justify-between gap-4">
                     <div>
                       <div className="text-sm font-black tracking-wide text-brand-text uppercase">
-                        Menu Items
+                        {t('user_access.menu_items')}
                       </div>
                       <div className="text-xs text-brand-muted mt-1">
                         {selectedBranch ? (
                           <>
-                            Showing sidebar menu for{' '}
+                            {t('user_access.showing_sidebar_menu_for')}{' '}
                             <span className="font-bold text-brand-text">
                               {selectedBranch.name}
                             </span>
-                            . Check the items this branch can see in the sidebar.
+                            {t('user_access.check_the_items_this_branch_can')}
                           </>
                         ) : (
-                          'Select a branch to display menu items.'
+                          t('user_access.select_a_branch_to_display_menu')
                         )}
                       </div>
                     </div>
@@ -585,7 +586,7 @@ export const UserAccess: React.FC = () => {
                         ) : (
                           <Save className="w-4 h-4" />
                         )}
-                        {saving ? 'Saving...' : 'Save'}
+                        {saving ? t('user_access.saving') : t('common.save')}
                       </button>
                     )}
                   </div>
@@ -603,7 +604,7 @@ export const UserAccess: React.FC = () => {
                           transition={{ duration: 0.18, ease: 'easeOut' }}
                           className="px-6 py-10 text-sm text-brand-muted"
                         >
-                          Choose a branch to load menu items.
+                          {t('user_access.choose_a_branch_to_load_menu')}
                         </motion.div>
                       ) : (
                         <motion.div
@@ -620,10 +621,10 @@ export const UserAccess: React.FC = () => {
                                 <thead>
                                   <tr className="bg-white border-b border-gray-100">
                                     <th className="px-6 py-4 text-[13px] font-medium whitespace-nowrap bg-violet-50 text-brand-text uppercase tracking-wider border-r-[3px] border-white">
-                                      Menu Item
+                                      {t('user_access.menu_item')}
                                     </th>
                                     <th className="px-6 py-4 text-[13px] font-medium whitespace-nowrap text-brand-muted uppercase tracking-wider w-24 text-center">
-                                      Visible
+                                      {t('user_access.visible')}
                                     </th>
                                   </tr>
                                 </thead>
@@ -634,7 +635,9 @@ export const UserAccess: React.FC = () => {
                                       className="group transition-colors"
                                     >
                                       <td className="px-4 py-3 text-[13px] text-brand-text bg-violet-50 font-medium group-hover:bg-violet-100 border-r-[3px] border-white">
-                                        {SIDEBAR_FEATURE_LABELS[featureKey] ?? featureKey}
+                                        {SIDEBAR_FEATURE_I18N_KEYS[featureKey]
+                                          ? t(SIDEBAR_FEATURE_I18N_KEYS[featureKey], SIDEBAR_FEATURE_LABELS[featureKey] ?? featureKey)
+                                          : SIDEBAR_FEATURE_LABELS[featureKey] ?? featureKey}
                                       </td>
                                       <td className="px-4 py-3 bg-white group-hover:bg-brand-bg/50 text-center">
                                         <FancyCheckbox
@@ -680,16 +683,16 @@ export const UserAccess: React.FC = () => {
           <section className="w-[320px] shrink-0 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
             <div className="px-5 py-4 border-b border-gray-100">
               <div className="text-sm font-black tracking-wide text-brand-text uppercase">
-                Roles
+                {t('user_access.roles')}
               </div>
               <div className="text-xs text-brand-muted mt-1">
-                Select a role to configure its CRUD access.
+                {t('user_access.select_a_role_to_configure_its')}
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-auto custom-scrollbar p-2 space-y-1">
               {roles.length === 0 ? (
                 <div className="px-4 py-6 text-sm text-brand-muted">
-                  No roles found.
+                  {t('user_access.no_roles_found')}
                 </div>
               ) : (
                 roles.map((role) => {
@@ -732,12 +735,12 @@ export const UserAccess: React.FC = () => {
               <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
                 <div>
                   <div className="text-sm font-black tracking-wide text-brand-text uppercase">
-                    Role Permissions
+                    {t('user_access.role_permissions')}
                   </div>
                   <div className="text-xs text-brand-muted mt-1">
                     {selectedRoleId
-                      ? 'Toggle which modules this role can Add, Edit, or Delete.'
-                      : 'Select a role to edit its permissions.'}
+                      ? t('user_access.toggle_which_modules_this_role_can')
+                      : t('user_access.select_a_role_to_edit_its')}
                   </div>
                 </div>
                 {selectedRoleId && (
@@ -755,7 +758,7 @@ export const UserAccess: React.FC = () => {
                     ) : (
                       <Save className="w-4 h-4" />
                     )}
-                    {rolePermSaving ? 'Saving...' : 'Save'}
+                    {rolePermSaving ? t('user_access.saving') : t('common.save')}
                   </button>
                 )}
               </div>
@@ -772,7 +775,7 @@ export const UserAccess: React.FC = () => {
                         transition={{ duration: 0.18, ease: 'easeOut' }}
                         className="px-6 py-10 text-sm text-brand-muted"
                       >
-                        Choose a role on the left to configure its CRUD permissions.
+                        {t('user_access.choose_a_role_on_the_left')}
                       </motion.div>
                     ) : (
                       <motion.div
@@ -789,16 +792,16 @@ export const UserAccess: React.FC = () => {
                               <thead>
                                 <tr className="bg-white border-b border-gray-100">
                                   <th className="px-6 py-4 text-[13px] font-medium whitespace-nowrap bg-violet-50 text-brand-text uppercase tracking-wider border-r-[3px] border-white">
-                                    Module
+                                    {t('user_access.module')}
                                   </th>
                                   <th className="px-6 py-4 text-[13px] font-medium whitespace-nowrap text-brand-muted uppercase tracking-wider w-24 text-center">
-                                    Add
+                                    {t('user_access.add')}
                                   </th>
                                   <th className="px-6 py-4 text-[13px] font-medium whitespace-nowrap text-brand-muted uppercase tracking-wider w-24 text-center">
-                                    Edit
+                                    {t('common.edit')}
                                   </th>
                                   <th className="px-6 py-4 text-[13px] font-medium whitespace-nowrap text-brand-muted uppercase tracking-wider w-24 text-center">
-                                    Delete
+                                    {t('common.delete')}
                                   </th>
                                 </tr>
                               </thead>
@@ -809,10 +812,10 @@ export const UserAccess: React.FC = () => {
                                     <tr key={mod.key} className="group transition-colors">
                                       <td className="px-4 py-3 text-[13px] text-brand-text bg-violet-50 font-medium group-hover:bg-violet-100 border-r-[3px] border-white align-top">
                                         <div className="font-medium text-brand-text">
-                                          {mod.label}
+                                          {t(`user_access.modules.${mod.key}.label`, mod.label)}
                                         </div>
                                         <div className="text-xs text-brand-muted mt-0.5">
-                                          {mod.description}
+                                          {t(`user_access.modules.${mod.key}.description`, mod.description)}
                                         </div>
                                       </td>
                                       {(['create', 'update', 'delete'] as CrudActionKey[]).map(
@@ -838,8 +841,7 @@ export const UserAccess: React.FC = () => {
                           </div>
                         </div>
                         <p className="text-[11px] text-brand-muted mt-3 px-6 pb-4">
-                          Unchecking an action will hide the corresponding Add / Edit / Delete
-                          controls for this role in that module.
+                          {t('user_access.unchecking_an_action_will_hide_the')}
                         </p>
                       </motion.div>
                     )}

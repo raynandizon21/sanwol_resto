@@ -93,7 +93,7 @@ export const BranchPerformanceCard: React.FC<BranchPerformanceCardProps> = ({
               >
                 {isSelected && <Check size={10} className="text-brand-primary" />}
               </span>
-              <span>Compare</span>
+              <span>{t('admin_dashboard.compare')}</span>
             </button>
           </div>
         </div>
@@ -130,7 +130,7 @@ export const BranchPerformanceCard: React.FC<BranchPerformanceCardProps> = ({
               </p>
             </div>
             <div className="flex items-baseline justify-between gap-2">
-              <p className="text-[11px] text-brand-muted">Total Profit</p>
+              <p className="text-[11px] text-brand-muted">{t('admin_dashboard.total_revenue')}</p>
               <p className="font-bold text-[12px] text-brand-text text-right tabular-nums">
                 ₱{Math.trunc(netRevenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </p>

@@ -333,7 +333,7 @@ export const SalesDayDrillModal: React.FC<Props> = ({
       onClose={onClose}
       title={
         step === 'branches'
-          ? 'Sales by branch'
+          ? t('sales_day_drill.sales_by_branch')
           : `Top menus · ${branch?.name ?? ''}`
       }
       subtitle={
@@ -352,7 +352,7 @@ export const SalesDayDrillModal: React.FC<Props> = ({
               <button
                 type="button"
                 aria-label="Pick date"
-                title="Click to pick a date"
+                title={t('sales_day_drill.click_to_pick_a_date')}
                 onClick={() => setCalendarOpen((o) => !o)}
                 className="text-sm text-slate-700 m-0 min-w-[7.5rem] px-2 py-1 rounded-lg text-center font-semibold tabular-nums cursor-pointer hover:bg-slate-100 border border-transparent hover:border-slate-200"
               >
@@ -403,7 +403,7 @@ export const SalesDayDrillModal: React.FC<Props> = ({
               className="inline-flex items-center gap-1 text-sm font-bold text-brand-primary hover:text-brand-utilities cursor-pointer"
             >
               <ChevronLeft size={16} />
-              Branches
+              {t('sales_day_drill.branches')}
             </button>
           ) : null}
         </div>
@@ -416,7 +416,7 @@ export const SalesDayDrillModal: React.FC<Props> = ({
           <span className="text-sm text-slate-500">
             {step === 'branches'
               ? branchesLoading
-                ? 'Loading…'
+                ? t('sales_day_drill.loading')
                 : `${branches.filter((b) => !b.residual).length} branch${
                     branches.filter((b) => !b.residual).length === 1 ? '' : 'es'
                   }`
@@ -424,14 +424,14 @@ export const SalesDayDrillModal: React.FC<Props> = ({
           </span>
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold tabular-nums text-slate-800">
-              Total {formatMoney(footerTotal)}
+              {t('sales_day_drill.total')} {formatMoney(footerTotal)}
             </span>
             <button
               type="button"
               onClick={onClose}
               className={`px-3 py-1.5 rounded-lg border-0 text-sm font-semibold shadow-sm hover:opacity-90 cursor-pointer ${RANK_CLASS}`}
             >
-              Close
+              {t('common.close')}
             </button>
           </div>
         </div>
@@ -439,9 +439,9 @@ export const SalesDayDrillModal: React.FC<Props> = ({
     >
       {step === 'branches' ? (
         branchesLoading ? (
-          <div className="py-10 text-center text-sm text-slate-500">Loading branches…</div>
+          <div className="py-10 text-center text-sm text-slate-500">{t('sales_day_drill.loading_branches')}</div>
         ) : branches.length === 0 ? (
-          <div className="py-10 text-center text-sm text-slate-500">No branch totals in this range.</div>
+          <div className="py-10 text-center text-sm text-slate-500">{t('sales_day_drill.no_branch_totals_in_this_range')}</div>
         ) : (
           <div className="space-y-2">
             {branches.map((row, idx) => {
@@ -501,19 +501,19 @@ export const SalesDayDrillModal: React.FC<Props> = ({
           </div>
         )
       ) : menusLoading ? (
-        <div className="py-10 text-center text-sm text-slate-500">Loading breakdown…</div>
+        <div className="py-10 text-center text-sm text-slate-500">{t('sales_day_drill.loading_breakdown')}</div>
       ) : menuRows.length === 0 && salesRecon <= 0 && salesOther === 0 ? (
-        <div className="py-10 text-center text-sm text-slate-500">No sales items in this range.</div>
+        <div className="py-10 text-center text-sm text-slate-500">{t('sales_day_drill.no_sales_items_in_this_range')}</div>
       ) : (
         <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
           <table className="w-full text-left">
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-slate-200">
                 <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">#</th>
-                <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">Menu</th>
-                <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">Qty</th>
+                <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">{t('sales_day_drill.menu')}</th>
+                <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">{t('sales_day_drill.qty')}</th>
                 <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase text-right">
-                  Amount
+                  {t('sales_day_drill.amount')}
                 </th>
               </tr>
             </thead>
@@ -523,7 +523,7 @@ export const SalesDayDrillModal: React.FC<Props> = ({
                   <td className="px-3 py-2 text-sm font-semibold text-slate-700 tabular-nums">
                     {idx + 1}
                   </td>
-                  <td className="px-3 py-2 text-sm text-slate-800">{row.MENU_NAME || 'Unknown'}</td>
+                  <td className="px-3 py-2 text-sm text-slate-800">{row.MENU_NAME || t('sales_day_drill.unknown')}</td>
                   <td className="px-3 py-2 text-sm text-slate-700 text-right tabular-nums">
                     {Number(row.total_quantity || 0).toLocaleString()}
                   </td>
@@ -547,7 +547,7 @@ export const SalesDayDrillModal: React.FC<Props> = ({
               {salesOther !== 0 ? (
                 <tr className="border-b border-slate-100 bg-slate-50/70">
                   <td className="px-3 py-2 text-sm text-slate-500">—</td>
-                  <td className="px-3 py-2 text-sm font-medium italic text-slate-500">Other sales</td>
+                  <td className="px-3 py-2 text-sm font-medium italic text-slate-500">{t('sales_day_drill.other_sales')}</td>
                   <td className="px-3 py-2 text-sm text-slate-400 text-right tabular-nums">—</td>
                   <td className="px-3 py-2 text-sm font-bold tabular-nums text-slate-600 text-right">
                     {formatMoney(salesOther)}

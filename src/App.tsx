@@ -176,6 +176,7 @@ const VerticalCarousel = ({ items }: { items: any[] }) => {
   );
 };
 
+import { useTranslation } from 'react-i18next';
 import { useUser } from './context/UserContext';
 import { Toaster } from 'sonner';
 import {
@@ -203,6 +204,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 const LoginView = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { login } = useUser();
   const [username, setUsername] = useState('');
@@ -273,8 +275,8 @@ const LoginView = () => {
             <div className="w-16 h-16 bg-brand-primary rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-brand-primary/30">
               <UtensilsCrossed size={32} className="text-white" />
             </div>
-            <h2 className="text-4xl font-bold tracking-tight text-brand-text mb-2">Welcome Back</h2>
-            <p className="text-brand-muted text-base">Please enter your details to sign in</p>
+            <h2 className="text-4xl font-bold tracking-tight text-brand-text mb-2">{t('login.welcome_back')}</h2>
+            <p className="text-brand-muted text-base">{t('login.please_enter_your_details_to_sign')}</p>
           </div>
 
           <form className="space-y-6" onSubmit={handleLogin}>
@@ -286,24 +288,24 @@ const LoginView = () => {
             )}
 
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-brand-muted ml-1">Username</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-brand-muted ml-1">{t('login.username')}</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
+                placeholder={t('login.enter_username')}
                 disabled={isLoading}
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-base focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400 disabled:opacity-50"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-brand-muted ml-1">Password</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-brand-muted ml-1">{t('login.password')}</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
+                placeholder={t('login.enter_password')}
                 disabled={isLoading}
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-base focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400 disabled:opacity-50"
               />
@@ -312,22 +314,22 @@ const LoginView = () => {
             <div className="flex items-center justify-between text-sm pt-2">
               <label className="flex items-center gap-2 cursor-pointer group">
                 <input type="checkbox" defaultChecked className="w-4 h-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary/20" />
-                <span className="text-brand-muted group-hover:text-brand-text transition-colors">Remember me</span>
+                <span className="text-brand-muted group-hover:text-brand-text transition-colors">{t('login.remember_me')}</span>
               </label>
-              <a href="#" className="text-brand-primary font-bold hover:underline transition-all">Forgot password?</a>
+              <a href="#" className="text-brand-primary font-bold hover:underline transition-all">{t('login.forgot_password')}</a>
             </div>
 
             <button
               disabled={isLoading}
               className="w-full bg-brand-primary text-white text-base font-bold py-4 rounded-xl shadow-lg shadow-brand-primary/30 hover:shadow-brand-primary/40 hover:-translate-y-0.5 transition-all active:scale-[0.98] mt-4 disabled:opacity-70 disabled:hover:translate-y-0"
             >
-              {isLoading ? 'Signing In...' : 'Sign In'}
+              {isLoading ? t('login.signing_in') : t('login.sign_in')}
             </button>
           </form>
 
           <div className="mt-12 pt-8 border-t border-gray-100 text-center">
             <p className="text-sm text-brand-muted">
-              Don't have an account? <a href="#" className="text-brand-primary font-bold hover:underline ml-1">Contact Support</a>
+              {t('login.don_t_have_an_account')} <a href="#" className="text-brand-primary font-bold hover:underline ml-1">{t('login.contact_support')}</a>
             </p>
           </div>
 
@@ -336,7 +338,7 @@ const LoginView = () => {
           <div className="mt-16 flex flex-col items-center gap-2 text-center">
             <PoweredByCoreSystem size="lg" />
             <p className="text-[13px] text-gray-400 whitespace-nowrap">
-              © {new Date().getFullYear()} 3Core Leaderstech. All rights reserved.
+              © {new Date().getFullYear()} {t('login.3core_leaderstech_all_rights_reserved')}
             </p>
           </div>
         </motion.div>
@@ -346,6 +348,7 @@ const LoginView = () => {
 };
 
 export default function App() {
+  const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const { isLoggedIn, syncSessionUser, logout, user } = useUser();
@@ -930,7 +933,7 @@ export default function App() {
                     animate={{ opacity: 1 }}
                     className="flex items-center justify-center h-64 text-brand-muted"
                   >
-                    {activeTab} content is coming soon...
+                    {activeTab} {t('login.content_is_coming_soon')}
                   </motion.div>
                 } />
               </Routes>

@@ -625,7 +625,7 @@ export const MenuItemAnalyticsPanel: React.FC<MenuItemAnalyticsPanelProps> = ({
                     {t('sales_analytics.item_analytics_sold_qty')}
                   </span>
                   <span className="text-[10px] font-semibold text-violet-600 tabular-nums">
-                    {monthlyQtyAvg.toLocaleString()} avg
+                    {monthlyQtyAvg.toLocaleString()} {t('sales_analytics.avg_suffix')}
                   </span>
                 </div>
                 <div className="h-36 w-full min-w-0 overflow-hidden">
@@ -670,7 +670,7 @@ export const MenuItemAnalyticsPanel: React.FC<MenuItemAnalyticsPanelProps> = ({
                     {t('sales_analytics.item_analytics_amount')}
                   </span>
                   <span className="text-[10px] font-semibold text-emerald-600 tabular-nums shrink-0">
-                    {money(monthlyAmountAvg)} avg
+                    {money(monthlyAmountAvg)} {t('sales_analytics.avg_suffix')}
                   </span>
                 </div>
                 <div className="h-36 w-full min-w-0 overflow-hidden">

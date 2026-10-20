@@ -562,7 +562,7 @@ export const Tables: React.FC = () => {
               {isSubmitting && (
                 <Loader2 size={16} className="animate-spin" />
               )}
-              {editingTable ? 'Update' : 'Add'}
+              {editingTable ? t('table.update') : t('table.add')}
             </button>
           </div>
         }
@@ -583,7 +583,7 @@ export const Tables: React.FC = () => {
                     floor: isFloorEnabledBranch(val as string | number | null) ? prev.floor : null,
                   }))
                 }
-                placeholder={t('branch.select_branch') ?? 'Select branch'}
+                placeholder={t('branch.select_branch') ?? t('table.select_branch')}
                 disabled={!isAdmin}
               />
             </div>

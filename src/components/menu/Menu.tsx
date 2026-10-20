@@ -796,7 +796,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
               ? drinkMainCategory?.id || null
               : null;
         if (!targetParentId) {
-            toast.error(isTwoLevelBranch ? t('menu_page.select_main_first') : 'Select DRINK (or a DRINK subcategory) first.');
+            toast.error(isTwoLevelBranch ? t('menu_page.select_main_first') : t('menu_page.select_drink_or_a_drink_subcategory'));
             return;
         }
         setEditingCategory(null);
@@ -846,10 +846,10 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 name: category.name,
                 parentId: null,
             });
-            toast.success(`Category "${category.name}" removed from main category.`);
+            toast.success(t('menu_page.category_removed_from_main', { name: category.name }));
             await refreshData();
         } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Failed to remove category from main');
+            toast.error(err instanceof Error ? err.message : t('menu_page.failed_to_remove_category_from_main'));
         } finally {
             setCategorySubmitting(false);
         }
@@ -878,7 +878,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     description: categoryDesc.trim() || null,
                     parentId: parentPayload,
                 });
-                toast.success('Category updated successfully');
+                toast.success(t('menu_page.category_updated_successfully'));
                 closeCategoryModal();
                 refreshData();
             } else {
@@ -889,7 +889,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                         description: categoryDesc.trim() || null,
                         parentId: parentPayload,
                     });
-                    toast.success('Existing category moved under selected main category.');
+                    toast.success(t('menu_page.existing_category_moved_under_selected_main'));
                 } else {
                     await createMenuCategory(branchId, {
                         name,
@@ -903,7 +903,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 refreshData();
             }
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : (editingCategory ? 'Failed to update category' : 'Failed to create category'));
+            toast.error(e instanceof Error ? e.message : (editingCategory ? t('menu_page.failed_to_update_category') : t('menu_page.failed_to_create_category')));
         } finally {
             setCategorySubmitting(false);
         }
@@ -967,7 +967,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             setMenuIngredientsBaseline(ingredients);
             setAllIngredients(list.map((i) => ({ id: i.id, name: i.name, unit: i.unit || 'pcs' })));
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : 'Failed to load ingredients');
+            toast.error(e instanceof Error ? e.message : t('menu_page.failed_to_load_ingredients'));
         } finally {
             setIngredientsLoading(false);
         }
@@ -1230,7 +1230,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                             type="button"
                             onClick={() => jumpToItemCategory(item)}
                             className="text-left w-full"
-                            title="Go to this item’s category"
+                            title={t('menu_page.go_to_this_item_s_category')}
                         >
                             <p className="text-sm font-bold text-brand-text truncate hover:underline">{localizedMenuName(item, isKo)}</p>
                             {searchTerm.trim().length > 0 && (
@@ -1463,7 +1463,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 {!isSpecificBranch && (
                     <div className="pt-6">
                         <div className="bg-white rounded-2xl shadow-sm p-6 text-brand-muted font-bold">
-                            Please select a specific branch (not “All Branches”) to manage menu items.
+                            {t('menu_page.please_select_a_specific_branch_not')}
                         </div>
                     </div>
                 )}
@@ -1506,7 +1506,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                 <div className="flex items-start justify-between gap-4">
                                     <div>
                                         <div className="text-[12px] font-black tracking-wide text-brand-muted uppercase">
-                                            Selected Items
+                                            {t('menu_page.selected_items')}
                                         </div>
                                         <div className="text-2xl font-black tracking-tight text-brand-text mt-1">
                                             {stats.selectedCount}
@@ -1514,10 +1514,10 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                             <div className="text-xs text-brand-muted mt-1">
                                                 {menuScopeReady && selectedCategoryLabel ? (
                                                     <>
-                                                        Menu Category: <span className="font-bold text-brand-text">{selectedCategoryLabel}</span>
+                                                        {t('menu_page.menu_category')} <span className="font-bold text-brand-text">{selectedCategoryLabel}</span>
                                                     </>
                                                 ) : (
-                                                    <>Select a Menu Category</>
+                                                    <>{t('menu_page.select_a_menu_category')}</>
                                                 )}
                                             </div>
                                     </div>
@@ -1712,7 +1712,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                                         onClick={(e) => handleRemoveCategoryFromMain(e, cat)}
                                                                         className="p-1.5 rounded-lg text-brand-muted hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
                                                                         aria-label="Remove subcategory from main"
-                                                                        title="Remove from main category"
+                                                                        title={t('menu_page.remove_from_main_category')}
                                                                         disabled={categorySubmitting}
                                                                     >
                                                                         <Unlink2 size={14} />
@@ -1826,7 +1826,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                         })}
 
                                         {categories.length === 0 && (
-                                            <div className="px-4 py-6 text-sm text-brand-muted">No Menu Category.</div>
+                                            <div className="px-4 py-6 text-sm text-brand-muted">{t('menu_page.no_menu_category')}</div>
                                         )}
                                     </div>
                                 </section>
@@ -1937,14 +1937,14 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                     <div className="px-6 py-5 border-b border-gray-100">
                                         <div className="flex items-end justify-between gap-4">
                                             <div>
-                                                <div className="text-sm font-black tracking-wide text-brand-text uppercase">Menu Items</div>
+                                                <div className="text-sm font-black tracking-wide text-brand-text uppercase">{t('menu_page.menu_items')}</div>
                                                 <div className="text-xs text-brand-muted mt-1">
                                                     {menuScopeReady && selectedCategoryLabel ? (
                                                         <>
-                                                            Showing items for <span className="font-bold text-brand-text">{selectedCategoryLabel}</span>.
+                                                            {t('menu_page.showing_items_for')} <span className="font-bold text-brand-text">{selectedCategoryLabel}</span>.
                                                         </>
                                                     ) : (
-                                                        <>Select a Menu Category to display menu items.</>
+                                                        <>{t('menu_page.select_a_menu_category_to_display')}</>
                                                     )}
                                                 </div>
                                             </div>
@@ -1959,7 +1959,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                         type="text"
                                                         value={searchTerm}
                                                         onChange={(e) => setSearchTerm(e.target.value)}
-                                                        placeholder="Search item..."
+                                                        placeholder={t('menu_page.search_item')}
                                                         className="h-[38px] bg-gray-50 border border-gray-200 rounded-xl pl-8 pr-3 text-xs w-52 outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50"
                                                     />
                                                 </div>
@@ -1983,7 +1983,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                         className="h-[38px] bg-brand-primary text-white px-4 rounded-xl text-xs font-black tracking-wide uppercase flex items-center gap-2 shadow-lg shadow-brand-primary/20 hover:bg-brand-primary/90 transition-all cursor-pointer"
                                                     >
                                                         <Plus size={16} />
-                                                        Add New Item
+                                                        {t('menu_page.new_item')}
                                                     </button>
                                                 )}
                                                 </div>
@@ -2004,7 +2004,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                 >
                                                     {!menuScopeReady ? (
                                                         <div className="px-6 py-10 text-sm text-brand-muted">
-                                                            Select a Menu Category to load menu items.
+                                                            {t('menu_page.select_a_menu_category_to_load')}
                                                         </div>
                                                     ) : (
                                                         <>
@@ -2059,7 +2059,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                                         {pagedMenus.length === 0 && (
                                                                             <tr>
                                                                                 <td colSpan={columns.length} className="px-6 py-8 text-center text-brand-muted">
-                                                                                    No data
+                                                                                    {t('menu_page.no_data')}
                                                                                 </td>
                                                                             </tr>
                                                                         )}
@@ -2070,9 +2070,11 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                             {shouldPaginate && (
                                                                 <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-white">
                                                                     <div className="text-sm text-brand-muted">
-                                                                        Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{' '}
-                                                                        {Math.min(currentPage * ITEMS_PER_PAGE, filteredMenus.length)} of {filteredMenus.length}{' '}
-                                                                        entries
+                                                                        {t('common.showing_entries', {
+                                                                            from: (currentPage - 1) * ITEMS_PER_PAGE + 1,
+                                                                            to: Math.min(currentPage * ITEMS_PER_PAGE, filteredMenus.length),
+                                                                            total: filteredMenus.length,
+                                                                        })}
                                                                     </div>
                                                                     <div className="flex items-center gap-2">
                                                                         <button
@@ -2081,7 +2083,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                                             disabled={currentPage === 1}
                                                                             className="px-3 py-2 rounded-lg text-sm font-bold text-brand-muted hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent transition-colors cursor-pointer disabled:cursor-not-allowed"
                                                                         >
-                                                                            Prev
+                                                                            {t('menu_page.prev')}
                                                                         </button>
                                                                         <div className="px-3 py-2 rounded-lg text-sm font-black bg-brand-primary text-white">
                                                                             {currentPage}
@@ -2092,7 +2094,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                                             disabled={currentPage === totalPages}
                                                                             className="px-3 py-2 rounded-lg text-sm font-bold text-brand-muted hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent transition-colors cursor-pointer disabled:cursor-not-allowed"
                                                                         >
-                                                                            Next
+                                                                            {t('menu_page.next')}
                                                                         </button>
                                                                     </div>
                                                                 </div>
@@ -2216,7 +2218,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 onClose={closeCategoryModal}
                 title={
                     editingCategory
-                        ? 'Edit Category'
+                        ? t('menu_page.edit_category')
                         : isTwoLevelBranch
                           ? categoryParentId
                               ? t('menu_page.new_sub_category')
@@ -2241,7 +2243,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                             className="px-6 py-2.5 rounded-xl font-bold text-white bg-brand-primary shadow-lg shadow-brand-primary/30 hover:bg-brand-primary/90 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2"
                         >
                             {categorySubmitting && <Loader2 size={16} className="animate-spin" />}
-                            {editingCategory ? 'Update' : t('categories.save_category')}
+                            {editingCategory ? t('menu_page.update') : t('categories.save_category')}
                         </button>
                     </div>
                 }
@@ -2270,12 +2272,12 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     </div>
                     {isTwoLevelBranch && (editingCategory || !categoryParentId) && (
                         <div>
-                            <label className="block text-sm font-bold text-brand-text mb-2">Main Category</label>
+                            <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.main_category_2')}</label>
                             <Select2
-                                options={[{ value: '', label: 'Main category (no parent)' }, ...categoryParentOptions]}
+                                options={[{ value: '', label: t('menu_page.main_category_no_parent') }, ...categoryParentOptions]}
                                 value={categoryParentId || ''}
                                 onChange={(v) => setCategoryParentId(v ? String(v) : null)}
-                                placeholder="Select main category"
+                                placeholder={t('menu_page.select_main_category')}
                                 clearable={false}
                             />
                         </div>
@@ -2284,22 +2286,22 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                         categoryParentOptions.length > 0 &&
                         (categoryParentId === drinkMainCategory?.id || editingCategory?.parentId === drinkMainCategory?.id) && (
                         <div>
-                            <label className="block text-sm font-bold text-brand-text mb-2">Parent Category</label>
+                            <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.parent_category')}</label>
                             <Select2
-                                options={[{ value: '', label: 'Top-level (no parent)' }, ...categoryParentOptions]}
+                                options={[{ value: '', label: t('menu_page.top_level_no_parent') }, ...categoryParentOptions]}
                                 value={categoryParentId || ''}
                                 onChange={(v) => setCategoryParentId(v ? String(v) : null)}
-                                placeholder="Select parent category"
+                                placeholder={t('menu_page.select_parent_category')}
                                 clearable={false}
                             />
                             <p className="mt-1 text-xs text-brand-muted">
-                                Only DRINK can have subcategories in Level 1 mode.
+                                {t('menu_page.only_drink_can_have_subcategories_in')}
                             </p>
                         </div>
                     )}
                     {isTwoLevelBranch && !editingCategory && !!categoryParentId && (
                         <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                            <div className="text-xs font-bold uppercase tracking-wider text-brand-muted">Main Category</div>
+                            <div className="text-xs font-bold uppercase tracking-wider text-brand-muted">{t('menu_page.main_category_2')}</div>
                             <div className="mt-1 text-sm font-bold text-brand-text">
                                 {categories.find((c) => c.id === categoryParentId)?.name || '—'}
                             </div>
@@ -2307,9 +2309,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     )}
                     {isTwoLevelBranch && !editingCategory && !!categoryParentId && (
                         <div>
-                            <label className="block text-sm font-bold text-brand-text mb-2">Existing Category (optional)</label>
+                            <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.existing_category_optional')}</label>
                             <Select2
-                                options={[{ value: '', label: 'Create new subcategory' }, ...existingRootCategoryOptions]}
+                                options={[{ value: '', label: t('menu_page.create_new_subcategory') }, ...existingRootCategoryOptions]}
                                 value={existingCategoryToAttachId || ''}
                                 onChange={(v) => {
                                     const selectedId = v ? String(v) : '';
@@ -2322,11 +2324,11 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                         setCategoryDesc('');
                                     }
                                 }}
-                                placeholder="Pick existing category to attach"
+                                placeholder={t('menu_page.pick_existing_category_to_attach')}
                                 clearable={false}
                             />
                             <p className="mt-1 text-xs text-brand-muted">
-                                Choose an existing top-level category to move under this main category.
+                                {t('menu_page.choose_an_existing_top_level_category')}
                             </p>
                         </div>
                     )}
@@ -2415,9 +2417,9 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                     await deleteMenuCategory(categoryToDelete.id);
                                     await refreshData();
                                     setCategoryToDelete(null);
-                                    toast.success(`Category "${categoryToDelete.name}" deleted.`);
+                                    toast.success(t('menu_page.category_deleted_named', { name: categoryToDelete.name }));
                                 } catch (err) {
-                                    toast.error(err instanceof Error ? err.message : 'Failed to delete category');
+                                    toast.error(err instanceof Error ? err.message : t('menu_page.failed_to_delete_category'));
                                 } finally {
                                     setCategorySubmitting(false);
                                 }
@@ -2464,7 +2466,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                             className="px-6 py-2.5 rounded-xl font-bold text-white bg-brand-primary shadow-lg shadow-brand-primary/30 hover:bg-brand-primary/90 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2"
                         >
                             {ingredientsSubmitting && <Loader2 size={16} className="animate-spin" />}
-                            Update
+                            {t('menu_page.update')}
                         </button>
                     </div>
                 }

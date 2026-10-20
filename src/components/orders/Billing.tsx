@@ -472,7 +472,7 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
                 void openReceiptModal(r);
               }}
               className="p-2 text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10 transition-colors rounded-lg"
-              title="View receipt"
+              title={t('billing.view_receipt')}
             >
               <Receipt size={16} />
             </button>
@@ -816,7 +816,7 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
           setReceiptOrders([]);
           setReceiptError(null);
         }}
-        title="Receipt"
+        title={t('billing.receipt')}
         maxWidth="6xl"
         footer={
           <button
@@ -846,7 +846,7 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
                   if (receiptImageUrl) window.open(receiptImageUrl, '_blank', 'noopener,noreferrer');
                 }}
                 className="w-full p-2"
-                title="Click to view full size"
+                title={t('billing.click_to_view_full_size')}
               >
                 <img
                   src={receiptImageUrl}
@@ -860,15 +860,15 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
             <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100">
                 <div className="text-xs font-bold text-brand-muted uppercase tracking-widest">
-                  Order breakdown
+                  {t('billing.order_breakdown')}
                 </div>
                 <div className="text-[11px] text-brand-muted mt-0.5">
-                  Click image to view full size
+                  {t('billing.click_image_to_view_full_size')}
                 </div>
               </div>
               <div className="p-4 space-y-4">
                 {receiptOrders.length === 0 ? (
-                  <div className="text-sm text-brand-muted">No order items found.</div>
+                  <div className="text-sm text-brand-muted">{t('billing.no_order_items_found')}</div>
                 ) : (
                   receiptOrders.map((o) => {
                     const items: any[] = Array.isArray(o?.items) ? o.items : [];
@@ -889,20 +889,20 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
 
                         <div className="p-3">
                           {items.length === 0 ? (
-                            <div className="text-sm text-brand-muted">No items.</div>
+                            <div className="text-sm text-brand-muted">{t('billing.no_items')}</div>
                           ) : (
                             <div className="overflow-hidden rounded-lg border border-gray-100">
                               <table className="w-full text-xs">
                                 <thead className="bg-white">
                                   <tr className="text-brand-muted">
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-widest">
-                                      Item
+                                      {t('billing.item')}
                                     </th>
                                     <th className="px-3 py-2 text-right font-bold uppercase tracking-widest w-[56px]">
-                                      Qty
+                                      {t('billing.qty')}
                                     </th>
                                     <th className="px-3 py-2 text-right font-bold uppercase tracking-widest w-[92px]">
-                                      Total
+                                      {t('billing.total')}
                                     </th>
                                   </tr>
                                 </thead>
@@ -939,7 +939,7 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
                                 <div className="flex flex-col gap-2 text-sm">
                                   <div className="flex items-center justify-between gap-3">
                                     <span className="text-brand-muted font-bold uppercase tracking-widest text-[11px]">
-                                      Subtotal
+                                      {t('billing.subtotal')}
                                     </span>
                                     <span className="font-extrabold tabular-nums w-[92px] text-right text-slate-800">
                                       {formatMoneyNoDecimals(o.SUBTOTAL || 0)}
@@ -947,7 +947,7 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
                                   </div>
                                   <div className="flex items-center justify-between gap-3">
                                     <span className="text-brand-muted font-bold uppercase tracking-widest text-[11px]">
-                                      Service charge
+                                      {t('billing.service_charge')}
                                     </span>
                                     <span className="font-extrabold tabular-nums w-[92px] text-right text-slate-800">
                                       {formatMoneyNoDecimals(o.SERVICE_CHARGE || 0)}
@@ -955,7 +955,7 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
                                   </div>
                                   <div className="pt-2 mt-1 border-t border-gray-200/80 flex items-center justify-between gap-3">
                                     <span className="text-brand-muted font-bold uppercase tracking-widest text-[11px]">
-                                      Total
+                                      {t('billing.total')}
                                     </span>
                                     <span className="font-black tabular-nums w-[92px] text-right text-violet-700 text-base">
                                       ₱{formatMoneyNoDecimals(
@@ -977,14 +977,14 @@ export const Billing: React.FC<BillingProps> = ({ selectedBranch, dateRange }) =
           </div>
         ) : receiptError ? (
           <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-sm text-brand-muted">
-            <div className="font-bold text-brand-text mb-1">No receipt image</div>
+            <div className="font-bold text-brand-text mb-1">{t('billing.no_receipt_image')}</div>
             <div>{receiptError}</div>
             {activeRecord?.ORDER_NO ? (
-              <div className="mt-2 text-xs font-mono">Order: {activeRecord.ORDER_NO}</div>
+              <div className="mt-2 text-xs font-mono">{t('billing.order')} {activeRecord.ORDER_NO}</div>
             ) : null}
           </div>
         ) : (
-          <div className="text-sm text-brand-muted">No receipt image.</div>
+          <div className="text-sm text-brand-muted">{t('billing.no_receipt_image_2')}</div>
         )}
       </Modal>
     </div>
