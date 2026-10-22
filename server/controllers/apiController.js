@@ -23,7 +23,7 @@ const TranslationService = require('../utils/translationService');
 const { isArgonHash, generateMD5 } = require('../utils/authUtils');
 const { stitchReceiptDataUrls } = require('../services/receiptStitchService');
 const { analyzeReceipt, extractOrderLinesFromReceipt } = require('../services/orderReceiptHelpers');
-const { toPublicImageUrl, publicUrl, SUBDIRS, UPLOAD_ROOT } = require('../utils/uploadPaths');
+const { toPublicImageUrl, publicBaseUrl, publicUrl, SUBDIRS, UPLOAD_ROOT } = require('../utils/uploadPaths');
 const { getBusinessTodayYmd } = require('../utils/businessDay');
 const pool = require('../config/db');
 const crypto = require('crypto');
@@ -457,10 +457,7 @@ class ApiController {
 			const branchId = req.query.branch_id || req.user?.branch_id || null;
 			const menus = await MenuModel.getByCategory(categoryId, branchId);
 			
-			let baseUrl = req.protocol + '://' + req.get('host');
-			if (req.get('x-forwarded-proto') === 'https' || req.get('host').includes('resto-admin.3core21.com')) {
-				baseUrl = 'https://' + req.get('host');
-			}
+			const baseUrl = publicBaseUrl(req);
 			const useKo = String(targetLanguage).toLowerCase().startsWith('ko');
 			let formattedMenus = menus.map(menu => ({
 				id: menu.IDNo,
@@ -606,10 +603,7 @@ class ApiController {
 				rows = fallback;
 			}
 
-			let baseUrl = req.protocol + '://' + req.get('host');
-			if (req.get('x-forwarded-proto') === 'https' || req.get('host').includes('resto-admin.3core21.com')) {
-				baseUrl = 'https://' + req.get('host');
-			}
+			const baseUrl = publicBaseUrl(req);
 
 			const formattedMenus = rows.map(menu => ({
 				id: menu.id,
@@ -1737,10 +1731,7 @@ class ApiController {
 			const raw = await fs.readFile(path.join(releaseDir, 'latest.json'), 'utf8');
 			const release = JSON.parse(raw);
 
-			let baseUrl = req.protocol + '://' + req.get('host');
-			if (req.get('x-forwarded-proto') === 'https' || req.get('host').includes('resto-admin.3core21.com')) {
-				baseUrl = 'https://' + req.get('host');
-			}
+			const baseUrl = publicBaseUrl(req);
 
 			const apkUrl = release.apkFileName
 				? toPublicImageUrl(baseUrl, publicUrl(SUBDIRS.APP_RELEASES, release.apkFileName))

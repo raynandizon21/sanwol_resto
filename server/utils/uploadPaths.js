@@ -44,6 +44,34 @@ function toPublicImageUrl(baseUrl, relativePath) {
 	return new URL(relativePath, baseUrl).href;
 }
 
+/**
+ * Origin the client used to reach the API (e.g. "http://45.32.103.210:3600").
+ *
+ * The Vite dev proxy rewrites Host to the Node API (localhost:2300), so
+ * req.get('host') alone builds image URLs that only work on the server
+ * itself. Prefer the X-Forwarded-* headers the proxy adds (xfwd: true in
+ * vite.config.ts); PUBLIC_API_BASE_URL / PUBLIC_BASE_URL override both.
+ */
+function publicBaseUrl(req) {
+	const envBase = process.env.PUBLIC_API_BASE_URL || process.env.PUBLIC_BASE_URL || '';
+	if (envBase && String(envBase).trim()) return String(envBase).trim().replace(/\/+$/, '');
+
+	const xfProto = req.get('x-forwarded-proto');
+	const xfHost = req.get('x-forwarded-host');
+	const xfPort = req.get('x-forwarded-port');
+
+	let proto = (xfProto ? String(xfProto).split(',')[0].trim() : req.protocol) || 'http';
+	let host = (xfHost ? String(xfHost).split(',')[0].trim() : req.get('host')) || '';
+
+	// Some proxies set host without port, plus a separate x-forwarded-port.
+	if (xfPort && host && !/:\d+$/.test(host)) {
+		const port = String(xfPort).split(',')[0].trim();
+		if (port && port !== '80' && port !== '443') host = `${host}:${port}`;
+	}
+	if (host.includes('resto-admin.3core21.com')) proto = 'https';
+	return `${proto}://${host}`;
+}
+
 function isPathInSubdir(relativePath, subdir) {
 	if (!relativePath || typeof relativePath !== 'string') return false;
 	const normalized = relativePath.replace(/^\/+/, '');
@@ -72,6 +100,7 @@ module.exports = {
 	FIELDS,
 	publicUrl,
 	toPublicImageUrl,
+	publicBaseUrl,
 	isPathInSubdir,
 	absolutePathFromPublic,
 	safeDeletePublicFile,

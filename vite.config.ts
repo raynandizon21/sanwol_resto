@@ -8,6 +8,11 @@ const projectRoot = normalizeWatchPath(__dirname);
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  // Backend the dev proxy forwards to. Defaults to the local Node API; set
+  // API_PROXY_TARGET in .env.local to another running instance of this frontend
+  // (e.g. production, http://45.32.103.210:3600) to use its API and database instead.
+  const remoteFrontend = env.API_PROXY_TARGET;
+  const apiTarget = remoteFrontend || 'http://localhost:2300';
   return {
     plugins: [react(), tailwindcss()],
     define: {
@@ -39,31 +44,36 @@ export default defineConfig(({ mode }) => {
           (file: string) => !normalizeWatchPath(file).startsWith(projectRoot),
         ],
       },
+      // changeOrigin rewrites Host to the backend, so every entry also sets xfwd:
+      // X-Forwarded-Host keeps the client's origin for absolute URLs (publicBaseUrl).
       proxy: {
         // Existing backend /api/* routes (dashboard, admin, etc.) — no rewrite needed
-        '/api': { target: 'http://localhost:2300', changeOrigin: true },
+        '/api': { target: apiTarget, changeOrigin: true, xfwd: true },
         // socket.io realtime (waiter/kitchen/cashier live updates). ws:true is
         // required so the websocket Upgrade is forwarded to the Node server;
         // without this entry the handshake falls through to the SPA and the
         // mobile app's socket connection times out.
         '/socket.io': {
-          target: 'http://localhost:2300',
+          target: apiTarget,
           changeOrigin: true,
+          xfwd: true,
           ws: true,
         },
         // Menu-specific routes: use /data-api prefix → rewrite to root on backend
         // This avoids conflict with SPA route /menu
         '/data-api': {
-          target: 'http://localhost:2300',
+          target: apiTarget,
           changeOrigin: true,
-          rewrite: (path: string) => path.replace(/^\/data-api/, ''),
+          xfwd: true,
+          // A remote frontend strips the prefix in its own proxy, so keep it here.
+          rewrite: remoteFrontend ? undefined : (path: string) => path.replace(/^\/data-api/, ''),
         },
-        '/branch': { target: 'http://localhost:2300', changeOrigin: true },
-        '/uploads': { target: 'http://localhost:2300', changeOrigin: true },
+        '/branch': { target: apiTarget, changeOrigin: true, xfwd: true },
+        '/uploads': { target: apiTarget, changeOrigin: true, xfwd: true },
         // Use /user/ (trailing slash) so /users/branches etc. are not proxied (SPA routes)
-        '/user/': { target: 'http://localhost:2300', changeOrigin: true },
-        '/audit-logs': { target: 'http://localhost:2300', changeOrigin: true },
-        '/reports': { target: 'http://localhost:2300', changeOrigin: true },
+        '/user/': { target: apiTarget, changeOrigin: true, xfwd: true },
+        '/audit-logs': { target: apiTarget, changeOrigin: true, xfwd: true },
+        '/reports': { target: apiTarget, changeOrigin: true, xfwd: true },
       },
     },
   };

@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const sharp = require('sharp');
 const ApiResponse = require('../utils/apiResponse');
+const { publicBaseUrl } = require('../utils/uploadPaths');
 
 // Ensure upload directory exists
 const uploadDir = path.join(__dirname, '../public/uploads');
@@ -67,7 +68,7 @@ class UploadController {
 				return ApiResponse.badRequest(res, 'No file uploaded');
 			}
 
-			const baseUrl = req.protocol + '://' + req.get('host');
+			const baseUrl = publicBaseUrl(req);
 			const subdir = req.query.subdir || 'general';
 			const fileUrl = `/uploads/${subdir}/${req.file.filename}`;
 			const fullUrl = baseUrl + fileUrl;
