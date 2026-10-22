@@ -39,6 +39,7 @@ import { Inventory } from './components/inventory/Inventory';
 import { Categories } from './components/categories/Categories';
 import { ExpensesMock } from './components/expenses/ExpensesMock';
 import { Ingredients } from './components/ingredients/Ingredients';
+import { Employees } from './components/employees/Employees';
 import { Users } from './components/users/Users';
 import { UserRole } from './components/users/UserRole';
 import { UserAccess } from './components/users/UserAccess';
@@ -852,6 +853,16 @@ export default function App() {
                     exit={{ opacity: 0, y: -10 }}
                   >
                     <Ingredients selectedBranch={selectedBranch} />
+                  </motion.div>
+                } />
+
+                <Route path="/employee" element={
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                  >
+                    <Employees />
                   </motion.div>
                 } />
 

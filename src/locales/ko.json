@@ -1985,6 +1985,7 @@
 		"select_branch": "지점 선택"
 	},
 	"employee": {
+		"static_preview_notice": "미리보기 전용 — 샘플 데이터입니다. 직원 기록은 곧 연결될 예정입니다.",
 		"manage_employee": "직원 관리",
 		"new_employee": "새 직원",
 		"fullname": "이름",
@@ -2217,7 +2218,13 @@
 		"control_panel_access": "제어판",
 		"billing": "결제",
 		"ingredients": "재료",
-		"table_settings": "테이블 설정"
+		"table_settings": "테이블 설정",
+		"section_overview": "개요",
+		"section_operations": "운영",
+		"section_menu_stock": "메뉴 및 재고",
+		"section_staff": "직원",
+		"section_admin": "관리자",
+		"employee": "직원"
 	},
 	"analytics_ai": {
 		"title": "AI 판매 어시스턴트",

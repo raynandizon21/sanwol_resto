@@ -16,11 +16,18 @@ import {
   DollarSign,
   CreditCard,
   FlaskConical,
+  Armchair,
+  IdCard,
 } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { cn } from '../../lib/utils';
 import { type Branch } from './Header';
-import { SHOW_AI_SALES_ASSISTANT, SIDEBAR_FEATURES, type SidebarFeatureConfig } from '../../constants/sidebarFeatures';
+import {
+  SHOW_AI_SALES_ASSISTANT,
+  SIDEBAR_FEATURES,
+  SIDEBAR_SECTIONS,
+  type SidebarFeatureConfig,
+} from '../../constants/sidebarFeatures';
 import {
   prepareAllBranchesSidebarLogos,
   resolveBranchLogoUrl,
@@ -277,6 +284,13 @@ const SidebarBranchTitle: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
+const SectionHeading: React.FC<{ label: string }> = ({ label }) => (
+  <p className="flex items-center gap-2 px-6 pt-4 pb-1 text-[10px] font-bold text-brand-primary uppercase tracking-widest">
+    <span className="w-1 h-3 rounded-full bg-brand-primary" />
+    {label}
+  </p>
+);
+
 const SubItem: React.FC<{ label: string; active?: boolean; onClick?: () => void }> = ({ label, active, onClick }) => (
   <button
     type="button"
@@ -405,6 +419,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, select
     ClipboardList,
     CreditCard,
     FlaskConical,
+    Armchair,
+    IdCard,
     Users,
   };
 
@@ -420,6 +436,64 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, select
       return children.some((c) => c.kind === 'item' && hasFeature(c.key));
     }
     return false;
+  };
+
+  const renderFeatureItem = (item: SidebarFeatureConfig) => {
+    if (item.kind === 'group' && item.key === 'sales_report') {
+      const children = (item.children || []).filter(
+        (c) => c.kind === 'item' && hasFeature(c.key),
+      );
+      const Icon = item.icon ? iconMap[item.icon] : BarChart3;
+      return (
+        <React.Fragment key={item.key}>
+          <SidebarItem
+            icon={Icon}
+            label={getSidebarLabel(item)}
+            active={isSalesReportActive && !isAiAssistantActive}
+            isExpandable
+            isExpanded={salesReportExpanded}
+            onClick={handleSalesReportToggle}
+          >
+            {children.map((child) => (
+              <SubItem
+                key={child.key}
+                label={getSidebarLabel(child)}
+                active={activeTab === child.tab}
+                onClick={() => {
+                  if (child.tab) onTabChange(child.tab);
+                }}
+              />
+            ))}
+          </SidebarItem>
+          {SHOW_AI_SALES_ASSISTANT && isAdmin && !isSpecificBranch && (
+            <SidebarItem
+              icon={Sparkles}
+              label={t('sidebar.ai_sales_assistant')}
+              active={isAiAssistantActive}
+              onClick={() => {
+                setUserMgmtExpanded(false);
+                onTabChange('AI Sales Assistant');
+              }}
+            />
+          )}
+        </React.Fragment>
+      );
+    }
+
+    const Icon = item.icon ? iconMap[item.icon] : LayoutDashboard;
+    return (
+      <SidebarItem
+        key={item.key}
+        icon={Icon}
+        label={getSidebarLabel(item)}
+        active={item.tab ? activeTab === item.tab : false}
+        onClick={() => {
+          if (item.tab) onTabChange(item.tab);
+          setUserMgmtExpanded(false);
+          setSalesReportExpanded(false);
+        }}
+      />
+    );
   };
 
   return (
@@ -480,64 +554,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, select
         )}
       </motion.div>
 
-      <nav className="flex-1 space-y-0.5">
-        {SIDEBAR_FEATURES.filter(isItemVisible).map((item) => {
-          if (item.kind === 'group' && item.key === 'sales_report') {
-            const children = (item.children || []).filter(
-              (c) => c.kind === 'item' && hasFeature(c.key),
-            );
-            const Icon = item.icon ? iconMap[item.icon] : BarChart3;
-            return (
-              <React.Fragment key={item.key}>
-                <SidebarItem
-                  icon={Icon}
-                  label={getSidebarLabel(item)}
-                  active={isSalesReportActive && !isAiAssistantActive}
-                  isExpandable
-                  isExpanded={salesReportExpanded}
-                  onClick={handleSalesReportToggle}
-                >
-                  {children.map((child) => (
-                    <SubItem
-                      key={child.key}
-                      label={getSidebarLabel(child)}
-                      active={activeTab === child.tab}
-                      onClick={() => {
-                        if (child.tab) onTabChange(child.tab);
-                      }}
-                    />
-                  ))}
-                </SidebarItem>
-                {SHOW_AI_SALES_ASSISTANT && isAdmin && !isSpecificBranch && (
-                  <SidebarItem
-                    icon={Sparkles}
-                    label={t('sidebar.ai_sales_assistant')}
-                    active={isAiAssistantActive}
-                    onClick={() => {
-                      setUserMgmtExpanded(false);
-                      onTabChange('AI Sales Assistant');
-                    }}
-                  />
-                )}
-              </React.Fragment>
-            );
-          }
-
-          const Icon = item.icon ? iconMap[item.icon] : LayoutDashboard;
+      <nav className="flex-1 space-y-0.5 overflow-y-auto">
+        {SIDEBAR_SECTIONS.map((section) => {
+          const sectionItems = SIDEBAR_FEATURES.filter(
+            (item) => item.section === section.key && isItemVisible(item),
+          );
+          if (sectionItems.length === 0) return null;
           return (
-            <SidebarItem
-              key={item.key}
-              icon={Icon}
-              label={getSidebarLabel(item)}
-              active={item.tab ? activeTab === item.tab : false}
-              onClick={() => {
-                if (item.tab) onTabChange(item.tab);
-                setUserMgmtExpanded(false);
-                setSalesReportExpanded(false);
-              }}
-            />
+            <React.Fragment key={section.key}>
+              <SectionHeading label={t(section.i18nKey, section.label)} />
+              {sectionItems.map(renderFeatureItem)}
+            </React.Fragment>
           );
         })}
+        {isAdmin && !isSpecificBranch && (
+          <SectionHeading label={t('sidebar.section_admin', 'Admin')} />
+        )}
         {isAdmin && !isSpecificBranch && (
           <SidebarItem
             icon={Users}

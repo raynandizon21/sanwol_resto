@@ -1557,6 +1557,7 @@
 		"actions": "操作"
 	},
 	"employee": {
+		"static_preview_notice": "仅预览 — 显示示例数据。员工记录即将接入。",
 		"manage_employee": "员工管理",
 		"new_employee": "新员工",
 		"fullname": "姓名",
@@ -1782,7 +1783,13 @@
 		"logout": "注销",
 		"billing": "账单",
 		"ingredients": "食材",
-		"table_settings": "餐桌设置"
+		"table_settings": "餐桌设置",
+		"section_overview": "概览",
+		"section_operations": "运营",
+		"section_menu_stock": "菜单与库存",
+		"section_staff": "员工",
+		"section_admin": "管理员",
+		"employee": "员工"
 	},
 	"datatable": {
 		"no_data": "暂无数据",

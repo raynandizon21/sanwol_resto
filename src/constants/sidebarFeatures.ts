@@ -9,6 +9,16 @@
 
 export type SidebarFeatureKind = 'item' | 'group' | 'admin-only';
 
+/** Sidebar section headings, in display order. Items render under their section. */
+export const SIDEBAR_SECTIONS = [
+  { key: 'overview', label: 'Overview', i18nKey: 'sidebar.section_overview' },
+  { key: 'operations', label: 'Operations', i18nKey: 'sidebar.section_operations' },
+  { key: 'menu_stock', label: 'Menu & Stock', i18nKey: 'sidebar.section_menu_stock' },
+  { key: 'staff', label: 'Staff', i18nKey: 'sidebar.section_staff' },
+] as const;
+
+export type SidebarSectionKey = (typeof SIDEBAR_SECTIONS)[number]['key'];
+
 export type SidebarFeatureConfig = {
   /**
    * Stable key for permission + filtering. For `group`/`admin-only` it is used
@@ -16,6 +26,8 @@ export type SidebarFeatureConfig = {
    */
   key: string;
   kind: SidebarFeatureKind;
+  /** Top-level items only: which sidebar section heading they sit under. */
+  section?: SidebarSectionKey;
   /** Human label for tables; Sidebar can use i18n keys separately. */
   label: string;
   /** Sidebar label translation key (optional). */
@@ -42,6 +54,7 @@ export const SHOW_AI_SALES_ASSISTANT = false;
 export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
   {
     key: 'dashboard',
+    section: 'overview',
     kind: 'item',
     label: 'Dashboard',
     i18nKey: 'sidebar.dashboard',
@@ -50,6 +63,7 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
   },
   {
     key: 'sales_report',
+    section: 'overview',
     kind: 'group',
     label: 'Sales Report',
     i18nKey: 'sidebar.sales_report',
@@ -89,6 +103,7 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
   },
   {
     key: 'expenses',
+    section: 'overview',
     kind: 'item',
     label: 'Expenses',
     i18nKey: 'sidebar.expenses',
@@ -97,25 +112,8 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
     requiresSpecificBranch: true,
   },
   {
-    key: 'inventory',
-    kind: 'item',
-    label: 'Inventory',
-    i18nKey: 'sidebar.inventory',
-    tab: 'Inventory',
-    icon: 'Package',
-    requiresSpecificBranch: true,
-  },
-  {
-    key: 'menu_management',
-    kind: 'item',
-    label: 'Menu Management',
-    i18nKey: 'sidebar.menu_management',
-    tab: 'Menu Management',
-    icon: 'UtensilsCrossed',
-    requiresSpecificBranch: true,
-  },
-  {
     key: 'orders',
+    section: 'operations',
     kind: 'item',
     label: 'Orders',
     i18nKey: 'sidebar.orders',
@@ -125,6 +123,7 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
   },
   {
     key: 'billing',
+    section: 'operations',
     kind: 'item',
     label: 'Billing',
     i18nKey: 'sidebar.billing',
@@ -133,7 +132,27 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
     requiresSpecificBranch: true,
   },
   {
+    key: 'table_settings',
+    section: 'operations',
+    kind: 'item',
+    label: 'Table Settings',
+    i18nKey: 'sidebar.table_settings',
+    tab: 'Tables',
+    icon: 'Armchair',
+  },
+  {
+    key: 'menu_management',
+    section: 'menu_stock',
+    kind: 'item',
+    label: 'Menu Management',
+    i18nKey: 'sidebar.menu_management',
+    tab: 'Menu Management',
+    icon: 'UtensilsCrossed',
+    requiresSpecificBranch: true,
+  },
+  {
     key: 'ingredients',
+    section: 'menu_stock',
     kind: 'item',
     label: 'Ingredients',
     i18nKey: 'sidebar.ingredients',
@@ -142,12 +161,23 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
     requiresSpecificBranch: true,
   },
   {
-    key: 'table_settings',
+    key: 'inventory',
+    section: 'menu_stock',
     kind: 'item',
-    label: 'Table Settings',
-    i18nKey: 'sidebar.table_settings',
-    tab: 'Tables',
-    icon: 'ClipboardList',
+    label: 'Inventory',
+    i18nKey: 'sidebar.inventory',
+    tab: 'Inventory',
+    icon: 'Package',
+    requiresSpecificBranch: true,
+  },
+  {
+    key: 'employee',
+    section: 'staff',
+    kind: 'item',
+    label: 'Employee',
+    i18nKey: 'sidebar.employee',
+    tab: 'Employee',
+    icon: 'IdCard',
   },
   {
     key: 'user_management',

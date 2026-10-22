@@ -1985,6 +1985,7 @@
 		"select_branch": "Select branch"
 	},
 	"employee": {
+		"static_preview_notice": "Preview only — showing sample data. Employee records will be connected soon.",
 		"manage_employee": "Manage Employee",
 		"new_employee": "New Employee",
 		"fullname": "Full Name",
@@ -2217,7 +2218,13 @@
 		"control_panel_access": "Control Panel",
 		"billing": "Billing",
 		"ingredients": "Ingredients",
-		"table_settings": "Table Settings"
+		"table_settings": "Table Settings",
+		"section_overview": "Overview",
+		"section_operations": "Operations",
+		"section_menu_stock": "Menu & Stock",
+		"section_staff": "Staff",
+		"section_admin": "Admin",
+		"employee": "Employee"
 	},
 	"analytics_ai": {
 		"title": "AI Sales Assistant",

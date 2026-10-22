@@ -1556,6 +1556,7 @@
 		"actions": "アクション"
 	},
 	"employee": {
+		"static_preview_notice": "プレビューのみ — サンプルデータを表示しています。従業員データは近日中に接続されます。",
 		"manage_employee": "従業員管理",
 		"new_employee": "新しい従業員",
 		"fullname": "氏名",
@@ -1781,7 +1782,13 @@
 		"logout": "ログアウト",
 		"billing": "会計",
 		"ingredients": "食材",
-		"table_settings": "テーブル設定"
+		"table_settings": "テーブル設定",
+		"section_overview": "概要",
+		"section_operations": "オペレーション",
+		"section_menu_stock": "メニュー・在庫",
+		"section_staff": "スタッフ",
+		"section_admin": "管理者",
+		"employee": "従業員"
 	},
 	"datatable": {
 		"no_data": "データがありません",

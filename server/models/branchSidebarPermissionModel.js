@@ -23,6 +23,7 @@ const ALL_FEATURES = [
 	'billing',
 	'ingredients',
 	'table_settings',
+	'employee',
 ];
 
 function getTableName() {
