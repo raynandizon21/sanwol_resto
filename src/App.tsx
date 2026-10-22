@@ -260,7 +260,7 @@ const LoginView = () => {
       {/* Background Image Side */}
       <div
         className="hidden lg:block lg:w-2/3 h-full bg-cover bg-center"
-        style={{ backgroundImage: `url('/login-bg.jpg')` }}
+        style={{ backgroundImage: `url('/loginpage.jpg')` }}
       >
       </div>
 
