@@ -178,7 +178,7 @@ class UserManagementController {
             const {
                 txtFirstName, txtLastName, txtUserName,
                 txtPassword, txtPassword2,
-                user_role, table_id, salt, branch_id, floor
+                user_role, salt, branch_id, floor
             } = req.body;
 
             if (txtPassword !== txtPassword2) {
@@ -186,20 +186,13 @@ class UserManagementController {
             }
 
             const roleId = parseInt(user_role);
-            let tableIdToSave = null;
+            // Table Menu accounts are no longer tied to a table; the app picks one itself.
+            const tableIdToSave = null;
             const creatorPerm = parseInt(req.session?.permissions || req.user?.permissions);
             const creatorId = req.session?.user_id || req.user?.user_id;
 
             if (roleId === 1 && creatorPerm !== 1) {
                 return res.status(403).json({ success: false, error: 'Only admin can create Administrator accounts.' });
-            }
-
-            if (roleId === 2) {
-                if (!table_id) return res.status(400).json({ success: false, error: 'Table is required for this role.' });
-                tableIdToSave = parseInt(table_id);
-                if (await UserModel.isTableAssigned(tableIdToSave)) {
-                    return res.status(400).json({ success: false, error: 'Selected table is already assigned to another user.' });
-                }
             }
 
             const newUserId = await UserModel.create(
@@ -244,21 +237,14 @@ class UserManagementController {
             const {
                 txtFirstName, txtLastName, txtUserName,
                 txtPassword, txtPassword2,
-                user_role, table_id, branch_id, floor
+                user_role, branch_id, floor
             } = req.body;
 
             const roleId = parseInt(user_role);
-            let tableIdToSave = null;
+            // Table Menu accounts are no longer tied to a table; the app picks one itself.
+            const tableIdToSave = null;
             const creatorId = req.session?.user_id || req.user?.user_id;
             const creatorPerm = parseInt(req.session?.permissions || req.user?.permissions);
-
-            if (roleId === 2) {
-                if (!table_id) return res.status(400).json({ success: false, error: 'Table is required for this role.' });
-                tableIdToSave = parseInt(table_id);
-                if (await UserModel.isTableAssigned(tableIdToSave, id)) {
-                    return res.status(400).json({ success: false, error: 'Selected table is already assigned to another user.' });
-                }
-            }
 
             await UserModel.update(id, txtFirstName, txtLastName, txtUserName, roleId, tableIdToSave, creatorId);
 

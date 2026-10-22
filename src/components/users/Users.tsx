@@ -27,8 +27,6 @@ interface UserRow {
   roleId: string | number;
   branch: string;
   branchId: string | number | null;
-  tableNumber: string | number | null;
-  tableId: string | number | null;
   floor: string;
   status: 'Active' | 'Inactive';
 }
@@ -68,14 +66,12 @@ export const Users: React.FC = () => {
     confirmPassword: '',
     roleId: '' as string | number,
     branchId: '' as string | number | null,
-    tableId: '' as string | number | null,
     floor: '' as string,
   });
 
   // Options State
   const [roles, setRoles] = useState<{ value: string | number, label: string }[]>([]);
   const [branches, setBranches] = useState<{ value: string | number, label: string }[]>([]);
-  const [tables, setTables] = useState<{ value: string | number, label: string }[]>([]);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -103,8 +99,6 @@ export const Users: React.FC = () => {
         roleId: u.PERMISSIONS || u.ROLE_ID || '',
         branch: u.BRANCH_LABEL || u.BRANCH_NAME || '—',
         branchId: u.BRANCH_ID || null,
-        tableNumber: u.TABLE_NUMBER || '—',
-        tableId: u.TABLE_ID || null,
         floor: u.FLOOR || '',
         status: u.ACTIVE === 1 ? 'Active' : 'Inactive'
       }));
@@ -144,10 +138,9 @@ export const Users: React.FC = () => {
         }
       };
 
-      const [rolesRes, branchesRes, tablesRes] = await Promise.all([
+      const [rolesRes, branchesRes] = await Promise.all([
         fetch('/api/user-management/roles', { headers }),
         fetch('/branch', { headers }),
-        fetch('/api/tables', { headers })
       ]);
 
       const rolesData = await processResponse(rolesRes, 'roles');
@@ -158,11 +151,6 @@ export const Users: React.FC = () => {
       const branchesData = await processResponse(branchesRes, 'branches');
       if (branchesData) {
         setBranches(branchesData.map((b: any) => ({ value: b.IDNo, label: b.BRANCH_LABEL || b.BRANCH_NAME })));
-      }
-
-      const tablesData = await processResponse(tablesRes, 'tables');
-      if (tablesData) {
-        setTables(tablesData.map((t: any) => ({ value: t.IDNo, label: `Table ${t.TABLE_NUMBER}` })));
       }
 
     } catch (e) {
@@ -248,7 +236,6 @@ export const Users: React.FC = () => {
       confirmPassword: '',
       roleId: '',
       branchId: null,
-      tableId: null,
       floor: '',
     });
     setIsModalOpen(true);
@@ -264,7 +251,6 @@ export const Users: React.FC = () => {
       confirmPassword: '',
       roleId: user.roleId,
       branchId: user.branchId,
-      tableId: user.tableId,
       floor: user.floor,
     });
     setIsModalOpen(true);
@@ -297,7 +283,6 @@ export const Users: React.FC = () => {
         txtPassword2: formData.confirmPassword,
         user_role: formData.roleId,
         branch_id: formData.branchId,
-        table_id: formData.tableId,
         floor: formData.floor || null,
       };
 
@@ -406,10 +391,6 @@ export const Users: React.FC = () => {
           </span>
         );
       },
-    },
-    {
-      header: t('manage_users.table_no'),
-      render: (user) => <span className="text-sm font-medium">{user.tableNumber}</span>,
     },
     {
       header: t('manage_users.status'),
@@ -585,8 +566,7 @@ export const Users: React.FC = () => {
               confirmPassword: '',
               roleId: '',
               branchId: null,
-              tableId: null,
-              floor: '',
+                      floor: '',
             });
           }
         }}
@@ -630,7 +610,6 @@ export const Users: React.FC = () => {
                   setFormData({
                     ...formData,
                     roleId: val as string | number,
-                    tableId: val === 2 ? formData.tableId : null,
                     floor: isFloorRole ? formData.floor : '',
                   });
                 }}
@@ -652,18 +631,6 @@ export const Users: React.FC = () => {
                 disabled={formData.roleId === 1}
               />
             </div>
-
-            {Number(formData.roleId) === 2 && (
-              <div className="space-y-2 col-span-2">
-                <label className="text-xs font-bold text-brand-text uppercase tracking-wider block">{t('manage_users.assigned_table')}</label>
-                <Select2
-                  options={tables}
-                  value={formData.tableId}
-                  onChange={(val) => setFormData({ ...formData, tableId: val as string | number | null })}
-                  placeholder={t('manage_users.select_table')}
-                />
-              </div>
-            )}
 
             {/waiter|cashier/i.test(roles.find((r) => String(r.value) === String(formData.roleId))?.label || '') && isFloorEnabledBranch(formData.branchId) && (
               <div className="space-y-2 col-span-2">
