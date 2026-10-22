@@ -7,7 +7,7 @@ import { clsx } from 'clsx';
 
 import { useUser } from '../../context/UserContext';
 import { cn } from '../../lib/utils';
-import { DEFAULT_ALL_BRANCHES_LOGO } from '../../utils/branchLogo';
+import { DEFAULT_ALL_BRANCHES_LOGO, isExcludedFromAllBranchesView } from '../../utils/branchLogo';
 import { navigateToBranch } from '../../utils/branchNavigation';
 import {
   formatDateToLocalYmd,
@@ -184,7 +184,8 @@ export const Header: React.FC<HeaderProps> = ({
           if (isAdmin) {
             branchOptions = [
               { id: 'all', name: t('header.all_branches'), logo: DEFAULT_ALL_BRANCHES_LOGO },
-              ...data,
+              // 3Core is the dev/testing branch — keep it out of the picker
+              ...data.filter((b: Branch) => !isExcludedFromAllBranchesView(b.name)),
             ];
           } else if (isManager) {
             // Managers (permission = 3) should only see their specific branch
