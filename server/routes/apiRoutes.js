@@ -22,6 +22,11 @@ const { authenticateJWT, optionalJWT } = require('../middleware/jwtAuth');
 // Response: { success: true, data: {...}, tokens: { accessToken, refreshToken, expiresIn } }
 router.post("/login", ApiController.login);
 
+// GET - Staff accounts for the tablet login picker (Menu/Waiter/Cashier/Kitchen)
+// URL: /api/login/accounts?branch_id=14
+// Response: { success: true, data: [{ user_id, username, firstname, lastname, permissions, role, floor }] }
+router.get("/login/accounts", ApiController.getLoginAccounts);
+
 // POST - Refresh access token
 // URL: /api/refresh
 // Body: { refreshToken: "string" }

@@ -185,6 +185,22 @@ class ApiController {
 		}
 	}
 
+	// GET /api/login/accounts?branch_id= — staff accounts for the tablet login
+	// picker (public: the login screen calls it before anyone signs in).
+	static async getLoginAccounts(req, res) {
+		try {
+			const branchId = parseInt(req.query.branch_id, 10);
+			if (!Number.isInteger(branchId) || branchId <= 0) {
+				return res.status(400).json({ success: false, error: 'branch_id is required' });
+			}
+			const rows = await UserModel.getLoginAccountsByBranch(branchId);
+			return res.json({ success: true, data: rows });
+		} catch (error) {
+			console.error('[LOGIN ACCOUNTS ERROR]', error.message);
+			return res.status(500).json({ success: false, error: 'Internal server error' });
+		}
+	}
+
 	static async getReceiptScannerApiKey(req, res) {
 		const timestamp = new Date().toISOString();
 		try {

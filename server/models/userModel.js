@@ -253,6 +253,30 @@ class UserModel {
         return rows;
     }
 
+    // Staff accounts the tablet login picker lists: active Menu/Tablet (2),
+    // Waiter (14), Cashier (15) and Kitchen (16) users of one branch.
+    // No password data — only what the picker shows.
+    static async getLoginAccountsByBranch(branchId) {
+        const query = `
+            SELECT
+                u.IDNo AS user_id,
+                u.USERNAME AS username,
+                u.FIRSTNAME AS firstname,
+                u.LASTNAME AS lastname,
+                u.PERMISSIONS AS permissions,
+                ur.ROLE AS role,
+                u.FLOOR AS floor
+            FROM user_info u
+            LEFT JOIN user_role ur ON ur.IDno = u.PERMISSIONS
+            WHERE u.ACTIVE = 1
+              AND u.BRANCH_ID = ?
+              AND u.PERMISSIONS IN (2, 14, 15, 16)
+            ORDER BY u.PERMISSIONS ASC, u.FIRSTNAME ASC, u.USERNAME ASC
+        `;
+        const [rows] = await pool.execute(query, [branchId]);
+        return rows;
+    }
+
     static async getActiveSummaryByBranch(branchId) {
         const query = `
             SELECT DISTINCT u.IDNo, u.USERNAME, u.FIRSTNAME, u.LASTNAME, CONCAT(u.FIRSTNAME, ' ', u.LASTNAME) AS FULLNAME
