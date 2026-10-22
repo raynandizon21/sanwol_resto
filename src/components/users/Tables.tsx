@@ -169,6 +169,10 @@ export const Tables: React.FC = () => {
         status: Number(rt.STATUS ?? 0),
         encodedAt: rt.ENCODED_DT || null,
       }));
+      // Natural sort so "Hallway 2" comes before "Hallway 10"
+      mappedData.sort((a, b) =>
+        a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true, sensitivity: 'base' })
+      );
       setTables(mappedData);
     } catch (e: any) {
       console.error('Failed to fetch restaurant tables', e);

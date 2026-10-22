@@ -36,9 +36,11 @@ class TableModel {
 			params.push(branchId);
 		}
 
-		query += ` ORDER BY rt.TABLE_NUMBER ASC`;
-
 		const [rows] = await pool.execute(query, params);
+
+		// Natural sort so "Hallway 2" comes before "Hallway 10"
+		const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+		rows.sort((a, b) => collator.compare(String(a.TABLE_NUMBER ?? ''), String(b.TABLE_NUMBER ?? '')));
 		return rows;
 	}
 
