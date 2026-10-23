@@ -16,6 +16,7 @@ const UserBranchModel = require('../models/userBranchModel');
 const BranchModel = require('../models/branchModel');
 const InventoryDeductionService = require('../services/inventoryDeductionService');
 const InventoryDeductionModel = require('../models/inventoryDeductionModel');
+const OrderActivityLogModel = require('../models/orderActivityLogModel');
 const argon2 = require('argon2');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
 const socketService = require('../utils/socketService');
@@ -29,6 +30,10 @@ const pool = require('../config/db');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs').promises;
+
+// Roles allowed to stay signed in on several devices at once (Menu Tablet,
+// Cashier). Every other role keeps the single-device session.
+const SHARED_SESSION_PERMISSIONS = new Set([2, 15]);
 
 class ApiController {
 	// Login endpoint for mobile app
@@ -137,8 +142,16 @@ class ApiController {
 			// Single-device-session enforcement: this login's sid becomes the
 			// only valid one for this account — authenticateJWT rejects any
 			// older token still out there on another device on its next call.
-			const sid = crypto.randomUUID();
-			await UserModel.updateActiveSession(user.IDNo, sid);
+			// Menu Tablet and Cashier accounts may be signed in on several
+			// tablets at once: they reuse the account's current sid, so every
+			// device shares one session and none is logged out.
+			const activeSessionId = SHARED_SESSION_PERMISSIONS.has(userPermissions)
+				? await UserModel.getActiveSessionId(user.IDNo)
+				: null;
+			const sid = activeSessionId || crypto.randomUUID();
+			if (sid !== activeSessionId) {
+				await UserModel.updateActiveSession(user.IDNo, sid);
+			}
 
 			const tokenPayload = {
 				user_id: user.IDNo,
@@ -1082,6 +1095,50 @@ class ApiController {
 			}
 
 			const orderItems = await OrderItemsModel.getByOrderId(order_id);
+
+			// Activity log (cashier app's Activity tab). The menu tablet confirms
+			// its own new order right away; that's part of "new order", not logged.
+			const logBase = {
+				branchId: order.BRANCH_ID || resolvedBranchId,
+				orderId: order_id,
+				orderNo: order.ORDER_NO,
+				tableNumber,
+				floor: order.FLOOR || null,
+				userId: user_id,
+			};
+			if (targetStatus === 1) {
+				const change = Math.max(0, finalAmountPaid - finalGrandTotal);
+				OrderActivityLogModel.log({
+					...logBase,
+					action: 'settled',
+					summary: `Settled ${OrderActivityLogModel.peso(finalGrandTotal)} · ${paymentMethod}`,
+					details: {
+						payment_method: paymentMethod,
+						amount_paid: finalAmountPaid,
+						discount: discountNum > 0 ? discountNum : 0,
+						change,
+						payment_ref: payment_ref || null,
+						remarks: remarks || null,
+					},
+					amount: finalGrandTotal,
+				});
+			} else if (targetStatus === -1) {
+				OrderActivityLogModel.log({
+					...logBase,
+					action: 'cancelled',
+					summary: 'Cancelled order',
+					details: { items: OrderActivityLogModel.itemsOf(orderItems), remarks: remarks || null },
+					amount: parseFloat(order.GRAND_TOTAL || 0),
+				});
+			} else if (targetStatus === 2 && parseInt(order.STATUS, 10) !== 2 && String(order.ENCODED_BY ?? '') !== String(user_id)) {
+				OrderActivityLogModel.log({
+					...logBase,
+					action: 'confirmed',
+					summary: 'Confirmed order',
+					amount: parseFloat(order.GRAND_TOTAL || 0),
+				});
+			}
+
 			socketService.emitOrderUpdate(order_id, {
 				order_id: parseInt(order_id, 10),
 				order_no: order.ORDER_NO,
@@ -1169,6 +1226,22 @@ class ApiController {
 			// Broadcast socket updates to all clients
 			const orderItems = await OrderItemsModel.getByOrderId(order_id);
 			const targetTableName = targetTable.TABLE_NAME || targetTable.TABLE_NO || `Table ${newTableId}`;
+
+			const oldTable = oldTableId ? await TableModel.getById(oldTableId) : null;
+			const fromName = oldTable?.TABLE_NUMBER || (oldTableId ? `Table ${oldTableId}` : null);
+			const toName = targetTable.TABLE_NUMBER || targetTableName;
+			OrderActivityLogModel.log({
+				branchId: order.BRANCH_ID || req.user?.branch_id || null,
+				orderId: order_id,
+				orderNo: order.ORDER_NO,
+				tableNumber: toName,
+				floor: order.FLOOR || null,
+				action: 'transferred',
+				summary: fromName ? `Moved from ${fromName} to ${toName}` : `Moved to ${toName}`,
+				details: { from_table: fromName, to_table: toName },
+				amount: parseFloat(order.GRAND_TOTAL || 0),
+				userId: user_id,
+			});
 			socketService.emitOrderUpdate(order_id, {
 				order_id: parseInt(order_id, 10),
 				order_no: order.ORDER_NO,
@@ -1414,6 +1487,19 @@ class ApiController {
 			}
 
 			const orderItems = await OrderItemsModel.getByOrderId(orderId);
+			const createdItems = OrderActivityLogModel.itemsOf(orderItems);
+			OrderActivityLogModel.log({
+				branchId: resolvedBranchId,
+				orderId,
+				orderNo: orderData.ORDER_NO,
+				tableNumber,
+				floor: orderData.FLOOR || null,
+				action: 'order_created',
+				summary: `New order · ${createdItems.length} item${createdItems.length === 1 ? '' : 's'} · ${OrderActivityLogModel.peso(orderData.GRAND_TOTAL)}`,
+				details: { items: createdItems },
+				amount: parseFloat(orderData.GRAND_TOTAL || 0),
+				userId: user_id,
+			});
 			// encoded_by lets clients tell whether THEY created this order, so the
 			// "New Order Received" alert only fires for other staff, not the creator.
 			socketService.emitOrderCreated(orderId, {
@@ -1510,6 +1596,24 @@ class ApiController {
 			}
 
 			const allOrderItems = await OrderItemsModel.getByOrderId(order_id);
+			const menuNames = new Map(allOrderItems.map((it) => [String(it.MENU_ID), it.MENU_NAME]));
+			const addedItems = orderItemsToAdd.map((it) => ({
+				name: menuNames.get(String(it.menu_id)) || 'Item',
+				qty: it.qty,
+				line_total: it.line_total,
+			}));
+			OrderActivityLogModel.log({
+				branchId: existingOrder.BRANCH_ID || resolvedBranchId,
+				orderId: order_id,
+				orderNo: existingOrder.ORDER_NO,
+				tableNumber,
+				floor: existingOrder.FLOOR || null,
+				action: 'items_added',
+				summary: `Added ${OrderActivityLogModel.itemsText(addedItems)}`,
+				details: { items: addedItems, added_total: Number(newItemsTotal.toFixed(2)) },
+				amount: newGrandTotal,
+				userId: user_id,
+			});
 			socketService.emitOrderItemsAdded(order_id, {
 				order_id: parseInt(order_id),
 				order_no: existingOrder.ORDER_NO,
@@ -1575,6 +1679,7 @@ class ApiController {
 			const newSubtotal = Number(replacementItems.reduce((sum, item) => sum + item.line_total, 0).toFixed(2));
 			const newGrandTotal = Number((newSubtotal + (Number(existingOrder.TAX_AMOUNT) || 0) + (Number(existingOrder.SERVICE_CHARGE) || 0) - (Number(existingOrder.DISCOUNT_AMOUNT) || 0)).toFixed(2));
 
+			const itemsBefore = await OrderItemsModel.getByOrderId(order_id);
 			await OrderItemsModel.replaceForOrder(order_id, replacementItems, user_id);
 			await OrderModel.update(order_id, {
 				TABLE_ID: existingOrder.TABLE_ID,
@@ -1592,12 +1697,52 @@ class ApiController {
 			if (existingBilling) await BillingModel.updateForOrder(order_id, { amount_due: newGrandTotal });
 
 			const updatedItems = await OrderItemsModel.getByOrderId(order_id);
+			const diff = OrderActivityLogModel.diffItems(itemsBefore, updatedItems);
+			if (diff.added.length || diff.removed.length || diff.changed.length) {
+				const editedTable = existingOrder.TABLE_ID ? await TableModel.getById(existingOrder.TABLE_ID) : null;
+				const parts = [];
+				if (diff.added.length) parts.push(`+${diff.added.length} added`);
+				if (diff.removed.length) parts.push(`${diff.removed.length} removed`);
+				if (diff.changed.length) parts.push(`${diff.changed.length} changed`);
+				OrderActivityLogModel.log({
+					branchId: existingOrder.BRANCH_ID || resolvedBranchId,
+					orderId: order_id,
+					orderNo: existingOrder.ORDER_NO,
+					tableNumber: editedTable?.TABLE_NUMBER || null,
+					floor: existingOrder.FLOOR || null,
+					action: 'items_edited',
+					summary: `Edited order · ${parts.join(', ')}`,
+					details: {
+						...diff,
+						total_from: parseFloat(existingOrder.GRAND_TOTAL || 0),
+						total_to: newGrandTotal,
+					},
+					amount: newGrandTotal,
+					userId: user_id,
+				});
+			}
 			socketService.emitOrderUpdate(order_id, { order_id: parseInt(order_id), order_no: existingOrder.ORDER_NO, table_id: existingOrder.TABLE_ID, status: existingOrder.STATUS, grand_total: newGrandTotal, items: updatedItems });
 
 			return res.json({ success: true, data: { order_id: parseInt(order_id), order_no: existingOrder.ORDER_NO, items_count: replacementItems.length, new_grand_total: newGrandTotal } });
 		} catch (error) {
 			console.error(`[${timestamp}] [API ERROR] PUT /api/orders/${order_id}/items - Error:`, error);
 			return res.status(500).json({ success: false, error: 'Failed to update order items' });
+		}
+	}
+
+	// GET /api/activity-logs?date=YYYY-MM-DD — what the tablets did to this
+	// branch's orders on one business day (default: today), newest first.
+	static async getActivityLogs(req, res) {
+		try {
+			const branchId = req.query.branch_id || req.user?.branch_id || null;
+			const today = getBusinessTodayYmd(branchId);
+			const requested = typeof req.query.date === 'string' ? req.query.date.trim() : '';
+			const date = /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested <= today ? requested : today;
+			const data = await OrderActivityLogModel.listForDay(branchId, date);
+			return res.json({ success: true, date, today, data });
+		} catch (error) {
+			console.error('[API ERROR] GET /api/activity-logs:', error);
+			return res.status(500).json({ success: false, error: 'Failed to load activity log' });
 		}
 	}
 
@@ -1760,6 +1905,9 @@ class ApiController {
 					versionName: release.versionName || '1.0.0',
 					apkUrl,
 					releaseNotes: release.releaseNotes || '',
+					// Optional: the app only offers a release whose packageName
+					// matches its own (com.sanwol.restoapp).
+					packageName: release.packageName || null,
 				}
 			});
 		} catch (error) {

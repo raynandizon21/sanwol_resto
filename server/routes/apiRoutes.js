@@ -112,6 +112,10 @@ router.patch("/waiter/orders/:order_id/status", authenticateJWT, ApiController.u
 // Body: { target_table_id: number }
 router.post("/waiter/orders/:order_id/transfer-table", authenticateJWT, ApiController.transferTableOrder);
 
+// GET - Activity log (cashier app's Activity tab)
+// URL: /api/activity-logs?date=YYYY-MM-DD (default: today)
+router.get("/activity-logs", authenticateJWT, ApiController.getActivityLogs);
+
 // POST - Extend room charge (adds one more unit of the table's ROOM_CHARGE
 // to the order's SERVICE_CHARGE and recomputes GRAND_TOTAL)
 // URL: /api/waiter/orders/:order_id/extend-room-charge
