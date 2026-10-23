@@ -1,6 +1,7 @@
 {
-  "versionCode": 4,
-  "versionName": "1.0.4",
-  "apkFileName": "app-update-1.0.4.apk",
-  "releaseNotes": "test update"
+  "versionCode": 2,
+  "versionName": "1.0.2",
+  "apkFileName": "app-update-1.0.2.apk",
+  "packageName": "com.sanwol.restoapp",
+  "releaseNotes": "Table board first: see every table's order with Details, Edit, Switch, Add and Cancel\nSwitch table right from the table card\nResume an order that wasn't placed yet, per table\nTake Out orders on the menu tablet and the cashier (Take Out #1, #2, …)\nNew category cards on the menu with icons and item counts\nCart: close button, total at the bottom, and a fire animation on the cart button\nNew cashier screen: Unsettled, History and Activity tabs with the full order breakdown\nCashier can Add, Edit, Switch table and Cancel orders\nSettle with discount, amount received, change and reference no.\nActivity log of every order change for the day\nOrder alerts on the cashier with voice: new order, additional order, edit, cancel and table switch\nStop Alert and mute button; alerts wake the screen even when the app is closed\nOffline mode: orders are saved on the tablet and sync once the internet is back\nOrders still reach the cashier over the shop WiFi without internet\nLive clock and new Ready to Settle / Collected Today cards on the cashier\nOne-tap EN / KR language switch in the header\nRefresh button with loading animation and blurred pop-up backgrounds\nCheck for updates in Settings\nQuick login with the account picker; Menu Tablet and Cashier accounts work on several tablets at once\nFixes: edit alerts showing every item as removed, language switch jumping back to Unsettled, cashier take-out showing as Dine In"
 }

@@ -41,6 +41,21 @@ function orderChange(req, type, extra = {}) {
 	return { type, by: req.user?.user_id ?? null, by_name: req.user?.username || null, ...extra };
 }
 
+// order_items rows (OrderItemsModel.getByOrderId) in the shape the apps read
+// from socket events — the same keys as GET /api/waiter/orders.
+function socketItems(rows) {
+	return (rows || []).map((item) => ({
+		item_id: item.IDNo,
+		menu_id: item.MENU_ID,
+		menu_name: item.MENU_NAME,
+		qty: parseFloat(item.QTY || 0),
+		unit_price: parseFloat(item.UNIT_PRICE || 0),
+		line_total: parseFloat(item.LINE_TOTAL || 0),
+		status: item.STATUS,
+		remarks: item.REMARKS || null,
+	}));
+}
+
 class ApiController {
 	// Login endpoint for mobile app
 	static async login(req, res) {
@@ -1259,7 +1274,7 @@ class ApiController {
 				change: orderChange(req, 'transferred', { from_table: fromName, to_table: toName }),
 				status: order.STATUS,
 				grand_total: parseFloat(order.GRAND_TOTAL || 0),
-				items: orderItems,
+				items: socketItems(orderItems),
 				encoded_by: order.ENCODED_BY ?? user_id ?? null
 			});
 
@@ -1732,7 +1747,7 @@ class ApiController {
 					userId: user_id,
 				});
 			}
-			socketService.emitOrderUpdate(order_id, { order_id: parseInt(order_id), order_no: existingOrder.ORDER_NO, table_id: existingOrder.TABLE_ID, status: existingOrder.STATUS, grand_total: newGrandTotal, items: updatedItems, change: orderChange(req, 'items_edited') });
+			socketService.emitOrderUpdate(order_id, { order_id: parseInt(order_id), order_no: existingOrder.ORDER_NO, table_id: existingOrder.TABLE_ID, status: existingOrder.STATUS, grand_total: newGrandTotal, items: socketItems(updatedItems), change: orderChange(req, 'items_edited') });
 
 			return res.json({ success: true, data: { order_id: parseInt(order_id), order_no: existingOrder.ORDER_NO, items_count: replacementItems.length, new_grand_total: newGrandTotal } });
 		} catch (error) {
