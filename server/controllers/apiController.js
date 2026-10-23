@@ -26,6 +26,7 @@ const { stitchReceiptDataUrls } = require('../services/receiptStitchService');
 const { analyzeReceipt, extractOrderLinesFromReceipt } = require('../services/orderReceiptHelpers');
 const { toPublicImageUrl, publicBaseUrl, publicUrl, SUBDIRS, UPLOAD_ROOT } = require('../utils/uploadPaths');
 const { getBusinessTodayYmd } = require('../utils/businessDay');
+const { isWithinHours, storeNowMinutes, formatTime } = require('../utils/menuSchedule');
 const pool = require('../config/db');
 const crypto = require('crypto');
 const path = require('path');
@@ -395,7 +396,19 @@ class ApiController {
 
 		try {
 			const branchId = req.query.branch_id || req.user?.branch_id || null;
-			const categories = await CategoryModel.getAll(branchId);
+			const allCategories = await CategoryModel.getAll(branchId);
+			// Switched off or outside its available hours: the category and every
+			// subcategory under it stay off the tablets.
+			const now = storeNowMinutes();
+			const hiddenIds = new Set(
+				allCategories
+					.filter(cat => Number(cat.IS_AVAILABLE ?? 1) !== 1 || !isWithinHours(cat.AVAILABLE_FROM, cat.AVAILABLE_TO, now))
+					.map(cat => String(cat.IDNo))
+			);
+			const categories = allCategories.filter(cat =>
+				!hiddenIds.has(String(cat.IDNo)) &&
+				!(cat.PARENT_CAT_ID != null && hiddenIds.has(String(cat.PARENT_CAT_ID)))
+			);
 			const useKo = String(targetLanguage).toLowerCase().startsWith('ko');
 			let formattedCategories = categories.map(cat => ({
 				id: cat.IDNo,
@@ -498,6 +511,83 @@ class ApiController {
 		}
 	}
 
+	// GET /api/menu/availability — the cashier's "Menu availability" screen:
+	// every category and item with its on/off switch and available hours.
+	static async getMenuAvailability(req, res) {
+		try {
+			const branchId = req.query.branch_id || req.user?.branch_id || null;
+			const useKo = String(req.query.lang || req.query.language || 'en').toLowerCase().startsWith('ko');
+			const [categories, menus] = await Promise.all([
+				CategoryModel.getAll(branchId),
+				MenuModel.getByCategory(null, branchId, { includeUnavailable: true }),
+			]);
+			const now = storeNowMinutes();
+			return res.json({
+				success: true,
+				data: {
+					categories: categories.map(cat => ({
+						id: cat.IDNo,
+						name: (useKo && cat.CAT_NAME_KO) || cat.CAT_NAME,
+						parent_id: cat.PARENT_CAT_ID ?? null,
+						is_available: Number(cat.IS_AVAILABLE ?? 1) === 1,
+						available_from: formatTime(cat.AVAILABLE_FROM),
+						available_to: formatTime(cat.AVAILABLE_TO),
+						in_hours: isWithinHours(cat.AVAILABLE_FROM, cat.AVAILABLE_TO, now),
+					})),
+					items: menus
+						.map(menu => ({
+							id: menu.IDNo,
+							name: (useKo && menu.MENU_NAME_KO) || menu.MENU_NAME,
+							category_id: menu.CATEGORY_ID ?? null,
+							price: parseFloat(menu.MENU_PRICE || 0),
+							is_available: Number(menu.IS_AVAILABLE) === 1,
+							available_from: formatTime(menu.AVAILABLE_FROM),
+							available_to: formatTime(menu.AVAILABLE_TO),
+							in_hours: isWithinHours(menu.AVAILABLE_FROM, menu.AVAILABLE_TO, now),
+						}))
+						.sort((a, b) => String(a.name).localeCompare(String(b.name))),
+				},
+			});
+		} catch (error) {
+			console.error('[API ERROR] GET /api/menu/availability:', error);
+			return res.status(500).json({ success: false, error: 'Failed to load menu availability' });
+		}
+	}
+
+	// PATCH /api/menu/:id/availability and /api/categories/:id/availability —
+	// the cashier switches an item / a category on or off (hours stay in the admin).
+	static async setMenuItemAvailability(req, res) {
+		return ApiController._setAvailability(req, res, MenuModel, 'menu');
+	}
+
+	static async setCategoryAvailability(req, res) {
+		return ApiController._setAvailability(req, res, CategoryModel, 'category');
+	}
+
+	static async _setAvailability(req, res, Model, kind) {
+		try {
+			const raw = req.body?.is_available ?? req.body?.IS_AVAILABLE;
+			if (raw === undefined || raw === null) {
+				return res.status(400).json({ success: false, error: 'is_available is required' });
+			}
+			const isAvailable = raw === true || raw === 1 || raw === '1' || raw === 'true';
+			const updated = await Model.setAvailability(req.params.id, isAvailable, req.user?.user_id ?? null);
+			if (!updated) {
+				return res.status(404).json({ success: false, error: `${kind === 'menu' ? 'Menu item' : 'Category'} not found` });
+			}
+			socketService.emitMenuUpdated({
+				reason: `${kind}_availability`,
+				[kind === 'menu' ? 'menu_id' : 'category_id']: Number(req.params.id),
+				is_available: isAvailable,
+				by: req.user?.user_id ?? null,
+			});
+			return res.json({ success: true, data: { is_available: isAvailable } });
+		} catch (error) {
+			console.error(`[API ERROR] PATCH ${kind} availability:`, error);
+			return res.status(500).json({ success: false, error: 'Failed to update availability' });
+		}
+	}
+
 	static async getMenuItems(req, res) {
 		const timestamp = new Date().toISOString();
 		const categoryId = req.query.category_id || null;
@@ -505,7 +595,10 @@ class ApiController {
 
 		try {
 			const branchId = req.query.branch_id || req.user?.branch_id || null;
-			const menus = await MenuModel.getByCategory(categoryId, branchId);
+			// include_unavailable=1: also hidden / out-of-hours items (the
+			// cashier's kitchen slip needs the names of items already ordered).
+			const includeUnavailable = ['1', 'true'].includes(String(req.query.include_unavailable || '').toLowerCase());
+			const menus = await MenuModel.getByCategory(categoryId, branchId, { includeUnavailable });
 			
 			const baseUrl = publicBaseUrl(req);
 			const useKo = String(targetLanguage).toLowerCase().startsWith('ko');

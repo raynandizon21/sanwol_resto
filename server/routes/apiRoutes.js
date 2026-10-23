@@ -10,7 +10,7 @@ const express = require('express');
 const router = express.Router();
 const ApiController = require('../controllers/apiController');
 const UserManagementController = require('../controllers/userManagementController');
-const { authenticateJWT, optionalJWT } = require('../middleware/jwtAuth');
+const { authenticateJWT, optionalJWT, requirePermission } = require('../middleware/jwtAuth');
 
 // ============================================
 // PUBLIC ROUTES (No authentication required)
@@ -72,6 +72,12 @@ router.get("/tables", authenticateJWT, ApiController.getTables);
 // Headers: Authorization: Bearer <accessToken>
 // Query params: ?category_id=X (optional - filter by category)
 router.get("/menu", authenticateJWT, ApiController.getMenuItems);
+
+// Menu availability (cashier tablet; admin always allowed): every item and
+// category with its on/off switch and hours, and the switches themselves.
+router.get("/menu/availability", authenticateJWT, requirePermission([15]), ApiController.getMenuAvailability);
+router.patch("/menu/:id/availability", authenticateJWT, requirePermission([15]), ApiController.setMenuItemAvailability);
+router.patch("/categories/:id/availability", authenticateJWT, requirePermission([15]), ApiController.setCategoryAvailability);
 
 // GET - Get top revenue / popular menu items
 // URL: /api/menu/top-revenue

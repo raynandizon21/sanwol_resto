@@ -23,6 +23,23 @@ class CategoryModel {
 					console.warn('[CategoryModel] ensureSchema PARENT_CAT_ID:', msg);
 				}
 			}
+			// IS_AVAILABLE = 0 hides the category (and its subcategories) on the
+			// tablets without deleting it; AVAILABLE_FROM/TO = daily hours it shows
+			// (e.g. breakfast), see utils/menuSchedule.js.
+			for (const [col, sql] of [
+				['IS_AVAILABLE', 'ALTER TABLE categories ADD COLUMN IS_AVAILABLE TINYINT(1) NOT NULL DEFAULT 1'],
+				['AVAILABLE_FROM', 'ALTER TABLE categories ADD COLUMN AVAILABLE_FROM TIME NULL'],
+				['AVAILABLE_TO', 'ALTER TABLE categories ADD COLUMN AVAILABLE_TO TIME NULL'],
+			]) {
+				try {
+					await pool.execute(sql);
+				} catch (e) {
+					const msg = String(e?.message || '');
+					if (!/Duplicate column name/i.test(msg)) {
+						console.warn(`[CategoryModel] ensureSchema ${col}:`, msg);
+					}
+				}
+			}
 			try {
 				await pool.execute(`
 					ALTER TABLE categories
@@ -46,7 +63,7 @@ class CategoryModel {
 
 	static async getAll(branchId = null) {
 		await CategoryModel.ensureSchema();
-		let query = `SELECT IDNo, CAT_NAME, CAT_NAME_KO, CAT_DESC, PARENT_CAT_ID, ACTIVE, ENCODED_BY, ENCODED_DT, EDITED_BY, EDITED_DT FROM categories WHERE ACTIVE = 1`;
+		let query = `SELECT IDNo, BRANCH_ID, CAT_NAME, CAT_NAME_KO, CAT_DESC, PARENT_CAT_ID, IS_AVAILABLE, AVAILABLE_FROM, AVAILABLE_TO, ACTIVE, ENCODED_BY, ENCODED_DT, EDITED_BY, EDITED_DT FROM categories WHERE ACTIVE = 1`;
 		const params = [];
 		if (branchId != null) {
 			query += ` AND BRANCH_ID = ?`;
@@ -144,6 +161,26 @@ class CategoryModel {
 		const [result] = await pool.execute(
 			'UPDATE categories SET CAT_NAME = ?, CAT_NAME_KO = IF(?, CAT_NAME_KO, ?), CAT_DESC = ?, PARENT_CAT_ID = ?, EDITED_BY = ?, EDITED_DT = ? WHERE IDNo = ? AND ACTIVE = 1',
 			[CAT_NAME.trim(), keepKo ? 1 : 0, keepKo ? null : String(CAT_NAME_KO || '').trim() || null, CAT_DESC || null, parentId, user_id, now, categoryId]
+		);
+		return result.affectedRows > 0;
+	}
+
+	/** Show (true) or hide (false) a category on the tablets. */
+	static async setAvailability(id, isAvailable, user_id) {
+		await CategoryModel.ensureSchema();
+		const [result] = await pool.execute(
+			'UPDATE categories SET IS_AVAILABLE = ?, EDITED_BY = ?, EDITED_DT = ? WHERE IDNo = ? AND ACTIVE = 1',
+			[isAvailable ? 1 : 0, user_id ?? null, new Date(), id]
+		);
+		return result.affectedRows > 0;
+	}
+
+	/** Daily hours the category shows ('HH:MM:00' or null = all day). */
+	static async setHours(id, from, to) {
+		await CategoryModel.ensureSchema();
+		const [result] = await pool.execute(
+			'UPDATE categories SET AVAILABLE_FROM = ?, AVAILABLE_TO = ? WHERE IDNo = ? AND ACTIVE = 1',
+			[from ?? null, to ?? null, id]
 		);
 		return result.affectedRows > 0;
 	}

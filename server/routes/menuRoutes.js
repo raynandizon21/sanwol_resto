@@ -40,6 +40,9 @@ router.post("/menu", authenticate, menuUpload.single(FIELDS.MENU_IMG), convertMe
 // PUT - Update menu (with optional file upload and WebP conversion)
 router.put("/menu/:id", authenticate, menuUpload.single(FIELDS.MENU_IMG), convertMenuToWebp, MenuController.update);
 
+// PATCH - Show / hide a menu item on the tablets
+router.patch("/menu/:id/availability", authenticate, MenuController.setAvailability);
+
 // ============================================
 // DELETE ROUTES
 // ============================================

@@ -205,6 +205,21 @@ function emitTableUpdated(tableData, action = 'updated') {
   }
 }
 
+// Menu items / categories were hidden, shown, edited, or an "available
+// hours" window opened or closed: the tablets reload their menu. Sent to
+// everyone (it carries no order data).
+function emitMenuUpdated(details = {}) {
+  if (!io) {
+    console.warn('[SOCKET] Socket.io not initialized');
+    return;
+  }
+  const payload = { ...details, timestamp: new Date().toISOString() };
+  io.emit('menu_updated', payload);
+  if (SOCKET_LOG_EMITS) {
+    console.log(`[SOCKET] Emitted menu_updated (${details.reason || 'changed'})`);
+  }
+}
+
 // Emit new notification to a specific user (restoadmin bell)
 function emitNotificationCreated(userId, notification) {
   if (!io) {
@@ -229,6 +244,7 @@ module.exports = {
   emitOrderCreated,
   emitOrderItemsAdded,
   emitTableUpdated,
+  emitMenuUpdated,
   emitNotificationCreated,
   getIO
 };

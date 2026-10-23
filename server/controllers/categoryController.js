@@ -3,6 +3,8 @@
 const CategoryModel = require('../models/categoryModel');
 const TranslationService = require('../utils/translationService');
 const ApiResponse = require('../utils/apiResponse');
+const { emitMenuUpdated } = require('../utils/socketService');
+const { normalizeTimeInput } = require('../utils/menuSchedule');
 
 class CategoryController {
 	// Prefer body/query branch (UI selection), then session/user
@@ -11,6 +13,15 @@ class CategoryController {
 		if (raw == null || raw === '' || raw === 'all') return null;
 		const parsed = Number(raw);
 		return Number.isFinite(parsed) ? parsed : null;
+	}
+
+	// AVAILABLE_FROM / AVAILABLE_TO: undefined when not sent (keep what is
+	// stored); throws on a malformed time.
+	static _resolveHours(req) {
+		const from = normalizeTimeInput(req.body?.AVAILABLE_FROM);
+		const to = normalizeTimeInput(req.body?.AVAILABLE_TO);
+		if (from === undefined && to === undefined) return undefined;
+		return { from: from ?? null, to: to ?? null };
 	}
 
 	static _resolvePayload(req) {
@@ -113,6 +124,13 @@ class CategoryController {
 				return ApiResponse.badRequest(res, 'Please select a branch to create a category.');
 			}
 
+			let hours;
+			try {
+				hours = CategoryController._resolveHours(req);
+			} catch (e) {
+				return ApiResponse.badRequest(res, e.message);
+			}
+
 			const rawParent = req.body?.PARENT_CAT_ID ?? req.body?.parent_cat_id ?? req.body?.parent_id ?? null;
 			let PARENT_CAT_ID = null;
 			if (rawParent != null && rawParent !== '') {
@@ -132,6 +150,9 @@ class CategoryController {
 				user_id,
 			});
 
+			if (hours) await CategoryModel.setHours(categoryId, hours.from, hours.to);
+
+			emitMenuUpdated({ reason: 'category_created', category_id: Number(categoryId) });
 			return ApiResponse.created(res, { id: categoryId }, 'Category created successfully');
 		} catch (error) {
 			console.error('Error creating category:', error);
@@ -157,6 +178,13 @@ class CategoryController {
 				PARENT_CAT_ID = p;
 			}
 
+			let hours;
+			try {
+				hours = CategoryController._resolveHours(req);
+			} catch (e) {
+				return ApiResponse.badRequest(res, e.message);
+			}
+
 			const user_id = req.session?.user_id || req.user?.user_id || null;
 			const updated = await CategoryModel.update(id, {
 				CAT_NAME: payload.CAT_NAME,
@@ -167,6 +195,9 @@ class CategoryController {
 			});
 
 			if (!updated) return ApiResponse.notFound(res, 'Category');
+			if (hours) await CategoryModel.setHours(id, hours.from, hours.to);
+
+			emitMenuUpdated({ reason: 'category_updated', category_id: Number(id) });
 			return ApiResponse.success(res, null, 'Category updated successfully');
 		} catch (error) {
 			console.error('Error updating category:', error);
@@ -181,10 +212,32 @@ class CategoryController {
 			const deleted = await CategoryModel.delete(id, user_id);
 
 			if (!deleted) return ApiResponse.notFound(res, 'Category');
+			emitMenuUpdated({ reason: 'category_deleted', category_id: Number(id) });
 			return ApiResponse.success(res, null, 'Category deleted successfully');
 		} catch (error) {
 			console.error('Error deleting category:', error);
 			return ApiResponse.error(res, 'Failed to delete category', 500, error.message);
+		}
+	}
+
+	/** PATCH — show / hide a category (and its subcategories) on the tablets. */
+	static async setAvailability(req, res) {
+		try {
+			const { id } = req.params;
+			const raw = req.body?.IS_AVAILABLE ?? req.body?.is_available;
+			if (raw === undefined || raw === null) {
+				return ApiResponse.badRequest(res, 'IS_AVAILABLE is required');
+			}
+			const isAvailable = raw === true || raw === 1 || raw === '1' || raw === 'true';
+			const user_id = req.session?.user_id || req.user?.user_id || null;
+			const updated = await CategoryModel.setAvailability(id, isAvailable, user_id);
+			if (!updated) return ApiResponse.notFound(res, 'Category');
+
+			emitMenuUpdated({ reason: 'category_availability', category_id: Number(id), is_available: isAvailable });
+			return ApiResponse.success(res, { is_available: isAvailable }, 'Category availability updated');
+		} catch (error) {
+			console.error('Error updating category availability:', error);
+			return ApiResponse.error(res, 'Failed to update category availability', 500, error.message);
 		}
 	}
 

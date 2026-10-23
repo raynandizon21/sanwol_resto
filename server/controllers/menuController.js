@@ -9,6 +9,17 @@ const MenuModel = require('../models/menuModel');
 const { SUBDIRS, publicUrl, toPublicImageUrl, publicBaseUrl, safeDeletePublicFile } = require('../utils/uploadPaths');
 const TranslationService = require('../utils/translationService');
 const ApiResponse = require('../utils/apiResponse');
+const { emitMenuUpdated } = require('../utils/socketService');
+const { normalizeTimeInput } = require('../utils/menuSchedule');
+
+// AVAILABLE_FROM / AVAILABLE_TO from the form: undefined when not sent (keep
+// what is stored); throws on a malformed time.
+function hoursFromBody(body) {
+	const from = normalizeTimeInput(body?.AVAILABLE_FROM);
+	const to = normalizeTimeInput(body?.AVAILABLE_TO);
+	if (from === undefined && to === undefined) return undefined;
+	return { from: from ?? null, to: to ?? null };
+}
 
 class MenuController {
 	// Get all menus
@@ -205,6 +216,13 @@ class MenuController {
 				MENU_IMG = publicUrl(SUBDIRS.MENU, req.file.filename);
 			}
 
+			let hours;
+			try {
+				hours = hoursFromBody(req.body);
+			} catch (e) {
+				return ApiResponse.badRequest(res, e.message);
+			}
+
 			const user_id = req.session.user_id || req.user?.user_id;
 			// Prioritize explicit branch (admin branch selector), then fall back to session/user
 			const branchId = req.body.BRANCH_ID || req.query.branch_id || req.session?.branch_id || req.user?.branch_id;
@@ -224,6 +242,9 @@ class MenuController {
 				user_id
 			});
 
+			if (hours) await MenuModel.setHours(menuId, hours.from, hours.to);
+
+			emitMenuUpdated({ reason: 'menu_created', menu_id: Number(menuId) });
 			return ApiResponse.created(res, { id: menuId }, 'Menu created successfully');
 		} catch (error) {
 			console.error('Error creating menu:', error);
@@ -245,6 +266,13 @@ class MenuController {
 				MENU_PRICE,
 				IS_AVAILABLE
 			} = req.body;
+
+			let hours;
+			try {
+				hours = hoursFromBody(req.body);
+			} catch (e) {
+				return ApiResponse.badRequest(res, e.message);
+			}
 
 			// Handle file upload - if new file uploaded, use it; otherwise keep existing
 			let imagePath = MENU_IMG; // Default to existing image
@@ -272,7 +300,9 @@ class MenuController {
 			if (!updated) {
 				return ApiResponse.notFound(res, 'Menu');
 			}
+			if (hours) await MenuModel.setHours(id, hours.from, hours.to);
 
+			emitMenuUpdated({ reason: 'menu_updated', menu_id: Number(id) });
 			return ApiResponse.success(res, null, 'Menu updated successfully');
 		} catch (error) {
 			console.error('Error updating menu:', error);
@@ -292,10 +322,34 @@ class MenuController {
 				return res.status(404).json({ error: 'Menu not found' });
 			}
 
+			emitMenuUpdated({ reason: 'menu_deleted', menu_id: Number(id) });
 			return ApiResponse.success(res, null, 'Menu deleted successfully');
 		} catch (error) {
 			console.error('Error deleting menu:', error);
 			return ApiResponse.error(res, 'Failed to delete menu', 500, error.message);
+		}
+	}
+
+	// PATCH - Show / hide a menu item on the tablets (quick switch)
+	static async setAvailability(req, res) {
+		try {
+			const { id } = req.params;
+			const raw = req.body?.IS_AVAILABLE ?? req.body?.is_available;
+			if (raw === undefined || raw === null) {
+				return ApiResponse.badRequest(res, 'IS_AVAILABLE is required');
+			}
+			const isAvailable = raw === true || raw === 1 || raw === '1' || raw === 'true';
+			const user_id = req.session?.user_id || req.user?.user_id || null;
+			const updated = await MenuModel.setAvailability(id, isAvailable, user_id);
+			if (!updated) {
+				return ApiResponse.notFound(res, 'Menu');
+			}
+
+			emitMenuUpdated({ reason: 'menu_availability', menu_id: Number(id), is_available: isAvailable });
+			return ApiResponse.success(res, { is_available: isAvailable }, 'Menu availability updated');
+		} catch (error) {
+			console.error('Error updating menu availability:', error);
+			return ApiResponse.error(res, 'Failed to update menu availability', 500, error.message);
 		}
 	}
 }

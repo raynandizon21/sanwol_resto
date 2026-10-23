@@ -339,4 +339,7 @@ app.use((err, req, res, next) => {
 	// Initialize Socket.io
 	const socketService = require('./utils/socketService');
 	socketService.initializeSocket(server);
+
+	// Opens / closes "available hours" windows (e.g. breakfast) on the tablets.
+	require('./utils/menuScheduleWatcher').startMenuScheduleWatcher();
 })();

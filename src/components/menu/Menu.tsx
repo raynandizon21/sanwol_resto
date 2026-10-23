@@ -13,6 +13,9 @@ import {
     Loader2,
     ImageIcon,
     ListChecks,
+    Eye,
+    EyeOff,
+    Clock,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { type ColumnDef } from '../ui/DataTable';
@@ -31,6 +34,8 @@ import {
     migrateFlatCategoriesUnderMain,
     updateMenu,
     deleteMenu,
+    setMenuAvailability,
+    setCategoryAvailability,
     resolveImageUrl,
     isKoreanLanguage,
     localizedMenuName,
@@ -107,6 +112,91 @@ function formatPriceInput(raw: string): string {
 
 function parsePriceInput(value: string): number {
     return Number(String(value ?? '').replace(/,/g, ''));
+}
+
+
+// ---- Tablet availability (hide / show, available hours) ----
+
+// Same clock as the server (utils/menuSchedule.js): store time, GMT+8.
+const STORE_UTC_OFFSET_MINUTES = 480;
+const storeNowMinutes = () => (((Math.floor(Date.now() / 60000) + STORE_UTC_OFFSET_MINUTES) % 1440) + 1440) % 1440;
+const hhmmToMinutes = (value?: string | null) => {
+    const m = /^(\d{1,2}):(\d{2})/.exec(value || '');
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+/** No window (or both ends the same) = all day; 22:00-02:00 wraps midnight. */
+const isWithinHours = (from?: string | null, to?: string | null) => {
+    const f = hhmmToMinutes(from);
+    const tm = hhmmToMinutes(to);
+    if (f === null || tm === null || f === tm) return true;
+    const now = storeNowMinutes();
+    return f < tm ? now >= f && now < tm : now >= f || now < tm;
+};
+/** i18n key of what is wrong with a from/to pair, or null when it is fine. */
+const hoursErrorKey = (from: string, to: string) => {
+    if (!!from !== !!to) return 'menu_page.hours_both_required';
+    if (from && from === to) return 'menu_page.hours_same';
+    return null;
+};
+
+/** "Hidden" and "06:00–11:00" tags (green while open now, amber outside). */
+function AvailabilityTags({ hidden, from, to }: { hidden?: boolean; from?: string | null; to?: string | null }) {
+    const { t } = useTranslation();
+    const hasHours = !!from && !!to && from !== to;
+    if (!hidden && !hasHours) return null;
+    const open = isWithinHours(from, to);
+    return (
+        <span className="inline-flex flex-wrap items-center gap-1 align-middle">
+            {hidden && (
+                <span
+                    title={t('menu_page.avail_hidden_hint')}
+                    className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-50 text-red-500"
+                >
+                    <EyeOff size={10} />
+                    {t('menu_page.avail_hidden')}
+                </span>
+            )}
+            {hasHours && (
+                <span
+                    title={open ? t('menu_page.hours_open_now') : t('menu_page.hours_off_now')}
+                    className={cn(
+                        'inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+                        open ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600',
+                    )}
+                >
+                    <Clock size={10} />
+                    {from}–{to}
+                </span>
+            )}
+        </span>
+    );
+}
+
+/** "Available hours" from / to inputs (empty = all day). */
+function HoursField({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
+    const { t } = useTranslation();
+    const inputClass =
+        'flex-1 min-w-0 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all';
+    return (
+        <div>
+            <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.hours_label')}</label>
+            <div className="flex items-center gap-2">
+                <input type="time" aria-label={t('menu_page.hours_from')} value={from} onChange={(e) => onChange(e.target.value, to)} className={inputClass} />
+                <span className="text-sm font-bold text-brand-muted">–</span>
+                <input type="time" aria-label={t('menu_page.hours_to')} value={to} onChange={(e) => onChange(from, e.target.value)} className={inputClass} />
+                {(from || to) && (
+                    <button
+                        type="button"
+                        onClick={() => onChange('', '')}
+                        className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold text-brand-muted hover:bg-gray-100 transition-colors"
+                    >
+                        {t('menu_page.hours_clear')}
+                    </button>
+                )}
+            </div>
+            <p className="mt-1 text-xs text-brand-muted">{t('menu_page.hours_hint')}</p>
+        </div>
+    );
 }
 
 export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
@@ -207,6 +297,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const [categoryName, setCategoryName] = useState('');
     const [categoryNameKo, setCategoryNameKo] = useState('');
     const [categoryDesc, setCategoryDesc] = useState('');
+    const [categoryFrom, setCategoryFrom] = useState('');
+    const [categoryTo, setCategoryTo] = useState('');
     const [categorySubmitting, setCategorySubmitting] = useState(false);
     const [categoryToDelete, setCategoryToDelete] = useState<MenuCategory | null>(null);
     const [selectedMainCategoryId, setSelectedMainCategoryId] = useState<string | null>(null);
@@ -230,6 +322,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         name: string;
         nameKo: string;
         desc: string;
+        from?: string;
+        to?: string;
     }>({ id: null, name: '', nameKo: '', desc: '' });
 
     // ----- Ingredients modal -----
@@ -254,6 +348,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const [formCategory, setFormCategory] = useState('');
     const [formPrice, setFormPrice] = useState('');
     const [formAvailable, setFormAvailable] = useState(true);
+    const [formFrom, setFormFrom] = useState('');
+    const [formTo, setFormTo] = useState('');
     const [formImage, setFormImage] = useState<File | null>(null);
     const [formImagePreview, setFormImagePreview] = useState<string | null>(null);
     const [hoverPreview, setHoverPreview] = useState<{ src: string; alt: string; top: number; left: number } | null>(null);
@@ -269,6 +365,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         categoryId: string;
         price: string;
         available: boolean;
+        from?: string;
+        to?: string;
         imagePreview: string | null;
     }>({
         id: null,
@@ -484,6 +582,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const resetForm = () => {
         setFormName(''); setFormNameKo(''); setFormDesc(''); setFormDescKo(''); setFormCategory(''); setFormPrice('');
         setFormAvailable(true); setFormImage(null); setFormImagePreview(null);
+        setFormFrom(''); setFormTo('');
     };
 
     const openCreate = () => {
@@ -512,6 +611,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         setFormCategory(item.categoryId || '');
         setFormPrice(formatPriceInput(String(item.price ?? '')));
         setFormAvailable(item.isAvailable);
+        setFormFrom(item.availableFrom || '');
+        setFormTo(item.availableTo || '');
         setFormImage(null);
         setFormImagePreview(item.imageUrl ? resolveImageUrl(item.imageUrl) : null);
         setEditingItem(item);
@@ -525,6 +626,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             categoryId: item.categoryId || '',
             price: formatPriceInput(String(item.price ?? '')),
             available: !!item.isAvailable,
+            from: item.availableFrom || '',
+            to: item.availableTo || '',
             imagePreview: item.imageUrl ? resolveImageUrl(item.imageUrl) : null,
         });
 
@@ -761,6 +864,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             (formCategory || '') === (itemBaseline.categoryId || '') &&
             (formPrice === '' ? itemBaseline.price : formPrice) === itemBaseline.price &&
             formAvailable === itemBaseline.available &&
+            formFrom === (itemBaseline.from || '') &&
+            formTo === (itemBaseline.to || '') &&
             formImagePreview === itemBaseline.imagePreview &&
             formImage == null;
         return !baselineMatch;
@@ -772,6 +877,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         formCategory,
         formPrice,
         formAvailable,
+        formFrom,
+        formTo,
         formImage,
         formImagePreview,
         itemBaseline,
@@ -783,6 +890,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         setCategoryName('');
         setCategoryNameKo('');
         setCategoryDesc('');
+        setCategoryFrom('');
+        setCategoryTo('');
         setCategoryBaseline({ id: null, name: '', nameKo: '', desc: '' });
         setCategoryParentId(null);
         setExistingCategoryToAttachId(null);
@@ -816,6 +925,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         setCategoryName('');
         setCategoryNameKo('');
         setCategoryDesc('');
+        setCategoryFrom('');
+        setCategoryTo('');
         setCategoryParentId(null);
         setExistingCategoryToAttachId(null);
     };
@@ -826,7 +937,16 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         setCategoryName(category.name || '');
         setCategoryNameKo(category.nameKo || '');
         setCategoryDesc('');
-        setCategoryBaseline({ id: String(category.id), name: category.name || '', nameKo: category.nameKo || '', desc: '' });
+        setCategoryFrom(category.availableFrom || '');
+        setCategoryTo(category.availableTo || '');
+        setCategoryBaseline({
+            id: String(category.id),
+            name: category.name || '',
+            nameKo: category.nameKo || '',
+            desc: '',
+            from: category.availableFrom || '',
+            to: category.availableTo || '',
+        });
         setCategoryParentId(category.parentId || null);
         setExistingCategoryToAttachId(null);
         setIsCategoryPanelOpen(true);
@@ -865,6 +985,12 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             toast.error(t('categories.messages.select_branch'));
             return;
         }
+        const categoryHoursError = hoursErrorKey(categoryFrom, categoryTo);
+        if (categoryHoursError) {
+            toast.error(t(categoryHoursError));
+            return;
+        }
+        const hoursPayload = { availableFrom: categoryFrom || null, availableTo: categoryTo || null };
         const parentPayload =
             categoryParentId && categoryParentOptions.some((opt) => opt.value === categoryParentId)
                 ? categoryParentId
@@ -877,6 +1003,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     nameKo: categoryNameKo,
                     description: categoryDesc.trim() || null,
                     parentId: parentPayload,
+                    ...hoursPayload,
                 });
                 toast.success(t('menu_page.category_updated_successfully'));
                 closeCategoryModal();
@@ -888,6 +1015,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                         nameKo: categoryNameKo,
                         description: categoryDesc.trim() || null,
                         parentId: parentPayload,
+                        ...hoursPayload,
                     });
                     toast.success(t('menu_page.existing_category_moved_under_selected_main'));
                 } else {
@@ -896,6 +1024,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                         nameKo: categoryNameKo,
                         description: categoryDesc.trim() || null,
                         parentId: parentPayload,
+                        ...hoursPayload,
                     });
                     toast.success(t('category.category_created_successfully'));
                 }
@@ -943,9 +1072,11 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             categoryName === categoryBaseline.name &&
             categoryNameKo === categoryBaseline.nameKo &&
             categoryDesc === categoryBaseline.desc &&
+            categoryFrom === (categoryBaseline.from || '') &&
+            categoryTo === (categoryBaseline.to || '') &&
             currentParent === baselineParent;
         return !baselineMatch;
-    }, [categoryName, categoryNameKo, categoryDesc, categoryBaseline, branchId, categoryParentId, editingCategory, categoryParentOptions]);
+    }, [categoryName, categoryNameKo, categoryDesc, categoryFrom, categoryTo, categoryBaseline, branchId, categoryParentId, editingCategory, categoryParentOptions]);
 
     // ==================== Ingredients modal ====================
     const openIngredientsModal = async (item: MenuRecord) => {
@@ -1128,6 +1259,11 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
             toast.error(t('menu_page.messages.name_required_msg'));
             return;
         }
+        const itemHoursError = hoursErrorKey(formFrom, formTo);
+        if (itemHoursError) {
+            toast.error(t(itemHoursError));
+            return;
+        }
 
         setSubmitting(true);
         try {
@@ -1142,6 +1278,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     descriptionKo: formDescKo.trim() || null,
                     price: effectivePrice,
                     isAvailable: formAvailable,
+                    availableFrom: formFrom || null,
+                    availableTo: formTo || null,
                     existingImagePath: editingItem.imageUrl,
                     imageFile: formImage,
                 };
@@ -1161,6 +1299,8 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     descriptionKo: formDescKo.trim() || null,
                     price: parsePriceInput(formPrice),
                     isAvailable: formAvailable,
+                    availableFrom: formFrom || null,
+                    availableTo: formTo || null,
                     imageFile: formImage,
                 };
                 await createMenu(payload);
@@ -1205,6 +1345,43 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
     const handleImageHoverLeave = useCallback(() => {
         setHoverPreview(null);
     }, []);
+
+    // ==================== Tablet availability toggles ====================
+    // Optimistic: the switch flips at once and flips back if the save fails.
+    const toggleMenuAvailability = useCallback(async (item: MenuRecord) => {
+        const next = !item.isAvailable;
+        const apply = (value: boolean) =>
+            setMenus((prev) => prev.map((m) => (m.id === item.id ? { ...m, isAvailable: value, effectiveAvailable: value } : m)));
+        apply(next);
+        try {
+            await setMenuAvailability(item.id, next);
+            toast.success(
+                t(next ? 'menu_page.avail_item_shown' : 'menu_page.avail_item_hidden', { name: localizedMenuName(item, isKo) }),
+            );
+        } catch (e) {
+            apply(!next);
+            toast.error(e instanceof Error ? e.message : t('menu_page.avail_update_failed'));
+        }
+    }, [t, isKo]);
+
+    const toggleCategoryAvailability = useCallback(async (e: React.MouseEvent, category: MenuCategory) => {
+        e.stopPropagation();
+        const next = !category.isAvailable;
+        const apply = (value: boolean) =>
+            setCategories((prev) => prev.map((c) => (c.id === category.id ? { ...c, isAvailable: value } : c)));
+        apply(next);
+        try {
+            await setCategoryAvailability(category.id, next);
+            toast.success(
+                t(next ? 'menu_page.avail_category_shown' : 'menu_page.avail_category_hidden', {
+                    name: localizedCategoryName(category, isKo),
+                }),
+            );
+        } catch (err) {
+            apply(!next);
+            toast.error(err instanceof Error ? err.message : t('menu_page.avail_update_failed'));
+        }
+    }, [t, isKo]);
 
     // ==================== Table columns ====================
     const columns: ColumnDef<MenuRecord>[] = useMemo(() => [
@@ -1268,12 +1445,40 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
         {
             header: t('menu_page.table.status'),
             render: (item) => (
-                <span className={cn(
-                    "text-xs font-bold px-2 py-1 rounded-lg",
-                    item.isAvailable ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
-                )}>
-                    {item.isAvailable ? t('menu_page.status.available') : t('menu_page.status.unavailable')}
-                </span>
+                <div className="flex flex-col items-start gap-1">
+                    {canUpdate('menu_management') ? (
+                        // Quick switch: shows / hides the item on the tablets right away.
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={item.isAvailable}
+                            onClick={() => toggleMenuAvailability(item)}
+                            title={item.isAvailable ? t('menu_page.avail_hide_item') : t('menu_page.avail_show_item')}
+                            className={cn(
+                                'inline-flex items-center gap-2 text-xs font-bold pl-1 pr-2.5 py-1 rounded-full transition-colors cursor-pointer',
+                                item.isAvailable ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-600 hover:bg-red-200',
+                            )}
+                        >
+                            <span className={cn('relative w-7 h-4 rounded-full transition-colors', item.isAvailable ? 'bg-green-500' : 'bg-red-300')}>
+                                <span
+                                    className={cn(
+                                        'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all',
+                                        item.isAvailable ? 'left-3.5' : 'left-0.5',
+                                    )}
+                                />
+                            </span>
+                            {item.isAvailable ? t('menu_page.status.available') : t('menu_page.status.unavailable')}
+                        </button>
+                    ) : (
+                        <span className={cn(
+                            "text-xs font-bold px-2 py-1 rounded-lg",
+                            item.isAvailable ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
+                        )}>
+                            {item.isAvailable ? t('menu_page.status.available') : t('menu_page.status.unavailable')}
+                        </span>
+                    )}
+                    <AvailabilityTags from={item.availableFrom} to={item.availableTo} />
+                </div>
             ),
         },
         {
@@ -1309,7 +1514,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                 </div>
             ),
         },
-    ], [t, canUpdate, canDelete, handleImageHoverEnter, handleImageHoverLeave, formatPriceNoDecimals, jumpToItemCategory, searchTerm, getItemCategoryPathLabel, isKo]);
+    ], [t, canUpdate, canDelete, handleImageHoverEnter, handleImageHoverLeave, formatPriceNoDecimals, jumpToItemCategory, searchTerm, getItemCategoryPathLabel, isKo, toggleMenuAvailability]);
 
     // ==================== Modal form content ====================
     const modalContent = (
@@ -1372,6 +1577,15 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                     </label>
                 </div>
             </div>
+
+            <HoursField
+                from={formFrom}
+                to={formTo}
+                onChange={(from, to) => {
+                    setFormFrom(from);
+                    setFormTo(to);
+                }}
+            />
 
             <div>
                 <label className="block text-sm font-bold text-brand-text mb-2">{t('menu_page.modal.description')}</label>
@@ -1587,6 +1801,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                             <div className="flex items-center justify-between gap-2">
                                                                 <span className={cn('flex-1 font-bold break-words text-sm', active ? '' : 'font-semibold')}>
                                                                     {localizedCategoryName(cat, isKo)}
+                                                                    <AvailabilityTags hidden={!cat.isAvailable} from={cat.availableFrom} to={cat.availableTo} />
                                                                 </span>
                                                                 <span
                                                                     className={cn(
@@ -1602,6 +1817,17 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                         </button>
                                                         {(canUpdate('menu_management') || canDelete('menu_management')) && (
                                                             <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                                                                {canUpdate('menu_management') && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => toggleCategoryAvailability(e, cat)}
+                                                                        className="p-1.5 rounded-lg text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10 transition-colors cursor-pointer"
+                                                                        aria-label={cat.isAvailable ? t('menu_page.avail_hide_category') : t('menu_page.avail_show_category')}
+                                                                        title={cat.isAvailable ? t('menu_page.avail_hide_category') : t('menu_page.avail_show_category')}
+                                                                    >
+                                                                        {cat.isAvailable ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                                    </button>
+                                                                )}
                                                                 {canUpdate('menu_management') && (
                                                                     <button
                                                                         type="button"
@@ -1681,6 +1907,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                             <div className="flex items-center justify-between gap-2">
                                                                 <span className={cn('flex-1 font-bold break-words text-sm', active ? '' : 'font-semibold')}>
                                                                     {localizedCategoryName(cat, isKo)}
+                                                                    <AvailabilityTags hidden={!cat.isAvailable} from={cat.availableFrom} to={cat.availableTo} />
                                                                 </span>
                                                                 <span
                                                                     className={cn(
@@ -1696,6 +1923,17 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                         </button>
                                                         {(canUpdate('menu_management') || canDelete('menu_management')) && (
                                                             <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                                                                {canUpdate('menu_management') && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => toggleCategoryAvailability(e, cat)}
+                                                                        className="p-1.5 rounded-lg text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10 transition-colors cursor-pointer"
+                                                                        aria-label={cat.isAvailable ? t('menu_page.avail_hide_category') : t('menu_page.avail_show_category')}
+                                                                        title={cat.isAvailable ? t('menu_page.avail_hide_category') : t('menu_page.avail_show_category')}
+                                                                    >
+                                                                        {cat.isAvailable ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                                    </button>
+                                                                )}
                                                                 {canUpdate('menu_management') && (
                                                                     <button
                                                                         type="button"
@@ -1784,6 +2022,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                         <div className="flex items-center justify-between gap-3">
                                                             <span className={cn('flex-1 font-bold break-words', active ? '' : 'font-semibold')}>
                                                                 {localizedCategoryName(cat, isKo)}
+                                                                <AvailabilityTags hidden={!cat.isAvailable} from={cat.availableFrom} to={cat.availableTo} />
                                                             </span>
                                                             <span
                                                                 className={cn(
@@ -1799,6 +2038,17 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                     </button>
                                                     {(canUpdate('menu_management') || canDelete('menu_management')) && (
                                                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                                                            {canUpdate('menu_management') && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => toggleCategoryAvailability(e, cat)}
+                                                                    className="p-1.5 rounded-lg text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10 transition-colors cursor-pointer"
+                                                                    aria-label={cat.isAvailable ? t('menu_page.avail_hide_category') : t('menu_page.avail_show_category')}
+                                                                    title={cat.isAvailable ? t('menu_page.avail_hide_category') : t('menu_page.avail_show_category')}
+                                                                >
+                                                                    {cat.isAvailable ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                                </button>
+                                                            )}
                                                             {canUpdate('menu_management') && (
                                                                 <button
                                                                     type="button"
@@ -1883,6 +2133,7 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                         <div className="flex items-center justify-between gap-2">
                                                             <span className={cn('flex-1 font-bold break-words text-sm', active ? '' : 'font-semibold')}>
                                                                 {localizedCategoryName(cat, isKo)}
+                                                                <AvailabilityTags hidden={!cat.isAvailable} from={cat.availableFrom} to={cat.availableTo} />
                                                             </span>
                                                             <span
                                                                 className={cn(
@@ -1898,6 +2149,17 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                                                     </button>
                                                     {(canUpdate('menu_management') || canDelete('menu_management')) && (
                                                         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                                                            {canUpdate('menu_management') && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => toggleCategoryAvailability(e, cat)}
+                                                                    className="p-1.5 rounded-lg text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10 transition-colors cursor-pointer"
+                                                                    aria-label={cat.isAvailable ? t('menu_page.avail_hide_category') : t('menu_page.avail_show_category')}
+                                                                    title={cat.isAvailable ? t('menu_page.avail_hide_category') : t('menu_page.avail_show_category')}
+                                                                >
+                                                                    {cat.isAvailable ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                                </button>
+                                                            )}
                                                             {canUpdate('menu_management') && (
                                                                 <button
                                                                     type="button"
@@ -2342,6 +2604,14 @@ export const Menu: React.FC<MenuProps> = ({ selectedBranch }) => {
                             className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary/50 outline-none transition-all placeholder:text-gray-400 resize-none"
                         />
                     </div>
+                    <HoursField
+                        from={categoryFrom}
+                        to={categoryTo}
+                        onChange={(from, to) => {
+                            setCategoryFrom(from);
+                            setCategoryTo(to);
+                        }}
+                    />
                 </div>
             </SidePanel>
 

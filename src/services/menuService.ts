@@ -8,6 +8,11 @@ export interface MenuCategory {
     branchId: string | null;
     /** If set, this category is a subcategory of the given main category id */
     parentId: string | null;
+    /** false = hidden on the tablets (with its subcategories and items) */
+    isAvailable: boolean;
+    /** Daily hours it shows on the tablets ('HH:MM'); null = all day */
+    availableFrom: string | null;
+    availableTo: string | null;
 }
 
 export interface MenuRecord {
@@ -36,6 +41,9 @@ export interface MenuRecord {
     inventoryAvailable?: boolean;
     inventoryStock?: number | null;
     effectiveAvailable?: boolean;
+    /** Daily hours it shows on the tablets ('HH:MM'); null = all day */
+    availableFrom?: string | null;
+    availableTo?: string | null;
 }
 
 // ---- API internals ----
@@ -72,6 +80,8 @@ type MenuApiRecord = {
     INVENTORY_AVAILABLE?: number | boolean;
     INVENTORY_STOCK?: number | string | null;
     EFFECTIVE_AVAILABLE?: number | boolean;
+    AVAILABLE_FROM?: string | null;
+    AVAILABLE_TO?: string | null;
 };
 
 type CategoryApiRecord = {
@@ -80,6 +90,15 @@ type CategoryApiRecord = {
     CATEGORY_NAME_KO?: string | null;
     BRANCH_ID?: number | null;
     PARENT_CAT_ID?: number | null;
+    IS_AVAILABLE?: number | boolean | null;
+    AVAILABLE_FROM?: string | null;
+    AVAILABLE_TO?: string | null;
+};
+
+/** MySQL TIME 'HH:MM:SS' -> 'HH:MM' (null when empty). */
+const toHHMM = (value?: string | null): string | null => {
+    const m = /^(\d{1,2}):(\d{2})/.exec(String(value || ''));
+    return m ? `${m[1].padStart(2, '0')}:${m[2]}` : null;
 };
 
 // Menu API calls use /data-api prefix to avoid conflict with SPA /menu route
@@ -141,6 +160,8 @@ const mapMenuRecord = (row: MenuApiRecord): MenuRecord => ({
             : Number(row.INVENTORY_STOCK),
     effectiveAvailable:
         row.EFFECTIVE_AVAILABLE === undefined ? Boolean(row.IS_AVAILABLE) : Boolean(row.EFFECTIVE_AVAILABLE),
+    availableFrom: toHHMM(row.AVAILABLE_FROM),
+    availableTo: toHHMM(row.AVAILABLE_TO),
 });
 
 const mapCategoryRecord = (row: CategoryApiRecord): MenuCategory => ({
@@ -150,6 +171,9 @@ const mapCategoryRecord = (row: CategoryApiRecord): MenuCategory => ({
     branchId: row.BRANCH_ID !== undefined && row.BRANCH_ID !== null ? String(row.BRANCH_ID) : null,
     parentId:
         row.PARENT_CAT_ID !== undefined && row.PARENT_CAT_ID !== null ? String(row.PARENT_CAT_ID) : null,
+    isAvailable: row.IS_AVAILABLE === undefined || row.IS_AVAILABLE === null ? true : Number(row.IS_AVAILABLE) === 1,
+    availableFrom: toHHMM(row.AVAILABLE_FROM),
+    availableTo: toHHMM(row.AVAILABLE_TO),
 });
 
 // ---- Public API ----
@@ -201,9 +225,10 @@ export const getMenuCategories = async (branchId?: string): Promise<MenuCategory
     return data.map(mapCategoryRecord);
 };
 
-export type CreateMenuCategoryPayload = { name: string; nameKo?: string | null; description?: string | null; parentId?: string | null };
+/** availableFrom/availableTo: 'HH:MM' daily hours on the tablets, null = all day, omitted = keep */
+export type CreateMenuCategoryPayload = { name: string; nameKo?: string | null; description?: string | null; parentId?: string | null; availableFrom?: string | null; availableTo?: string | null };
 /** `nameKo` omitted = keep the stored Korean name */
-export type UpdateMenuCategoryPayload = { name: string; nameKo?: string | null; description?: string | null; parentId?: string | null };
+export type UpdateMenuCategoryPayload = { name: string; nameKo?: string | null; description?: string | null; parentId?: string | null; availableFrom?: string | null; availableTo?: string | null };
 
 export async function createMenuCategory(branchId: string | null, payload: CreateMenuCategoryPayload): Promise<{ id: number }> {
     const body: Record<string, string | number | null> = {
@@ -215,6 +240,8 @@ export async function createMenuCategory(branchId: string | null, payload: Creat
     if (payload.parentId && String(payload.parentId).trim() !== '') {
         body.PARENT_CAT_ID = String(payload.parentId).trim();
     }
+    if (payload.availableFrom !== undefined) body.AVAILABLE_FROM = payload.availableFrom || '';
+    if (payload.availableTo !== undefined) body.AVAILABLE_TO = payload.availableTo || '';
 
     const response = await fetch(buildUrl('/category'), {
         method: 'POST',
@@ -267,6 +294,8 @@ export async function updateMenuCategory(
     if (payload.parentId !== undefined) {
         body.PARENT_CAT_ID = payload.parentId && String(payload.parentId).trim() !== '' ? String(payload.parentId) : null;
     }
+    if (payload.availableFrom !== undefined) body.AVAILABLE_FROM = payload.availableFrom || '';
+    if (payload.availableTo !== undefined) body.AVAILABLE_TO = payload.availableTo || '';
     const response = await fetch(buildUrl(`/category/${id}`), {
         method: 'PUT',
         credentials: 'include',
@@ -276,6 +305,34 @@ export async function updateMenuCategory(
     const json = (await response.json()) as ApiResponse<null> & { error?: string };
     if (!response.ok || !json.success) {
         throw new Error(json.error || 'Failed to update category');
+    }
+}
+
+/** Show / hide a category (with its subcategories and items) on the tablets. */
+export async function setCategoryAvailability(id: string, isAvailable: boolean): Promise<void> {
+    const response = await fetch(buildUrl(`/category/${id}/availability`), {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ IS_AVAILABLE: isAvailable ? 1 : 0 }),
+    });
+    const json = (await response.json()) as ApiResponse<null> & { error?: string };
+    if (!response.ok || !json.success) {
+        throw new Error(json.error || 'Failed to update category availability');
+    }
+}
+
+/** Show / hide a menu item on the tablets. */
+export async function setMenuAvailability(id: string, isAvailable: boolean): Promise<void> {
+    const response = await fetch(buildUrl(`/menu/${id}/availability`), {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ IS_AVAILABLE: isAvailable ? 1 : 0 }),
+    });
+    const json = (await response.json()) as ApiResponse<null> & { error?: string };
+    if (!response.ok || !json.success) {
+        throw new Error(json.error || 'Failed to update menu availability');
     }
 }
 
@@ -302,6 +359,9 @@ export type CreateMenuPayload = {
     descriptionKo: string | null;
     price: number;
     isAvailable: boolean;
+    /** 'HH:MM' daily hours on the tablets, null = all day, omitted = keep */
+    availableFrom?: string | null;
+    availableTo?: string | null;
     imageFile?: File | null;
 };
 
@@ -313,9 +373,17 @@ export type UpdateMenuPayload = {
     descriptionKo: string | null;
     price: number;
     isAvailable: boolean;
+    availableFrom?: string | null;
+    availableTo?: string | null;
     existingImagePath?: string | null;
     imageFile?: File | null;
 };
+
+/** Hours go in even when empty ('' = all day); buildFormData drops empty values. */
+function appendHours(form: FormData, payload: { availableFrom?: string | null; availableTo?: string | null }) {
+    if (payload.availableFrom !== undefined) form.append('AVAILABLE_FROM', payload.availableFrom || '');
+    if (payload.availableTo !== undefined) form.append('AVAILABLE_TO', payload.availableTo || '');
+}
 
 function buildFormData(
     body: Record<string, string | number | boolean | null>,
@@ -347,6 +415,7 @@ export async function createMenu(payload: CreateMenuPayload): Promise<number> {
         IS_AVAILABLE: payload.isAvailable ? 1 : 0,
     };
     const form = buildFormData(body, payload.imageFile ?? null);
+    appendHours(form, payload);
     const token = localStorage.getItem('token');
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -388,6 +457,7 @@ export async function updateMenu(id: string, payload: UpdateMenuPayload): Promis
         MENU_IMG: toRelativeImagePath(payload.existingImagePath) || '',
     };
     const form = buildFormData(body, payload.imageFile ?? null);
+    appendHours(form, payload);
     const token = localStorage.getItem('token');
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;

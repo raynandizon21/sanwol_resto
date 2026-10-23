@@ -39,6 +39,9 @@ router.post("/category/migrate-flat-under-main", authenticate, CategoryControlle
 // PUT - Update category
 router.put("/category/:id", authenticate, CategoryController.update);
 
+// PATCH - Show / hide a category on the tablets
+router.patch("/category/:id/availability", authenticate, CategoryController.setAvailability);
+
 // ============================================
 // DELETE ROUTES
 // ============================================
