@@ -35,6 +35,12 @@ const fs = require('fs').promises;
 // Cashier). Every other role keeps the single-device session.
 const SHARED_SESSION_PERMISSIONS = new Set([2, 15]);
 
+// Who changed an order and how, sent with its socket event: the cashier's
+// notices name who did it and skip the cashier's own changes.
+function orderChange(req, type, extra = {}) {
+	return { type, by: req.user?.user_id ?? null, by_name: req.user?.username || null, ...extra };
+}
+
 class ApiController {
 	// Login endpoint for mobile app
 	static async login(req, res) {
@@ -965,6 +971,7 @@ class ApiController {
 					grand_total: parseFloat(order.GRAND_TOTAL || 0),
 					amount_paid: parseFloat(order.amount_paid || order.AMOUNT_PAID || 0),
 					payment_ref: order.payment_ref || order.PAYMENT_REF || null,
+					encoded_by: order.ENCODED_BY ?? null,
 					encoded_by_name: order.ENCODED_BY_NAME || null,
 					encoded_dt: order.ENCODED_DT,
 					items: items.map(item => ({
@@ -1142,6 +1149,7 @@ class ApiController {
 			socketService.emitOrderUpdate(order_id, {
 				order_id: parseInt(order_id, 10),
 				order_no: order.ORDER_NO,
+				change: orderChange(req, targetStatus === -1 ? 'cancelled' : targetStatus === 1 ? 'settled' : 'status'),
 				payment_method: targetStatus === 1 ? paymentMethod : null,
 				table_id: order.TABLE_ID,
 				table_number: tableNumber,
@@ -1248,6 +1256,7 @@ class ApiController {
 				table_id: newTableId,
 				table_number: targetTableName,
 				old_table_id: oldTableId,
+				change: orderChange(req, 'transferred', { from_table: fromName, to_table: toName }),
 				status: order.STATUS,
 				grand_total: parseFloat(order.GRAND_TOTAL || 0),
 				items: orderItems,
@@ -1504,6 +1513,7 @@ class ApiController {
 			// "New Order Received" alert only fires for other staff, not the creator.
 			socketService.emitOrderCreated(orderId, {
 				order_id: orderId,
+				change: orderChange(req, 'created'),
 				order_no: orderData.ORDER_NO,
 				table_id: orderData.TABLE_ID,
 				table_number: tableNumber,
@@ -1616,6 +1626,7 @@ class ApiController {
 			});
 			socketService.emitOrderItemsAdded(order_id, {
 				order_id: parseInt(order_id),
+				change: orderChange(req, 'items_added'),
 				order_no: existingOrder.ORDER_NO,
 				table_id: existingOrder.TABLE_ID,
 				table_number: tableNumber,
@@ -1721,7 +1732,7 @@ class ApiController {
 					userId: user_id,
 				});
 			}
-			socketService.emitOrderUpdate(order_id, { order_id: parseInt(order_id), order_no: existingOrder.ORDER_NO, table_id: existingOrder.TABLE_ID, status: existingOrder.STATUS, grand_total: newGrandTotal, items: updatedItems });
+			socketService.emitOrderUpdate(order_id, { order_id: parseInt(order_id), order_no: existingOrder.ORDER_NO, table_id: existingOrder.TABLE_ID, status: existingOrder.STATUS, grand_total: newGrandTotal, items: updatedItems, change: orderChange(req, 'items_edited') });
 
 			return res.json({ success: true, data: { order_id: parseInt(order_id), order_no: existingOrder.ORDER_NO, items_count: replacementItems.length, new_grand_total: newGrandTotal } });
 		} catch (error) {
