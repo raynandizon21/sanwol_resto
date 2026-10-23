@@ -1248,7 +1248,8 @@ class ApiController {
 
 			// Broadcast socket updates to all clients
 			const orderItems = await OrderItemsModel.getByOrderId(order_id);
-			const targetTableName = targetTable.TABLE_NAME || targetTable.TABLE_NO || `Table ${newTableId}`;
+			// TABLE_NUMBER is the table's name ("Hallway 11"); the others are fallbacks.
+			const targetTableName = targetTable.TABLE_NUMBER || targetTable.TABLE_NAME || targetTable.TABLE_NO || `Table ${newTableId}`;
 
 			const oldTable = oldTableId ? await TableModel.getById(oldTableId) : null;
 			const fromName = oldTable?.TABLE_NUMBER || (oldTableId ? `Table ${oldTableId}` : null);
