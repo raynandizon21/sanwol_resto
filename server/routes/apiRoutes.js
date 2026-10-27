@@ -123,6 +123,12 @@ router.post("/waiter/orders/:order_id/transfer-table", authenticateJWT, ApiContr
 // Body: { pax: number } (1-999)
 router.patch("/waiter/orders/:order_id/pax", authenticateJWT, ApiController.updateOrderPax);
 
+// GET / PUT - The branch's printer setup from the cashier tablet (backup a
+// reinstalled / new tablet restores). Cashier (15) and admin.
+// Body (PUT): { printers: [...], routing: {...}, auto_print: bool }
+router.get("/printer-settings", authenticateJWT, requirePermission([15]), ApiController.getPrinterSettings);
+router.put("/printer-settings", authenticateJWT, requirePermission([15]), ApiController.savePrinterSettings);
+
 // GET - Activity log (cashier app's Activity tab)
 // URL: /api/activity-logs?date=YYYY-MM-DD (default: today)
 router.get("/activity-logs", authenticateJWT, ApiController.getActivityLogs);

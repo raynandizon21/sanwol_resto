@@ -10,6 +10,7 @@ const CategoryModel = require('../models/categoryModel');
 const OrderModel = require('../models/orderModel');
 const OrderItemsModel = require('../models/orderItemsModel');
 const BillingModel = require('../models/billingModel');
+const PrinterSettingsModel = require('../models/printerSettingsModel');
 const TableModel = require('../models/tableModel');
 const UserModel = require('../models/userModel');
 const UserBranchModel = require('../models/userBranchModel');
@@ -1386,6 +1387,47 @@ class ApiController {
 		} catch (error) {
 			console.error(`[${timestamp}] [API ERROR] POST /api/waiter/orders/${order_id}/transfer-table - Error:`, error);
 			return res.status(500).json({ success: false, error: 'Failed to transfer table order' });
+		}
+	}
+
+	// The branch's printer setup from the cashier tablet (printers, print
+	// routing, auto-print) — a backup a reinstalled / new tablet restores.
+	static _printerSettingsBranch(req) {
+		const branchId = parseInt(req.query.branch_id || req.user?.branch_id, 10);
+		return Number.isFinite(branchId) && branchId > 0 ? branchId : null;
+	}
+
+	static async getPrinterSettings(req, res) {
+		try {
+			const branchId = ApiController._printerSettingsBranch(req);
+			if (!branchId) return res.status(400).json({ success: false, error: 'Branch ID is required' });
+			const saved = await PrinterSettingsModel.get(branchId);
+			return res.json({ success: true, data: saved });
+		} catch (error) {
+			console.error('[API ERROR] GET /api/printer-settings - Error:', error);
+			return res.status(500).json({ success: false, error: 'Failed to load the printer settings' });
+		}
+	}
+
+	static async savePrinterSettings(req, res) {
+		try {
+			const branchId = ApiController._printerSettingsBranch(req);
+			if (!branchId) return res.status(400).json({ success: false, error: 'Branch ID is required' });
+			const { printers, routing, auto_print } = req.body || {};
+			if (!Array.isArray(printers)) return res.status(400).json({ success: false, error: 'printers must be a list' });
+			const settings = {
+				printers: printers.slice(0, 50),
+				routing: routing && typeof routing === 'object' ? routing : {},
+				auto_print: auto_print !== false,
+			};
+			if (JSON.stringify(settings).length > 200000) {
+				return res.status(400).json({ success: false, error: 'Printer settings are too large' });
+			}
+			await PrinterSettingsModel.save(branchId, settings, req.user?.user_id);
+			return res.json({ success: true, data: await PrinterSettingsModel.get(branchId) });
+		} catch (error) {
+			console.error('[API ERROR] PUT /api/printer-settings - Error:', error);
+			return res.status(500).json({ success: false, error: 'Failed to save the printer settings' });
 		}
 	}
 
