@@ -140,6 +140,7 @@ class OrderModel {
 				o.ORDER_NO,
 				o.TABLE_ID,
 				o.FLOOR,
+				o.PAX,
 				o.ORDER_TYPE,
 				o.STATUS,
 				o.SUBTOTAL,

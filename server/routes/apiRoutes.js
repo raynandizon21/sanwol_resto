@@ -118,6 +118,11 @@ router.patch("/waiter/orders/:order_id/status", authenticateJWT, ApiController.u
 // Body: { target_table_id: number }
 router.post("/waiter/orders/:order_id/transfer-table", authenticateJWT, ApiController.transferTableOrder);
 
+// PATCH - Change the guests (pax) of an open order
+// URL: /api/waiter/orders/:order_id/pax
+// Body: { pax: number } (1-999)
+router.patch("/waiter/orders/:order_id/pax", authenticateJWT, ApiController.updateOrderPax);
+
 // GET - Activity log (cashier app's Activity tab)
 // URL: /api/activity-logs?date=YYYY-MM-DD (default: today)
 router.get("/activity-logs", authenticateJWT, ApiController.getActivityLogs);

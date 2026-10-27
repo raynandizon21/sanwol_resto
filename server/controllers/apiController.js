@@ -1389,6 +1389,63 @@ class ApiController {
 		}
 	}
 
+	// Guests at the table (pax) changed after the order was opened (more
+	// people joined, someone left). The kitchen slip prints it.
+	static async updateOrderPax(req, res) {
+		const timestamp = new Date().toISOString();
+		const user_id = req.user?.user_id;
+		const { order_id } = req.params;
+
+		try {
+			if (!user_id) return res.status(400).json({ success: false, error: 'User ID is required' });
+			const pax = OrderModel.normalizePax(req.body?.pax);
+			if (pax == null) return res.status(400).json({ success: false, error: 'Enter how many guests (1-999)' });
+
+			const order = await OrderModel.getById(order_id);
+			if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+			const resolvedBranchId = req.query.branch_id || req.user?.branch_id || null;
+			if (resolvedBranchId && order.BRANCH_ID && parseInt(order.BRANCH_ID) !== parseInt(resolvedBranchId)) {
+				return res.status(403).json({ success: false, error: 'Order is not in your branch' });
+			}
+			if (![2, 3].includes(order.STATUS)) {
+				return res.status(400).json({ success: false, error: 'Only an open order can be changed' });
+			}
+
+			const before = order.PAX != null ? parseInt(order.PAX, 10) : null;
+			await pool.execute('UPDATE orders SET PAX = ?, EDITED_BY = ?, EDITED_DT = NOW() WHERE IDNo = ?', [pax, user_id, order_id]);
+
+			const table = order.TABLE_ID ? await TableModel.getById(order.TABLE_ID) : null;
+			OrderActivityLogModel.log({
+				branchId: order.BRANCH_ID || req.user?.branch_id || null,
+				orderId: order_id,
+				orderNo: order.ORDER_NO,
+				tableNumber: table?.TABLE_NUMBER || null,
+				floor: order.FLOOR || null,
+				action: 'pax_changed',
+				summary: before != null ? `Guests ${before} → ${pax}` : `Guests: ${pax}`,
+				details: { from: before, to: pax },
+				amount: parseFloat(order.GRAND_TOTAL || 0),
+				userId: user_id,
+			});
+			// No items in the payload: the apps keep the ones they have.
+			socketService.emitOrderUpdate(order_id, {
+				order_id: parseInt(order_id, 10),
+				order_no: order.ORDER_NO,
+				table_id: order.TABLE_ID,
+				table_number: table?.TABLE_NUMBER || null,
+				pax,
+				change: orderChange(req, 'pax_changed', { from: before, to: pax }),
+				status: order.STATUS,
+				grand_total: parseFloat(order.GRAND_TOTAL || 0),
+			});
+
+			return res.json({ success: true, data: { order_id: parseInt(order_id, 10), pax } });
+		} catch (error) {
+			console.error(`[${timestamp}] [API ERROR] PATCH /api/waiter/orders/${order_id}/pax - Error:`, error);
+			return res.status(500).json({ success: false, error: 'Failed to change the guests' });
+		}
+	}
+
 	// Extend the room charge on an active order: adds one more unit of the
 	// table's ROOM_CHARGE to the order's SERVICE_CHARGE and recomputes
 	// GRAND_TOTAL (SUBTOTAL + TAX + SERVICE_CHARGE - DISCOUNT).
