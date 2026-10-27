@@ -30,6 +30,7 @@ class OrderModel {
 				o.ORDER_NO,
 				o.TABLE_ID,
 				o.FLOOR,
+				o.PAX,
 				t.TABLE_NUMBER,
 				t.ROOM_CHARGE,
 				o.ORDER_TYPE,
@@ -212,6 +213,12 @@ class OrderModel {
 		return null;
 	}
 
+	/** Guests at the table (1-999), or null when not given / not a number. */
+	static normalizePax(value) {
+		const pax = parseInt(value, 10);
+		return Number.isFinite(pax) && pax > 0 && pax < 1000 ? pax : null;
+	}
+
 	static async create(data) {
 		const {
 			BRANCH_ID,
@@ -240,6 +247,7 @@ class OrderModel {
 			'ORDER_NO',
 			'TABLE_ID',
 			'FLOOR',
+			'PAX',
 			'ORDER_TYPE',
 			'STATUS',
 			'SUBTOTAL',
@@ -267,6 +275,7 @@ class OrderModel {
 				ORDER_NO,
 				TABLE_ID || null,
 				floor,
+				OrderModel.normalizePax(data.PAX),
 				ORDER_TYPE || null,
 				STATUS || 3,
 				SUBTOTAL || 0,

@@ -58,6 +58,35 @@ async function ensureOrdersFloorColumn() {
 }
 
 /**
+ * orders.PAX: how many guests the order is for, asked when the menu tablet
+ * opens a table (the kitchen sets side dishes / plates / utensils by it).
+ * NULL for take-out and orders made before it existed.
+ */
+async function ensureOrdersPaxColumn() {
+	const connection = await pool.getConnection();
+	try {
+		const [rows] = await connection.execute(
+			`SELECT 1 FROM information_schema.COLUMNS
+			 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'PAX'
+			 LIMIT 1`
+		);
+		if (rows.length > 0) {
+			return;
+		}
+		await connection.execute(
+			`ALTER TABLE orders
+			 ADD COLUMN PAX SMALLINT NULL DEFAULT NULL
+			 AFTER FLOOR`
+		);
+		console.log('[Schema] orders.PAX created');
+	} catch (err) {
+		console.error('[Schema] ensure orders.PAX failed:', err.message || err);
+	} finally {
+		connection.release();
+	}
+}
+
+/**
  * restaurant_tables columns set from the Table Settings page:
  * - FLOOR ('gf' / '2f' / NULL): only multi-floor branches (FLOOR_ENABLED_BRANCH_IDS in src/utils/floorScope.ts) set it.
  * - ROOM_CHARGE: per-table room/service charge used by tableModel and the Orders UI.
@@ -344,6 +373,7 @@ async function ensureAnalyticsPerformanceIndexes() {
 module.exports = {
 	ensureOrderItemsLineCostColumn,
 	ensureOrdersFloorColumn,
+	ensureOrdersPaxColumn,
 	ensureRestaurantTablesColumns,
 	ensureMenuKoreanColumns,
 	ensureReceiptScanHistoryTable,

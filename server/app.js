@@ -23,6 +23,7 @@ const TelegramService = require('./services/telegramService');
 const {
 	ensureOrderItemsLineCostColumn,
 	ensureOrdersFloorColumn,
+	ensureOrdersPaxColumn,
 	ensureRestaurantTablesColumns,
 	ensureMenuKoreanColumns,
 	ensureReceiptScanHistoryTable,
@@ -244,6 +245,7 @@ app.use((err, req, res, next) => {
 	try {
 		await ensureOrderItemsLineCostColumn();
 		await ensureOrdersFloorColumn();
+		await ensureOrdersPaxColumn();
 		await ensureRestaurantTablesColumns();
 		await ensureMenuKoreanColumns();
 		await ensureReceiptScanHistoryTable();

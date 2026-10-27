@@ -1071,6 +1071,7 @@ class ApiController {
 					room_charge: order.ROOM_CHARGE != null ? parseFloat(order.ROOM_CHARGE) : 0,
 					order_type: order.ORDER_TYPE,
 					floor: order.FLOOR || null,
+					pax: order.PAX ?? null,
 					status: order.STATUS,
 					subtotal: parseFloat(order.SUBTOTAL || 0),
 					tax_amount: parseFloat(order.TAX_AMOUNT || 0),
@@ -1493,7 +1494,7 @@ class ApiController {
 		const user_id = req.user?.user_id;
 
 		try {
-			const { branch_id, order_no, table_id, order_type, subtotal, tax_amount, service_charge, discount_amount, grand_total, items, encoded_dt } = req.body;
+			const { branch_id, order_no, table_id, order_type, pax, subtotal, tax_amount, service_charge, discount_amount, grand_total, items, encoded_dt } = req.body;
 
 			if (!order_no || order_no.trim() === '') return res.status(400).json({ success: false, error: 'Order number is required' });
 			if (!items || !Array.isArray(items) || items.length === 0) return res.status(400).json({ success: false, error: 'At least one order item is required' });
@@ -1532,6 +1533,8 @@ class ApiController {
 				ORDER_NO: order_no.trim(),
 				TABLE_ID: table_id || null,
 				ORDER_TYPE: order_type || null,
+				// Guests at the table, from the menu tablet (the kitchen slip shows it).
+				PAX: OrderModel.normalizePax(pax),
 				STATUS: 3, 
 				SUBTOTAL: parseFloat(subtotal) || 0,
 				TAX_AMOUNT: parseFloat(tax_amount) || 0,
@@ -1628,6 +1631,7 @@ class ApiController {
 				table_number: tableNumber,
 				order_type: orderData.ORDER_TYPE,
 				floor: orderData.FLOOR || null,
+				pax: orderData.PAX,
 				status: orderData.STATUS,
 				subtotal: parseFloat(orderData.SUBTOTAL || 0),
 				tax_amount: parseFloat(orderData.TAX_AMOUNT || 0),
