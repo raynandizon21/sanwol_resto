@@ -33,9 +33,9 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs').promises;
 
-// Roles allowed to stay signed in on several devices at once (Menu Tablet,
-// Cashier). Every other role keeps the single-device session.
-const SHARED_SESSION_PERMISSIONS = new Set([2, 15]);
+// Roles allowed to stay signed in on several devices at once (Menu Tablet).
+// Every other role — Cashier included — keeps the single-device session.
+const SHARED_SESSION_PERMISSIONS = new Set([2]);
 
 // Who changed an order and how, sent with its socket event: the cashier's
 // notices name who did it and skip the cashier's own changes.
@@ -165,9 +165,9 @@ class ApiController {
 			// Single-device-session enforcement: this login's sid becomes the
 			// only valid one for this account — authenticateJWT rejects any
 			// older token still out there on another device on its next call.
-			// Menu Tablet and Cashier accounts may be signed in on several
-			// tablets at once: they reuse the account's current sid, so every
-			// device shares one session and none is logged out.
+			// Menu Tablet accounts may be signed in on several tablets at
+			// once: they reuse the account's current sid, so every device
+			// shares one session and none is logged out.
 			const activeSessionId = SHARED_SESSION_PERMISSIONS.has(userPermissions)
 				? await UserModel.getActiveSessionId(user.IDNo)
 				: null;
