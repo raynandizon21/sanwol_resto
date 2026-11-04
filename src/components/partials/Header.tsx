@@ -276,7 +276,8 @@ export const Header: React.FC<HeaderProps> = ({
     activeTab === 'Menu' ||
     activeTab === 'Category' ||
     activeTab === 'Payment type' ||
-    activeTab === 'Receipt';
+    activeTab === 'Receipt' ||
+    activeTab === 'Attendance Logs';
   // Prevent showing duplicated breadcrumbs like "User Management / User Management"
   const cleanedBreadcrumbs = breadcrumbs.filter(
     (crumb, idx) => idx === 0 || crumb !== breadcrumbs[idx - 1]

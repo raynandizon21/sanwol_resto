@@ -194,6 +194,19 @@
   opacity: 0;
 }
 
+/* DataTable row that just arrived (e.g. a live punch): starts tinted, then fades back to the
+   cells' own background (no end keyframe, so each cell returns to its normal color). */
+.row-fresh > td {
+  animation: row-fresh 4s ease-out;
+}
+
+@keyframes row-fresh {
+  0%,
+  35% {
+    background-color: var(--color-green-100, #dcfce7);
+  }
+}
+
 /* Hide default focus outline on Recharts SVG surface */
 .recharts-wrapper:focus,
 .recharts-wrapper:focus-visible,

@@ -17,6 +17,8 @@ const ALL_MODULE_KEYS = [
   'orders',
   'ingredients',
   'table_settings',
+  'device_users',
+  'attendance_logs',
 ];
 
 function getTableName() {

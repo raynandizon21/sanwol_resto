@@ -39,7 +39,8 @@ import { Inventory } from './components/inventory/Inventory';
 import { Categories } from './components/categories/Categories';
 import { ExpensesMock } from './components/expenses/ExpensesMock';
 import { Ingredients } from './components/ingredients/Ingredients';
-import { Employees } from './components/employees/Employees';
+import { AttendanceLogs } from './components/attendance/AttendanceLogs';
+import { Employees } from './components/attendance/Employees';
 import { Users } from './components/users/Users';
 import { UserRole } from './components/users/UserRole';
 import { UserAccess } from './components/users/UserAccess';
@@ -541,6 +542,8 @@ export default function App() {
     if (part === 'sales-analytics') return 'Sales Analytics';
     if (part === 'ai-assistant') return 'AI Sales Assistant';
     if (part === 'expenses-mock') return 'Expenses';
+    if (part === 'attendance-logs') return 'Attendance Logs';
+    if (part === 'employee') return 'Employees';
     if (primaryPath === 'inventory' && idx === 1) {
       const id = String(part);
       const fromNavState =
@@ -640,6 +643,7 @@ export default function App() {
       case 'AI Sales Assistant': navigate(`/sales-report/ai-assistant${suffix}`); break;
       case 'Expenses Mock': navigate(`/expenses-mock${suffix}`); break;
       case 'Ingredients': navigate(`/ingredients${suffix}`); break;
+      case 'Attendance Logs': navigate(`/attendance-logs${suffix}`); break;
       default: navigate(`/${tab.toLowerCase()}${suffix}`);
     }
   };
@@ -856,15 +860,30 @@ export default function App() {
                   </motion.div>
                 } />
 
+                {/* Employees = the MB160's users plus app-only profiles (it replaced Device Users). */}
                 <Route path="/employee" element={
                   <motion.div
+                    key={selectedBranch ? selectedBranch.id : 'initial'}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                   >
-                    <Employees />
+                    <Employees selectedBranch={selectedBranch} />
                   </motion.div>
                 } />
+
+                <Route path="/attendance-logs" element={
+                  <motion.div
+                    key={selectedBranch ? selectedBranch.id : 'initial'}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                  >
+                    <AttendanceLogs selectedBranch={selectedBranch} dateRange={dateRange} />
+                  </motion.div>
+                } />
+
+                <Route path="/device-users" element={<Navigate to={`/employee${location.search}`} replace />} />
 
                 <Route path="/expenses" element={
                   <motion.div

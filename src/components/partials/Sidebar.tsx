@@ -18,6 +18,8 @@ import {
   FlaskConical,
   Armchair,
   IdCard,
+  Clock,
+  Fingerprint,
 } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { cn } from '../../lib/utils';
@@ -421,6 +423,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, select
     FlaskConical,
     Armchair,
     IdCard,
+    Clock,
+    Fingerprint,
     Users,
   };
 

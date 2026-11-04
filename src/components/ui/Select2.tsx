@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import Select, { components, ControlProps, SingleValueProps } from 'react-select';
+import CreatableSelect from 'react-select/creatable';
 import { cn } from '../../lib/utils';
 
 interface Option {
@@ -18,6 +19,10 @@ interface Select2Props {
   leftIcon?: React.ReactNode;
   clearable?: boolean;
   variant?: 'default' | 'compact';
+  /** Lets the user type a value that isn't in the list (onChange gets the typed text). */
+  creatable?: boolean;
+  /** Label of the "use what I typed" row when creatable. */
+  formatCreateLabel?: (input: string) => string;
 }
 
 const Control = ({ children, ...props }: ControlProps<Option, false>) => {
@@ -55,15 +60,20 @@ export const Select2: React.FC<Select2Props> = ({
   leftIcon,
   clearable = true,
   variant = 'default',
+  creatable = false,
+  formatCreateLabel,
 }) => {
   const { t } = useTranslation();
   const selectedOption = options.find(opt => opt.value === value) || null;
 
   const isCompact = variant === 'compact';
+  const SelectComponent = (creatable ? CreatableSelect : Select) as typeof Select;
+  const creatableProps = creatable && formatCreateLabel ? { formatCreateLabel } : {};
 
   return (
     <div className={cn("w-full", className)}>
-      <Select
+      <SelectComponent
+        {...creatableProps}
         value={selectedOption}
         onChange={(opt) => onChange(opt ? opt.value : null)}
         options={options}

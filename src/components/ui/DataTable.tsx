@@ -18,9 +18,11 @@ interface DataTableProps<T> {
   columns: ColumnDef<T>[];
   keyExtractor: (item: T) => string | number;
   onRowClick?: (item: T) => void;
+  /** Extra classes for a row, e.g. "row-fresh" to highlight one that just arrived. */
+  rowClassName?: (item: T) => string | undefined;
 }
 
-export function DataTable<T>({ data, columns, keyExtractor, onRowClick }: DataTableProps<T>) {
+export function DataTable<T>({ data, columns, keyExtractor, onRowClick, rowClassName }: DataTableProps<T>) {
   const { t } = useTranslation();
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
@@ -185,7 +187,8 @@ export function DataTable<T>({ data, columns, keyExtractor, onRowClick }: DataTa
                 onClick={onRowClick ? () => onRowClick(item) : undefined}
                 className={cn(
                   "group transition-colors",
-                  onRowClick ? "cursor-pointer" : ""
+                  onRowClick ? "cursor-pointer" : "",
+                  rowClassName?.(item)
                 )}
               >
                 {columns.map((col, i) => (

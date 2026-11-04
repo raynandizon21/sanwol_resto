@@ -31,6 +31,10 @@ const {
 	ensureBankPaymentMethodEnum,
 	ensureAnalyticsPerformanceIndexes,
 } = require('./utils/ensureSchema');
+const ZktecoModel = require('./models/zktecoModel');
+const EmployeeModel = require('./models/employeeModel');
+const AttendanceSettingsModel = require('./models/attendanceSettingsModel');
+const { startAdmsServer } = require('./services/admsServer');
 const app = express();
 app.use(compression());
 
@@ -255,6 +259,21 @@ app.use((err, req, res, next) => {
 	} catch (e) {
 		console.error('[Schema] ensure startup schema failed:', e?.message || e);
 	}
+
+	// ZKTeco (MB160) device data lives in its own DB; a failure there must not block the app.
+	try {
+		await ZktecoModel.ensureSchema();
+	} catch (e) {
+		console.error('[Schema] ensure zkteco schema failed:', e?.message || e);
+	}
+	// Employee profiles and attendance rules (sanwol_resto) behind the Employees / Attendance pages.
+	try {
+		await EmployeeModel.ensureSchema();
+		await AttendanceSettingsModel.ensureSchema();
+	} catch (e) {
+		console.error('[Schema] ensure employee/attendance schema failed:', e?.message || e);
+	}
+	startAdmsServer();
 
 	const server = app.listen(app.get('port'), function () {
 		console.log('Server started on port ' + app.get('port'));

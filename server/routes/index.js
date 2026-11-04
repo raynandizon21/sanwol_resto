@@ -30,6 +30,8 @@ module.exports = [
     require('./tableRoutes'),             // Restaurant table routes
     require('./uploadRoutes'),            // Upload routes
     require('./userManagementRoutes'),    // User management routes
-    require('./userProfileRoutes')        // User profile routes
+    require('./userProfileRoutes'),       // User profile routes
+    require('./zktecoRoutes'),            // ZKTeco MB160 attendance device
+    require('./attendanceRoutes')         // Computed attendance, attendance rules, employee profiles
 ];
   

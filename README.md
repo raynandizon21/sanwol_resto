@@ -33,6 +33,7 @@ The project runs on **localhost only** for now:
 | Frontend (Vite)  | `http://localhost:3000` |
 | Node API         | `http://localhost:2000` |
 | Python analytics | `http://localhost:2100` |
+| ZKTeco device listener | port `2500` (`/iclock/*`, MB160 only) |
 
 `server.allowedHosts` in `vite.config.ts` is set to `['localhost']`. When the
 project gets a production domain, add it there (e.g. `['localhost', 'example.com']`).
@@ -60,3 +61,11 @@ on by branch ID.
 
 See `.claude/skills/branch-scope/SKILL.md` for where each setting lives and
 the rules for writing branch-aware queries.
+
+## ZKTeco MB160 (attendance)
+
+The restaurant's MB160 time-attendance terminal pushes punches and its user
+list to the Node server on `ZK_ADMS_PORT` (2500). They are stored in the
+separate `zkteco` database and shown under **Staff → Attendance Logs** and
+**Staff → Device Users**. Device settings, `.env` keys, schema, the cloud move
+checklist and the roadmap are in `docs/zkteco-mb160.md`.

@@ -171,13 +171,23 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
     requiresSpecificBranch: true,
   },
   {
+    // The MB160's users plus app-only profiles (replaced the separate Device Users page).
     key: 'employee',
     section: 'staff',
     kind: 'item',
-    label: 'Employee',
+    label: 'Employees',
     i18nKey: 'sidebar.employee',
     tab: 'Employee',
     icon: 'IdCard',
+  },
+  {
+    key: 'attendance_logs',
+    section: 'staff',
+    kind: 'item',
+    label: 'Attendance Logs',
+    i18nKey: 'sidebar.attendance_logs',
+    tab: 'Attendance Logs',
+    icon: 'Clock',
   },
   {
     key: 'user_management',

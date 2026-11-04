@@ -1,0 +1,31 @@
+---
+name: zkteco
+description: ZKTeco MB160 attendance device integration (ADMS push protocol on ZK_ADMS_PORT, the `zkteco` database, Attendance Logs and Employees pages, computed attendance). Use when touching attendance, time in/out, device users, biometrics, employee-to-device linking, sending commands to the device, the /iclock endpoints, or when moving the device/DB to the cloud or a new network.
+---
+
+# ZKTeco MB160
+
+Read `docs/zkteco-mb160.md` first (architecture, file map, `.env` keys, device settings, schema, firmware findings, the cloud/network move checklist and the roadmap), and `docs/attendance.md` for attendance (basic time tracking: hours from time-ins and time-outs, no schedules or overtime yet), employee profiles and manual punches. Its last section lists what was planned but not built (overtime, payroll).
+
+Rules that keep it working:
+
+- **Device endpoints:** `/iclock/*` lives only on the separate listener (`server/services/admsServer.js`, port `ZK_ADMS_PORT`), never on the main API. The device cannot log in, send CSRF tokens or follow redirects.
+- **Acknowledgements:** reply `OK: <lines>` only after the DB commit. On failure, answer HTTP 500 so the device resends. Keep punches unique on `(DEVICE_ID, PIN, PUNCH_DT)`.
+- **Keep in sync with zkteco_test:** `server/services/admsService.js` is a port of `zkteco_test/src/Adms.php`. When protocol handling changes, update both or note the divergence in the doc.
+- **Times:** punch times are device-local text. Don't convert them through JS `Date` or the server timezone. The pool uses `dateStrings` and `time_zone = +08:00`.
+- **Sensitive data:** no API returns `biometric_templates.TEMPLATE` or `device_users.PASSWORD`.
+- **Raw punches:** `attendance_logs` rows are never edited. Edits and soft deletes go in `attendance_log_corrections` (keyed by the original device/PIN/time); anything reading punches must apply them.
+- **Schema style:** follow sanwol_resto conventions (snake_case tables, UPPERCASE columns, `IDNo`, `*_ID`, `*_DT`, `ACTIVE`, `ENCODED_*`/`EDITED_*`). Don't join across the `zkteco` and `sanwol_resto` DBs in SQL; look branch and employee data up separately so the DBs can live on different servers.
+- **Testing:** test protocol changes by replaying `raw_requests` into a scratch DB (see the doc), not by posting fake data with the real serial number `ECV3262300063`.
+- **Changes and live events:** emit `emitZkChange` only after the transaction commits, so open pages never re-fetch half-written data. Queue device commands through `AdmsService.queueCommand`. Never return raw `device_commands.COMMAND` (it can contain the device password).
+- **New-row detection:** don't use `affectedRows` from `INSERT … ON DUPLICATE KEY UPDATE` to tell whether a row is new; mysql2's `CLIENT_FOUND_ROWS` makes unchanged rows report 1 too. Use `INSERT IGNORE`.
+- **Device data on first connect:** a device that already uploaded elsewhere ignores `Stamp=None`. Its existing users and punches have to be requested with `DATA QUERY USERINFO` / `DATA QUERY ATTLOG` (done automatically on first connect).
+- **Enrollment:** fingerprints can be enrolled remotely (`ENROLL_FP`); faces can't on this MB160 firmware. For `ENROLL_*` only `Return=0` is success. Unclaimed enrollments expire after 2 minutes so an offline device never prompts later. Only one enrollment runs per device at a time. The device rejects re-scanning an enrolled finger (Return=4, even for the same user), so re-enrolling means `DATA DELETE FINGERTMP` first.
+- **Cards:** 125 kHz EM only (NFC/Mifare isn't read). There's no remote card prompt: `ENROLL_CARD` and 30+ other guessed verbs → -1002 (list in the doc), and `ENROLL_MF` returns 0, shows nothing, then silently waits ~65 s for a Mifare card that never registers. An unregistered swipe sends nothing. So cards are added and removed at the device, like faces (the device sends the USER line with `Card=` only once the admin exits the user's menu; removing one sends only `OPLOG 12`). Don't bring back a guided card dialog or a typed card-number field.
+- **What the app manages (since 2026-11-04):** the restaurant uses fingerprints. Add employee always sends a regular user (Pri=0) with no password. The device name is never typed: it follows the profile name (`services/deviceNameSync.js`, run on profile save). The app manages fingerprints; role (admins), password, card and face are set on the MB160 only, and the server ignores those fields if sent. The app sets only Time-in/Time-out punch types (an edit may keep a punch's current type).
+- **Editing users:** `DATA UPDATE USERINFO` replaces the whole record. Edits (renames) must carry the current Pri, Card, Passwd, Grp, TZ and Verify (`buildUserUpdateCommand`); the add command (`buildUserUpsertCommand`) sends an empty card and password and would wipe them.
+- **Add employee details:** profile fields ride on the add command (`device_commands.PROFILE_JSON`), move to the new user when the device confirms (`device_users.PENDING_PROFILE_JSON`, same transaction), and `employeeLinkService` turns them into the profile. Clear `PROFILE_JSON` on every way an add can end without success. Device names come from `deviceNameFor` (server `utils/employeeProfile.js`, mirrored in `profileFields.tsx`): always ≤ 24 characters.
+- **Removed users are soft-deleted, never hard-deleted:** every removal path (app delete, OPLOG 103, full sync) uses `DEACTIVATE_USER_SQL` (ACTIVE = 0, credentials erased, templates deleted). Only one active row per PIN (`ACTIVE_PIN`); a reused PIN is a new row and removed rows are never reactivated. Look up "the user with this PIN" by `ACTIVE_PIN`, and a punch's person with `punchOwnerId`.
+- **Mirror:** after a successful `DATA QUERY USERINFO`, users not reported since the query was sent are deactivated and their templates deleted (`SYNCED_DT`). Keep `SYNCED_DT` set on every report and `EDITED_DT` for real changes only; otherwise the mirror deletes real data or the timing checks drift.
+- **Testing against the live device:** commands contain real tab characters. Shell heredocs in this environment can mangle `\t`, so write command strings in files or with `CHAR(9)` in SQL. A literal `\t` once created a user whose PIN was the whole command line.
+- **Docs:** after changing device settings, env keys or tables, update `docs/zkteco-mb160.md`.

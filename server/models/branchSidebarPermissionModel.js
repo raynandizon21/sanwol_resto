@@ -24,6 +24,7 @@ const ALL_FEATURES = [
 	'ingredients',
 	'table_settings',
 	'employee',
+	'attendance_logs',
 ];
 
 function getTableName() {
