@@ -233,6 +233,22 @@ function emitNotificationCreated(userId, notification) {
   }
 }
 
+// The account signed in on another device (single-device session): its
+// other devices check their session right away and log out, instead of
+// only on their next API call. Carries nothing — each device asks the
+// server whether its own token is still the active one.
+function emitSessionReplaced(userId) {
+  if (!io) {
+    console.warn('[SOCKET] Socket.io not initialized');
+    return;
+  }
+  const room = `user_${userId}`;
+  io.to(room).emit('session_replaced', { timestamp: new Date().toISOString() });
+  if (SOCKET_LOG_EMITS) {
+    console.log(`[SOCKET] Emitted session_replaced to room: ${room}`);
+  }
+}
+
 // Get socket.io instance
 function getIO() {
   return io;
@@ -246,5 +262,6 @@ module.exports = {
   emitTableUpdated,
   emitMenuUpdated,
   emitNotificationCreated,
+  emitSessionReplaced,
   getIO
 };

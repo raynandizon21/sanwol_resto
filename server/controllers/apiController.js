@@ -174,6 +174,8 @@ class ApiController {
 			const sid = activeSessionId || crypto.randomUUID();
 			if (sid !== activeSessionId) {
 				await UserModel.updateActiveSession(user.IDNo, sid);
+				// The account's other devices log out now, not on their next call.
+				if (activeSessionId) socketService.emitSessionReplaced(user.IDNo);
 			}
 
 			const tokenPayload = {
