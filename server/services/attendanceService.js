@@ -10,7 +10,8 @@
 const ZktecoModel = require('../models/zktecoModel');
 const EmployeeModel = require('../models/employeeModel');
 const AttendanceSettingsModel = require('../models/attendanceSettingsModel');
-const { computeAttendance, addDays, ymdOf, ISSUE_FLAGS, toMin } = require('./attendanceEngine');
+const AttendanceCalendarModel = require('../models/attendanceCalendarModel');
+const { computeAttendance, addDays, ymdOf, ISSUE_FLAGS, toMin, emptyTotals } = require('./attendanceEngine');
 
 const MAX_RANGE_DAYS = 366;
 // The Timesheet tab shows one column per day.
@@ -77,6 +78,44 @@ const loadRange = (branchIds, startYmd, endYmd) =>
 const publicDay = ({ presence, punches, ...day }) => day;
 
 /**
+ * The work schedule a person follows: the branch's (default), their own, or none. Null when
+ * there's no start time to go by (nothing is checked for late, undertime or absences then).
+ */
+function scheduleFor(person, rules) {
+	const profile = person.profile;
+	if (!profile) return null;
+	const mode = profile.SCHEDULE_MODE || 'branch';
+	if (mode === 'own' && profile.SCHEDULE_START) {
+		return {
+			source: 'own',
+			start: profile.SCHEDULE_START,
+			end: profile.SCHEDULE_END || null,
+			restDays: AttendanceSettingsModel.parseWeekdays(profile.SCHEDULE_REST_DAYS),
+			graceMinutes: rules.graceMinutes,
+		};
+	}
+	if (mode === 'branch' && rules.scheduleStart) {
+		return { source: 'branch', start: rules.scheduleStart, end: rules.scheduleEnd, restDays: rules.closedDays, graceMinutes: rules.graceMinutes };
+	}
+	return null;
+}
+
+/** What the person's schedule setting is, for display ("branch" with no call time = not tracked). */
+const scheduleModeOf = (person) => (person.profile ? person.profile.SCHEDULE_MODE || 'branch' : null);
+
+/**
+ * The cutoff for a scope: the branch's, or the one all branches in it share. Branches with
+ * different cutoffs: the default, with `mixed`.
+ */
+async function cutoffFor(branchIds, people) {
+	const ids = Array.isArray(branchIds) && branchIds.length ? branchIds : [...people.values()].map((p) => p.branchId);
+	const rules = [...(await AttendanceSettingsModel.getRulesForBranches(ids)).values()];
+	const keys = new Set(rules.map((r) => JSON.stringify(r.cutoff)));
+	if (keys.size === 1) return { ...rules[0].cutoff, mixed: false };
+	return { ...AttendanceSettingsModel.DEFAULT_CUTOFF, mixed: keys.size > 1 };
+}
+
+/**
  * Attendance for everyone in scope over the range: everyone on the device, people removed from it
  * who punched in the range, and punches of User IDs that aren't on the device (so they aren't
  * silently lost). `rangePunches` comes from loadRange.
@@ -88,16 +127,32 @@ async function computeEveryone(people, rangePunches, startYmd, endYmd, now) {
 	const rulesByBranch = await AttendanceSettingsModel.getRulesForBranches(ruleBranchIds);
 	const rulesFor = (branchId) => rulesByBranch.get(Number(branchId)) || rulesByBranch.values().next().value;
 
+	const [holidayMaps, excusedMaps] = await Promise.all([
+		AttendanceCalendarModel.getHolidayMaps(ruleBranchIds, startYmd, endYmd),
+		AttendanceCalendarModel.getExcusedMaps([...people.keys()], startYmd, endYmd),
+	]);
+
 	const inRange = (entries) => entries.some((e) => e.dt >= `${startYmd} 00:00:00` && e.dt < `${addDays(endYmd, 1)} 00:00:00`);
-	const compute = (punches, branchId) =>
-		computeAttendance({ punches, rules: rulesFor(branchId), startYmd, endYmd, now });
+	const compute = (punches, branchId, person = null) =>
+		computeAttendance({
+			punches,
+			rules: rulesFor(branchId),
+			startYmd,
+			endYmd,
+			now,
+			schedule: person ? scheduleFor(person, rulesFor(branchId)) : null,
+			holidays: holidayMaps.get(Number(branchId)) || new Map(),
+			excused: (person && excusedMaps.get(person.employeeId)) || new Map(),
+			hired: person?.profile?.DATE_STARTED || null,
+			separated: person?.profile?.DATE_SEPARATED || null,
+		});
 
 	const results = [];
 	for (const person of people.values()) {
 		const punches = rangeGroups.byEmployee.get(person.employeeId) || [];
 		// Everyone on the device is listed; people removed from it only when they worked in the range.
 		if (!person.active && !inRange(punches)) continue;
-		results.push({ person, ...compute(punches, person.branchId) });
+		results.push({ person, schedule: scheduleFor(person, rulesFor(person.branchId)), ...compute(punches, person.branchId, person) });
 	}
 	for (const u of rangeGroups.unknown.values()) {
 		if (!inRange(u.punches)) continue;
@@ -109,8 +164,12 @@ async function computeEveryone(people, rangePunches, startYmd, endYmd, now) {
 	return { results, rulesFor };
 }
 
-/** The person fields the summary and the timesheets send. */
-const publicPerson = (person) => ({
+/**
+ * The person fields the summary and the timesheets send. `schedule`: what they're checked
+ * against ({ source: branch|own, start, end, restDays } or null = not tracked); `scheduleMode`:
+ * their setting (branch, own, none; null for a User ID that isn't on the device).
+ */
+const publicPerson = (person, schedule = null) => ({
 	employeeId: person.employeeId,
 	deviceId: person.deviceId,
 	pin: person.pin,
@@ -118,22 +177,14 @@ const publicPerson = (person) => ({
 	position: person.position ?? null,
 	branchId: person.branchId,
 	active: person.active,
+	scheduleMode: scheduleModeOf(person),
+	schedule: schedule ? { source: schedule.source, start: schedule.start, end: schedule.end, restDays: schedule.restDays } : null,
 });
 
-/** Adds up per-person totals. */
+/** Adds up per-person totals, key by key. */
 function sumTotals(list) {
-	const totals = list.reduce(
-		(acc, t) => {
-			acc.workedMinutes += t.workedMinutes;
-			acc.regularMinutes += t.regularMinutes;
-			acc.overMinutes += t.overMinutes;
-			acc.daysWorked += t.daysWorked;
-			acc.daysWithHours += t.daysWithHours;
-			acc.incompleteDays += t.incompleteDays;
-			return acc;
-		},
-		{ workedMinutes: 0, regularMinutes: 0, overMinutes: 0, daysWorked: 0, daysWithHours: 0, incompleteDays: 0 }
-	);
+	const totals = emptyTotals();
+	for (const t of list) for (const key of Object.keys(totals)) totals[key] += t[key] || 0;
 	totals.averageMinutes = totals.daysWithHours ? Math.round(totals.workedMinutes / totals.daysWithHours) : 0;
 	return totals;
 }
@@ -211,7 +262,7 @@ async function getSummary(branchIds, startYmd, endYmd) {
 		days: hourDays[hour],
 	}));
 
-	const employees = results.map(({ person, totals }) => ({ ...publicPerson(person), totals }));
+	const employees = results.map(({ person, schedule, totals }) => ({ ...publicPerson(person, schedule), totals }));
 	const totals = sumTotals(employees.map((e) => e.totals));
 
 	return {
@@ -265,8 +316,8 @@ async function getTimesheets(branchIds, startYmd, endYmd) {
 	const people = await loadPeople(branchIds);
 	const rangePunches = await loadRange(branchIds, startYmd, endYmd);
 	const { results, rulesFor } = await computeEveryone(people, rangePunches, startYmd, endYmd, now);
-	const employees = results.map(({ person, days, totals }) => ({
-		...publicPerson(person),
+	const employees = results.map(({ person, schedule, days, totals }) => ({
+		...publicPerson(person, schedule),
 		standardHours: rulesFor(person.branchId).standardHours,
 		days: days.map(publicDay),
 		totals,
@@ -274,6 +325,7 @@ async function getTimesheets(branchIds, startYmd, endYmd) {
 	return {
 		range: { start: startYmd, end: endYmd },
 		now,
+		cutoff: await cutoffFor(branchIds, people),
 		employees,
 		totals: sumTotals(employees.map((e) => e.totals)),
 	};
@@ -287,12 +339,22 @@ async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 	const now = String(await ZktecoModel.deviceNow());
 	const punches = (await loadRange(branchIds, startYmd, endYmd)).filter((p) => Number(p.EMPLOYEE_ID) === person.employeeId);
 	const rules = await AttendanceSettingsModel.getRules(person.branchId);
+	const schedule = scheduleFor(person, rules);
+	const [holidayMaps, excusedMaps] = await Promise.all([
+		AttendanceCalendarModel.getHolidayMaps([person.branchId], startYmd, endYmd),
+		AttendanceCalendarModel.getExcusedMaps([person.employeeId], startYmd, endYmd),
+	]);
 	const { days, totals } = computeAttendance({
 		punches: punches.map((p) => ({ dt: p.PUNCH_DT, status: p.PUNCH_STATUS, ref: `${p.SOURCE}:${p.IDNo}` })),
 		rules,
 		startYmd,
 		endYmd,
 		now,
+		schedule,
+		holidays: holidayMaps.get(Number(person.branchId)) || new Map(),
+		excused: excusedMaps.get(person.employeeId) || new Map(),
+		hired: person.profile?.DATE_STARTED || null,
+		separated: person.profile?.DATE_SEPARATED || null,
 	});
 	const details = new Map(
 		punches.map((p) => [
@@ -313,15 +375,7 @@ async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 		])
 	);
 	return {
-		employee: {
-			employeeId: person.employeeId,
-			deviceId: person.deviceId,
-			pin: person.pin,
-			name: person.name,
-			position: person.position,
-			branchId: person.branchId,
-			active: person.active,
-		},
+		employee: publicPerson(person, schedule),
 		rules,
 		now,
 		days: days.map((d) => ({ ...publicDay(d), punches: d.punches.map((ref) => details.get(ref)).filter(Boolean) })),
@@ -329,4 +383,4 @@ async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 	};
 }
 
-module.exports = { getSummary, getTimesheet, getTimesheets, loadPeople, checkRange, fullName, MAX_TIMESHEETS_DAYS };
+module.exports = { getSummary, getTimesheet, getTimesheets, loadPeople, checkRange, fullName, scheduleFor, MAX_TIMESHEETS_DAYS };

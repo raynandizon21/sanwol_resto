@@ -12,7 +12,7 @@ The protocol was proven first in the separate test app `zkteco_test` (sibling re
 |---|---|
 | ADMS receiver in the Node server, on its own port | Payroll (see [attendance.md](attendance.md)) |
 | `zk_` tables in sanwol_resto, people as `employee` rows (`ZK_` columns) | |
-| **Attendance** (basic time tracking: hours worked per day from time-ins and time-outs) and **employee profiles**: see [attendance.md](attendance.md) | Overtime, late, absences, payroll (on hold; see attendance.md) |
+| **Attendance** (hours worked per day from time-ins and time-outs; late, undertime and absences against optional schedules; holidays, day marks, cutoffs) and **employee profiles**: see [attendance.md](attendance.md) | Overtime, payroll (on hold; see attendance.md) |
 | **Manual punches** for forgotten punches (`zk_attendance_logs` rows with `SOURCE = 'manual'`) | |
 | Attendance Logs page (header date range) | Changing a user's User ID (a new ID = a new user) |
 | Employees page (role, **Fingerprints** column (which fingers, e.g. "Right index"; at most two, then "+N" with all of them on hover; an orange *None* chip when there are none) and an "Also:" note for any face, palm, card or password set on the device, last punch) | Remote **face** enrollment (not possible on this firmware; enroll faces on the device) |

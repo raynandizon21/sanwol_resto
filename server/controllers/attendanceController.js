@@ -11,6 +11,7 @@ const ApiResponse = require('../utils/apiResponse');
 const EmployeeModel = require('../models/employeeModel');
 const ZktecoModel = require('../models/zktecoModel');
 const AttendanceSettingsModel = require('../models/attendanceSettingsModel');
+const AttendanceCalendarModel = require('../models/attendanceCalendarModel');
 const AttendanceService = require('../services/attendanceService');
 const { emitZkChange } = require('../services/zktecoEvents');
 const {
@@ -27,6 +28,9 @@ const { syncDeviceName } = require('../services/deviceNameSync');
 // Profile edits are part of managing people on the Employees page (CRUD module device_users).
 const canEditProfile = (req) => hasCrudPermission(req, 'device_users', ['update']);
 const canEditRules = (req) => hasCrudPermission(req, 'attendance_logs', ['update']);
+
+/** Single-spaced, trimmed, cut to `max` characters; null when empty. */
+const cleanText = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max) || null;
 
 /** start_date / end_date query params, both required. */
 function readRange(req, maxDays) {
@@ -117,12 +121,19 @@ class AttendanceController {
 		}
 	}
 
-	// GET /attendance/employees/:id?branch_id=
+	// GET /attendance/employees/:id?branch_id=  (BRANCH_SCHEDULE: the branch schedule they'd follow)
 	static async getEmployee(req, res) {
 		try {
 			const scope = resolveBranchScope(req);
 			const person = await getScopedPerson(scope, req.params.id);
-			return ApiResponse.success(res, person.profile, 'Employee retrieved successfully');
+			const rules = await AttendanceSettingsModel.getRules(person.branchId);
+			const BRANCH_SCHEDULE = {
+				start: rules.scheduleStart,
+				end: rules.scheduleEnd,
+				closedDays: rules.closedDays,
+				graceMinutes: rules.graceMinutes,
+			};
+			return ApiResponse.success(res, { ...person.profile, BRANCH_SCHEDULE }, 'Employee retrieved successfully');
 		} catch (error) {
 			return handleError(res, error, 'employee');
 		}
@@ -160,6 +171,84 @@ class AttendanceController {
 			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
 			console.error('Error saving employee:', error);
 			return ApiResponse.error(res, 'Failed to save the employee', 500, error.message);
+		}
+	}
+
+	// GET /attendance/holidays?branch_id=X  (one branch's holidays, newest first)
+	static async getHolidays(req, res) {
+		try {
+			const branchId = requireOneBranch(req);
+			const rows = await AttendanceCalendarModel.listHolidays(branchId);
+			return ApiResponse.success(res, { holidays: rows, canEdit: await canEditRules(req) }, 'Holidays retrieved successfully');
+		} catch (error) {
+			return handleError(res, error, 'holidays');
+		}
+	}
+
+	// POST /attendance/holidays?branch_id=X  { date, name }  (a date that has one is renamed)
+	static async saveHoliday(req, res) {
+		try {
+			if (!(await canEditRules(req))) return ApiResponse.forbidden(res, 'You are not allowed to change attendance rules');
+			const branchId = requireOneBranch(req);
+			const { date } = req.body || {};
+			const name = cleanText(req.body?.name, 100);
+			if (!isValidYmd(date)) return ApiResponse.badRequest(res, 'date must be YYYY-MM-DD');
+			if (!name) return ApiResponse.badRequest(res, 'Name the holiday');
+			await AttendanceCalendarModel.saveHoliday(branchId, date, name, req.user?.user_id ?? null);
+			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
+			return ApiResponse.success(res, { holidays: await AttendanceCalendarModel.listHolidays(branchId) }, 'Holiday saved');
+		} catch (error) {
+			return handleError(res, error, 'holiday');
+		}
+	}
+
+	// DELETE /attendance/holidays/:id?branch_id=X
+	static async removeHoliday(req, res) {
+		try {
+			if (!(await canEditRules(req))) return ApiResponse.forbidden(res, 'You are not allowed to change attendance rules');
+			const branchId = requireOneBranch(req);
+			const removed = await AttendanceCalendarModel.removeHoliday(branchId, parseInt(req.params.id, 10), req.user?.user_id ?? null);
+			if (!removed) return ApiResponse.error(res, 'Holiday not found', 404);
+			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
+			return ApiResponse.success(res, { holidays: await AttendanceCalendarModel.listHolidays(branchId) }, 'Holiday removed');
+		} catch (error) {
+			return handleError(res, error, 'holiday');
+		}
+	}
+
+	// PUT /attendance/excused-days?branch_id=  { employee_id, date, type: leave|day_off|holiday, note }
+	static async saveExcusedDay(req, res) {
+		try {
+			if (!(await canEditRules(req))) return ApiResponse.forbidden(res, 'You are not allowed to change attendance');
+			const scope = resolveBranchScope(req);
+			const { employee_id: employeeId, date, type } = req.body || {};
+			const person = await getScopedPerson(scope, employeeId);
+			if (!isValidYmd(date)) return ApiResponse.badRequest(res, 'date must be YYYY-MM-DD');
+			if (!AttendanceCalendarModel.EXCUSE_TYPES.includes(type)) {
+				return ApiResponse.badRequest(res, `type must be one of ${AttendanceCalendarModel.EXCUSE_TYPES.join(', ')}`);
+			}
+			const note = cleanText(req.body?.note, 255);
+			await AttendanceCalendarModel.saveExcusedDay(person.employeeId, date, type, note, req.user?.user_id ?? null);
+			emitZkChange('attendance', { IDNo: person.deviceId, BRANCH_ID: person.branchId });
+			return ApiResponse.success(res, { employeeId: person.employeeId, date, type, note }, 'Day marked');
+		} catch (error) {
+			return handleError(res, error, 'excused day');
+		}
+	}
+
+	// DELETE /attendance/excused-days?branch_id=&employee_id=&date=
+	static async removeExcusedDay(req, res) {
+		try {
+			if (!(await canEditRules(req))) return ApiResponse.forbidden(res, 'You are not allowed to change attendance');
+			const scope = resolveBranchScope(req);
+			const person = await getScopedPerson(scope, req.query.employee_id);
+			if (!isValidYmd(req.query.date)) return ApiResponse.badRequest(res, 'date must be YYYY-MM-DD');
+			const removed = await AttendanceCalendarModel.removeExcusedDay(person.employeeId, req.query.date, req.user?.user_id ?? null);
+			if (!removed) return ApiResponse.error(res, 'That day is not marked', 404);
+			emitZkChange('attendance', { IDNo: person.deviceId, BRANCH_ID: person.branchId });
+			return ApiResponse.success(res, { employeeId: person.employeeId, date: req.query.date }, 'Mark removed');
+		} catch (error) {
+			return handleError(res, error, 'excused day');
 		}
 	}
 

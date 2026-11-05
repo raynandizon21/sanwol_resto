@@ -5,7 +5,7 @@ description: ZKTeco MB160 attendance device integration (ADMS push protocol on Z
 
 # ZKTeco MB160
 
-Read `docs/zkteco-mb160.md` first (architecture, file map, `.env` keys, device settings, schema, firmware findings, the cloud/network move checklist and the roadmap), and `docs/attendance.md` for attendance (basic time tracking: hours from time-ins and time-outs, no schedules or overtime yet), employee profiles and manual punches. Its last section lists what was planned but not built (overtime, payroll).
+Read `docs/zkteco-mb160.md` first (architecture, file map, `.env` keys, device settings, schema, firmware findings, the cloud/network move checklist and the roadmap), and `docs/attendance.md` for attendance (hours from time-ins and time-outs; optional schedules for late, undertime and absences; holidays, day marks and per-branch cutoffs; no overtime), employee profiles and manual punches. Its last section lists what was planned but not built (overtime, payroll).
 
 Rules that keep it working:
 

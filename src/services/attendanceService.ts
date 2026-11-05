@@ -9,9 +9,22 @@ import {
   mapEmployeeProfile,
   type EmployeeProfile,
   type EmployeeProfileApiRecord,
+  type ScheduleMode,
 } from './zktecoService';
 
 // ---- Types ----
+
+/**
+ * When payroll periods start: twice a month (on day1 and day2), monthly (day1), weekly (on
+ * `weekday`, 0 = Sunday) or every two weeks (from `anchor`, the first day of one period).
+ */
+export interface CutoffRule {
+  type: 'semi_monthly' | 'monthly' | 'weekly' | 'biweekly';
+  day1: number;
+  day2: number;
+  weekday: number;
+  anchor: string | null;
+}
 
 /** Per-branch rules (server/models/attendanceSettingsModel.js). */
 export interface AttendanceRules {
@@ -19,10 +32,33 @@ export interface AttendanceRules {
   standardHours: number;
   /** A time-in with no time-out within this many hours is a forgotten time-out. */
   maxShiftHours: number;
+  /** Branch call time "HH:MM"; null = no branch schedule (nobody following it is late or absent). */
+  scheduleStart: string | null;
+  /** Branch end time "HH:MM"; null = no undertime. */
+  scheduleEnd: string | null;
+  /** Minutes after the start before a time-in is late. */
+  graceMinutes: number;
+  /** Weekdays the branch is closed (0 = Sunday): rest days for everyone on the branch schedule. */
+  closedDays: number[];
+  cutoff: CutoffRule;
 }
 
-/** worked = complete; incomplete = needs fixing; off = no punches; upcoming = future. */
-export type DayStatus = 'worked' | 'incomplete' | 'on_shift' | 'off' | 'upcoming';
+/** The schedule a person is checked against (null = not tracked). */
+export interface WorkSchedule {
+  source: 'branch' | 'own';
+  start: string;
+  end: string | null;
+  restDays: number[];
+}
+
+export type ExcuseType = 'leave' | 'day_off' | 'holiday';
+
+/**
+ * worked = complete; incomplete = needs fixing; off = no punches (and none expected); upcoming =
+ * future; absent = a past work day with no punches; rest_day = a rest day or the branch is closed;
+ * holiday = a branch holiday; excused = marked leave / day off / holiday for this person.
+ */
+export type DayStatus = 'worked' | 'incomplete' | 'on_shift' | 'off' | 'upcoming' | 'absent' | 'rest_day' | 'holiday' | 'excused';
 
 /** Problems that keep a shift from being counted (fix the punches), then notes. */
 export type DayFlag = 'missing_in' | 'missing_out' | 'long_shift' | 'inferred';
@@ -38,6 +74,13 @@ export interface AttendanceTotals {
   regularMinutes: number;
   overMinutes: number;
   incompleteDays: number;
+  absentDays: number;
+  lateDays: number;
+  lateMinutes: number;
+  undertimeDays: number;
+  undertimeMinutes: number;
+  /** Days marked leave / day off / holiday for the person (branch holidays aren't counted). */
+  excusedDays: number;
   averageMinutes: number;
 }
 
@@ -73,6 +116,14 @@ export interface WorkDay {
   workedMinutes: number;
   regularMinutes: number;
   overMinutes: number;
+  /** A work day by the schedule (not a rest day, holiday or excused day). */
+  scheduled: boolean;
+  lateMinutes: number;
+  undertimeMinutes: number;
+  restDay: boolean;
+  /** Branch holiday name. */
+  holiday: string | null;
+  excuse: { type: ExcuseType; note: string | null } | null;
   flags: DayFlag[];
   shifts: WorkShift[];
 }
@@ -86,6 +137,10 @@ export interface SummaryEmployee {
   position: string | null;
   branchId: number | null;
   active: boolean;
+  /** Their setting (null for a User ID that isn't on the device). */
+  scheduleMode: ScheduleMode | null;
+  /** What they're checked against; null = not tracked (no late, undertime or absences). */
+  schedule: WorkSchedule | null;
   totals: AttendanceTotals;
 }
 
@@ -107,15 +162,7 @@ export interface AttendanceSummary {
 }
 
 export interface Timesheet {
-  employee: {
-    employeeId: number;
-    deviceId: number;
-    pin: string;
-    name: string | null;
-    position: string | null;
-    branchId: number | null;
-    active: boolean;
-  };
+  employee: Omit<SummaryEmployee, 'totals' | 'employeeId'> & { employeeId: number };
   rules: AttendanceRules;
   now: string;
   days: (WorkDay & { punches: TimesheetPunch[] })[];
@@ -134,6 +181,8 @@ export interface TimesheetsEmployee extends Omit<SummaryEmployee, 'totals'> {
 export interface Timesheets {
   range: { start: string; end: string };
   now: string;
+  /** The scope's cutoff (`mixed`: its branches differ, so this is the default). */
+  cutoff: CutoffRule & { mixed: boolean };
   employees: TimesheetsEmployee[];
   totals: AttendanceTotals;
 }
@@ -162,6 +211,23 @@ export interface EmployeeProfileChanges {
   emergency_contact_name?: string;
   emergency_contact_phone?: string;
   notes?: string;
+  schedule_mode?: ScheduleMode;
+  schedule_start?: string;
+  schedule_end?: string;
+  schedule_rest_days?: number[];
+}
+
+export interface BranchSchedule {
+  start: string | null;
+  end: string | null;
+  closedDays: number[];
+  graceMinutes: number;
+}
+
+export interface Holiday {
+  id: number;
+  date: string;
+  name: string;
 }
 
 type Branch = string | number | null | undefined;
@@ -226,6 +292,71 @@ export const updateEmployeeProfile = async (
   const row = await handleResponse<EmployeeProfileApiRecord & { DEVICE_RENAME: string | null }>(response);
   // DEVICE_RENAME: the new name queued for the device when the profile name changed.
   return { profile: mapEmployeeProfile(row), deviceRename: row.DEVICE_RENAME ?? null };
+};
+
+/** One profile, with the branch schedule the person would follow. */
+export const getEmployeeProfile = async (
+  branchId: Branch,
+  employeeId: number,
+): Promise<{ profile: EmployeeProfile; branchSchedule: BranchSchedule }> => {
+  const response = await fetch(buildUrl(`/attendance/employees/${employeeId}`, { branch_id: branchParam(branchId) }), {
+    headers: authHeaders(),
+  });
+  const row = await handleResponse<EmployeeProfileApiRecord & { BRANCH_SCHEDULE: BranchSchedule }>(response);
+  return { profile: mapEmployeeProfile(row), branchSchedule: row.BRANCH_SCHEDULE };
+};
+
+type HolidayRow = { IDNo: number; HOLIDAY_DATE: string; NAME: string };
+const mapHolidays = (rows: HolidayRow[] | undefined): Holiday[] =>
+  (rows || []).map((r) => ({ id: r.IDNo, date: r.HOLIDAY_DATE, name: r.NAME }));
+
+/** One branch's holidays, newest first. */
+export const getHolidays = async (branchId: Branch): Promise<{ holidays: Holiday[]; canEdit: boolean }> => {
+  const response = await fetch(buildUrl('/attendance/holidays', { branch_id: branchParam(branchId) }), { headers: authHeaders() });
+  const data = await handleResponse<{ holidays: HolidayRow[]; canEdit: boolean }>(response);
+  return { holidays: mapHolidays(data.holidays), canEdit: data.canEdit };
+};
+
+/** Adds a branch holiday (a date that has one is renamed). Returns the new list. */
+export const saveHoliday = async (branchId: Branch, date: string, name: string): Promise<Holiday[]> => {
+  const response = await fetch(buildUrl('/attendance/holidays', { branch_id: branchParam(branchId) }), {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, name }),
+  });
+  return mapHolidays((await handleResponse<{ holidays: HolidayRow[] }>(response)).holidays);
+};
+
+export const removeHoliday = async (branchId: Branch, id: number): Promise<Holiday[]> => {
+  const response = await fetch(buildUrl(`/attendance/holidays/${id}`, { branch_id: branchParam(branchId) }), {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  return mapHolidays((await handleResponse<{ holidays: HolidayRow[] }>(response)).holidays);
+};
+
+/** Marks one person's day as leave, day off or holiday (not an absence). */
+export const saveExcusedDay = async (
+  branchId: Branch,
+  employeeId: number,
+  date: string,
+  type: ExcuseType,
+  note: string,
+): Promise<void> => {
+  const response = await fetch(buildUrl('/attendance/excused-days', { branch_id: branchParam(branchId) }), {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id: employeeId, date, type, note }),
+  });
+  await handleResponse<unknown>(response);
+};
+
+export const removeExcusedDay = async (branchId: Branch, employeeId: number, date: string): Promise<void> => {
+  const response = await fetch(
+    buildUrl('/attendance/excused-days', { branch_id: branchParam(branchId), employee_id: String(employeeId), date }),
+    { method: 'DELETE', headers: authHeaders() },
+  );
+  await handleResponse<unknown>(response);
 };
 
 export const getFormerEmployees = async (branchId: Branch): Promise<FormerEmployee[]> => {

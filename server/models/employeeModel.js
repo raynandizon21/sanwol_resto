@@ -13,11 +13,17 @@ const ADDED_COLUMNS = [
 	{ name: 'BIRTHDATE', ddl: 'ADD COLUMN BIRTHDATE DATE NULL DEFAULT NULL AFTER ADDRESS' },
 	{ name: 'DATE_SEPARATED', ddl: "ADD COLUMN DATE_SEPARATED DATE NULL DEFAULT NULL COMMENT 'Last day of work' AFTER DATE_STARTED" },
 	{ name: 'NOTES', ddl: 'ADD COLUMN NOTES VARCHAR(255) NULL DEFAULT NULL AFTER EMERGENCY_CONTACT_PHONE' },
+	// Work schedule (2026-11-05), for late, undertime and absences: the branch's, their own, or none.
+	{ name: 'SCHEDULE_MODE', ddl: "ADD COLUMN SCHEDULE_MODE VARCHAR(10) NOT NULL DEFAULT 'branch' COMMENT 'branch = the branch schedule, own = the columns below, none = not tracked' AFTER NOTES" },
+	{ name: 'SCHEDULE_START', ddl: "ADD COLUMN SCHEDULE_START TIME NULL DEFAULT NULL COMMENT 'Own schedule: start time (NULL = not tracked)' AFTER SCHEDULE_MODE" },
+	{ name: 'SCHEDULE_END', ddl: "ADD COLUMN SCHEDULE_END TIME NULL DEFAULT NULL COMMENT 'Own schedule: end time (NULL = no undertime)' AFTER SCHEDULE_START" },
+	{ name: 'SCHEDULE_REST_DAYS', ddl: "ADD COLUMN SCHEDULE_REST_DAYS VARCHAR(20) NULL DEFAULT NULL COMMENT 'Own schedule: rest days (0=Sun..6=Sat, comma-separated)' AFTER SCHEDULE_END" },
 ];
 
 // Added by the first version of the Employees page (employment type, work schedule) and removed
-// 2026-11-04: Sanwol's staff have no fixed schedules, and attendance is basic time tracking.
-// Dropped from existing tables; none of them is used by the legacy employee API.
+// 2026-11-04: Sanwol's staff have no fixed schedules, and attendance was basic time tracking.
+// Dropped from existing tables; none of them is used by the legacy employee API. Schedules came
+// back on 2026-11-05 as the SCHEDULE_* columns (optional, so these old names stay dropped).
 const DROPPED_COLUMNS = ['EMPLOYMENT_TYPE', 'SHIFT_START', 'SHIFT_END', 'BREAK_MINUTES', 'REST_DAYS'];
 
 // Kitchen and floor staff have no login account, and a device's branch can be unset.
@@ -32,12 +38,15 @@ const PROFILE_SELECT = `
 	e.ADDRESS, DATE_FORMAT(e.BIRTHDATE, '%Y-%m-%d') AS BIRTHDATE,
 	DATE_FORMAT(e.DATE_STARTED, '%Y-%m-%d') AS DATE_STARTED, DATE_FORMAT(e.DATE_SEPARATED, '%Y-%m-%d') AS DATE_SEPARATED,
 	e.EMERGENCY_CONTACT_NAME, e.EMERGENCY_CONTACT_PHONE, e.NOTES, e.ACTIVE,
+	e.SCHEDULE_MODE, TIME_FORMAT(e.SCHEDULE_START, '%H:%i') AS SCHEDULE_START,
+	TIME_FORMAT(e.SCHEDULE_END, '%H:%i') AS SCHEDULE_END, e.SCHEDULE_REST_DAYS,
 	DATE_FORMAT(e.EDITED_DT, '%Y-%m-%d %H:%i:%s') AS EDITED_DT`;
 
 // Columns updateProfile may write; anything else in the payload is ignored.
 const PROFILE_EDITABLE = [
 	'FIRSTNAME', 'LASTNAME', 'CONTACTNo', 'DEPARTMENT', 'ADDRESS', 'BIRTHDATE',
 	'DATE_STARTED', 'DATE_SEPARATED', 'EMERGENCY_CONTACT_NAME', 'EMERGENCY_CONTACT_PHONE', 'NOTES',
+	'SCHEDULE_MODE', 'SCHEDULE_START', 'SCHEDULE_END', 'SCHEDULE_REST_DAYS',
 ];
 
 class EmployeeModel {

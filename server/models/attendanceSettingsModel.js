@@ -2,33 +2,115 @@
 // ATTENDANCE SETTINGS MODEL
 // ============================================
 // File: models/attendanceSettingsModel.js
-// Description: Per-branch attendance rules (standard day, longest shift) used by
-// services/attendanceEngine.js. A branch without a row uses DEFAULT_RULES.
+// Description: Per-branch attendance rules used by services/attendanceEngine.js: the standard
+// day, the longest shift, the branch work schedule (call time, end time, grace period, days
+// closed; all optional) and the payroll cutoff. A branch without a row uses the defaults.
 // See docs/attendance.md.
 // ============================================
 
 const pool = require('../config/db');
 const { DEFAULT_RULES } = require('../services/attendanceEngine');
+const { isValidYmd } = require('../utils/wallClock');
 
-// Column <-> rule name, with the limits the API accepts.
-const FIELDS = [
+// Cutoff types: two periods a month (they start on day1 and day2), one a month (starts on day1),
+// weekly (starts on `weekday`, 0 = Sunday) and every two weeks (from `anchor`, a first day).
+const CUTOFF_TYPES = ['semi_monthly', 'monthly', 'weekly', 'biweekly'];
+const DEFAULT_CUTOFF = Object.freeze({ type: 'semi_monthly', day1: 1, day2: 16, weekday: 1, anchor: null });
+
+const DEFAULTS = Object.freeze({
+	...DEFAULT_RULES,
+	// The branch work schedule. No call time = no schedule (nobody is late or absent).
+	scheduleStart: null,
+	scheduleEnd: null,
+	graceMinutes: 15,
+	closedDays: [],
+	cutoff: DEFAULT_CUTOFF,
+});
+
+// Number rules: column <-> rule name, with the limits the API accepts.
+const NUMBER_FIELDS = [
 	{ column: 'STANDARD_HOURS', rule: 'standardHours', min: 1, max: 16, decimals: true },
 	{ column: 'MAX_SHIFT_HOURS', rule: 'maxShiftHours', min: 8, max: 24 },
+	{ column: 'LATE_GRACE_MINUTES', rule: 'graceMinutes', min: 0, max: 120 },
 ];
 
-// Rules from the first version (schedules, overtime, grace period, automatic break), removed
-// 2026-11-04 when attendance became basic time tracking. Dropped from existing tables.
+// Added 2026-11-05 (schedules, late, absences, cutoffs).
+const ADDED_COLUMNS = [
+	{ name: 'SCHEDULE_START', ddl: "ADD COLUMN SCHEDULE_START TIME NULL DEFAULT NULL COMMENT 'Branch call time; NULL = no schedule (nobody late or absent)' AFTER MAX_SHIFT_HOURS" },
+	{ name: 'SCHEDULE_END', ddl: "ADD COLUMN SCHEDULE_END TIME NULL DEFAULT NULL COMMENT 'Branch end time; NULL = no undertime' AFTER SCHEDULE_START" },
+	{ name: 'LATE_GRACE_MINUTES', ddl: `ADD COLUMN LATE_GRACE_MINUTES SMALLINT NOT NULL DEFAULT ${DEFAULTS.graceMinutes} COMMENT 'Minutes after the call time before a time-in is late' AFTER SCHEDULE_END` },
+	{ name: 'CLOSED_DAYS', ddl: "ADD COLUMN CLOSED_DAYS VARCHAR(20) NULL DEFAULT NULL COMMENT 'Weekdays the branch is closed (0=Sun..6=Sat, comma-separated)' AFTER LATE_GRACE_MINUTES" },
+	{ name: 'CUTOFF_TYPE', ddl: "ADD COLUMN CUTOFF_TYPE VARCHAR(20) NOT NULL DEFAULT 'semi_monthly' COMMENT 'semi_monthly, monthly, weekly or biweekly' AFTER CLOSED_DAYS" },
+	{ name: 'CUTOFF_DAY_1', ddl: "ADD COLUMN CUTOFF_DAY_1 TINYINT NOT NULL DEFAULT 1 COMMENT 'Day of the month a period starts (semi_monthly, monthly)' AFTER CUTOFF_TYPE" },
+	{ name: 'CUTOFF_DAY_2', ddl: "ADD COLUMN CUTOFF_DAY_2 TINYINT NOT NULL DEFAULT 16 COMMENT 'Day of the month the second period starts (semi_monthly)' AFTER CUTOFF_DAY_1" },
+	{ name: 'CUTOFF_WEEKDAY', ddl: "ADD COLUMN CUTOFF_WEEKDAY TINYINT NOT NULL DEFAULT 1 COMMENT 'Weekday a period starts (weekly; 0=Sun)' AFTER CUTOFF_DAY_2" },
+	{ name: 'CUTOFF_ANCHOR', ddl: "ADD COLUMN CUTOFF_ANCHOR DATE NULL DEFAULT NULL COMMENT 'First day of any period (biweekly)' AFTER CUTOFF_WEEKDAY" },
+];
+
+// Rules from the first version (overtime, automatic break, the old grace period), removed
+// 2026-11-04 when attendance became basic time tracking. Dropped from existing tables. The grace
+// period came back on 2026-11-05 as LATE_GRACE_MINUTES.
 const DROPPED_COLUMNS = ['GRACE_MINUTES', 'OT_MODE', 'OT_MIN_MINUTES', 'OT_ROUND_MINUTES', 'DEFAULT_BREAK_MINUTES'];
 
+const SELECT = `
+	BRANCH_ID, STANDARD_HOURS, MAX_SHIFT_HOURS, LATE_GRACE_MINUTES,
+	TIME_FORMAT(SCHEDULE_START, '%H:%i') AS SCHEDULE_START, TIME_FORMAT(SCHEDULE_END, '%H:%i') AS SCHEDULE_END,
+	CLOSED_DAYS, CUTOFF_TYPE, CUTOFF_DAY_1, CUTOFF_DAY_2, CUTOFF_WEEKDAY,
+	DATE_FORMAT(CUTOFF_ANCHOR, '%Y-%m-%d') AS CUTOFF_ANCHOR`;
+
+/** "0,6" -> [0, 6] (weekdays, sorted, no repeats). Also used for employee rest days. */
+const parseWeekdays = (value) =>
+	[...new Set(String(value ?? '').split(',').map((v) => v.trim()).filter((v) => /^[0-6]$/.test(v)).map(Number))].sort();
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 const fromRow = (row) => {
-	if (!row) return { ...DEFAULT_RULES };
+	if (!row) return { ...DEFAULTS, closedDays: [], cutoff: { ...DEFAULT_CUTOFF } };
 	const rules = {};
-	for (const f of FIELDS) {
+	for (const f of NUMBER_FIELDS) {
 		const value = row[f.column];
-		rules[f.rule] = value == null ? DEFAULT_RULES[f.rule] : Number(value);
+		rules[f.rule] = value == null ? DEFAULTS[f.rule] : Number(value);
 	}
+	rules.scheduleStart = row.SCHEDULE_START || null;
+	rules.scheduleEnd = row.SCHEDULE_END || null;
+	rules.closedDays = parseWeekdays(row.CLOSED_DAYS);
+	rules.cutoff = {
+		type: CUTOFF_TYPES.includes(row.CUTOFF_TYPE) ? row.CUTOFF_TYPE : DEFAULT_CUTOFF.type,
+		day1: Number(row.CUTOFF_DAY_1) || DEFAULT_CUTOFF.day1,
+		day2: Number(row.CUTOFF_DAY_2) || DEFAULT_CUTOFF.day2,
+		weekday: row.CUTOFF_WEEKDAY == null ? DEFAULT_CUTOFF.weekday : Number(row.CUTOFF_WEEKDAY),
+		anchor: row.CUTOFF_ANCHOR || null,
+	};
 	return rules;
 };
+
+/** Checks a cutoff payload. Returns { cutoff } or { error }. */
+function validateCutoff(input) {
+	const type = input?.type;
+	if (!CUTOFF_TYPES.includes(type)) return { error: `cutoff.type must be one of ${CUTOFF_TYPES.join(', ')}` };
+	const int = (v) => (Number.isInteger(Number(v)) && v !== '' && v != null ? Number(v) : NaN);
+	const cutoff = { ...DEFAULT_CUTOFF, type };
+	// Days 1-28 so every month has them.
+	if (type === 'semi_monthly' || type === 'monthly') {
+		cutoff.day1 = int(input.day1);
+		if (!(cutoff.day1 >= 1 && cutoff.day1 <= 28)) return { error: 'The cutoff start day must be from 1 to 28' };
+	}
+	if (type === 'semi_monthly') {
+		cutoff.day2 = int(input.day2);
+		if (!(cutoff.day2 > cutoff.day1 && cutoff.day2 <= 28)) {
+			return { error: 'The second cutoff must start after the first, on day 28 at the latest' };
+		}
+	}
+	if (type === 'weekly') {
+		cutoff.weekday = int(input.weekday);
+		if (!(cutoff.weekday >= 0 && cutoff.weekday <= 6)) return { error: 'Choose the weekday the cutoff starts on' };
+	}
+	if (type === 'biweekly') {
+		if (!isValidYmd(input.anchor)) return { error: 'Choose the first day of one of the two-week periods' };
+		cutoff.anchor = input.anchor;
+	}
+	return { cutoff };
+}
 
 class AttendanceSettingsModel {
 	static _schemaReady = false;
@@ -57,12 +139,18 @@ class AttendanceSettingsModel {
 				console.log(`[Schema] attendance_settings.${column} dropped`);
 			}
 		}
+		for (const col of ADDED_COLUMNS) {
+			if (!existing.has(col.name)) {
+				await pool.query(`ALTER TABLE attendance_settings ${col.ddl}`);
+				console.log(`[Schema] attendance_settings.${col.name} created`);
+			}
+		}
 		AttendanceSettingsModel._schemaReady = true;
 	}
 
 	/** Rules for one branch (defaults when none are saved). */
 	static async getRules(branchId) {
-		return (await AttendanceSettingsModel.getRulesForBranches([branchId])).get(Number(branchId)) || { ...DEFAULT_RULES };
+		return (await AttendanceSettingsModel.getRulesForBranches([branchId])).get(Number(branchId)) || fromRow(null);
 	}
 
 	/** Map of branch ID -> rules for each given branch (null/unknown branches get the defaults). */
@@ -72,12 +160,12 @@ class AttendanceSettingsModel {
 		const map = new Map();
 		if (ids.length) {
 			const [rows] = await pool.query(
-				`SELECT * FROM attendance_settings WHERE BRANCH_ID IN (${ids.map(() => '?').join(',')})`,
+				`SELECT ${SELECT} FROM attendance_settings WHERE BRANCH_ID IN (${ids.map(() => '?').join(',')})`,
 				ids
 			);
 			for (const row of rows) map.set(Number(row.BRANCH_ID), fromRow(row));
 		}
-		for (const id of ids) if (!map.has(id)) map.set(id, { ...DEFAULT_RULES });
+		for (const id of ids) if (!map.has(id)) map.set(id, fromRow(null));
 		return map;
 	}
 
@@ -87,8 +175,10 @@ class AttendanceSettingsModel {
 	 */
 	static validate(input) {
 		const rules = {};
-		for (const f of FIELDS) {
-			const raw = input?.[f.rule];
+		for (const f of NUMBER_FIELDS) {
+			let raw = input?.[f.rule];
+			// Older pages don't send the grace period.
+			if ((raw === undefined || raw === null || raw === '') && f.rule === 'graceMinutes') raw = DEFAULTS.graceMinutes;
 			if (raw === undefined || raw === null || raw === '') return { error: `${f.rule} is required` };
 			const value = Number(raw);
 			if (!Number.isFinite(value) || value < f.min || value > f.max) {
@@ -96,20 +186,49 @@ class AttendanceSettingsModel {
 			}
 			rules[f.rule] = f.decimals ? Math.round(value * 100) / 100 : Math.round(value);
 		}
+		for (const key of ['scheduleStart', 'scheduleEnd']) {
+			const value = input?.[key] || null;
+			if (value && !HHMM.test(value)) return { error: 'Times must be HH:MM' };
+			rules[key] = value;
+		}
+		if (rules.scheduleEnd && !rules.scheduleStart) return { error: 'Set the call time before the end time' };
+		if (rules.scheduleEnd && rules.scheduleEnd === rules.scheduleStart) return { error: 'The end time must differ from the call time' };
+		const closed = Array.isArray(input?.closedDays) ? input.closedDays : [];
+		rules.closedDays = parseWeekdays(closed.join(','));
+		if (rules.closedDays.length === 7) return { error: 'The branch must be open at least one day a week' };
+		const { cutoff, error } = validateCutoff(input?.cutoff ?? DEFAULT_CUTOFF);
+		if (error) return { error };
+		rules.cutoff = cutoff;
 		return { rules };
 	}
 
 	static async saveRules(branchId, rules, userId) {
 		await AttendanceSettingsModel.ensureSchema();
-		const columns = FIELDS.map((f) => f.column);
-		const values = FIELDS.map((f) => rules[f.rule]);
+		const values = {
+			STANDARD_HOURS: rules.standardHours,
+			MAX_SHIFT_HOURS: rules.maxShiftHours,
+			LATE_GRACE_MINUTES: rules.graceMinutes,
+			SCHEDULE_START: rules.scheduleStart,
+			SCHEDULE_END: rules.scheduleEnd,
+			CLOSED_DAYS: rules.closedDays.length ? rules.closedDays.join(',') : null,
+			CUTOFF_TYPE: rules.cutoff.type,
+			CUTOFF_DAY_1: rules.cutoff.day1,
+			CUTOFF_DAY_2: rules.cutoff.day2,
+			CUTOFF_WEEKDAY: rules.cutoff.weekday,
+			CUTOFF_ANCHOR: rules.cutoff.anchor,
+		};
+		const columns = Object.keys(values);
 		await pool.query(
 			`INSERT INTO attendance_settings (BRANCH_ID, ${columns.join(', ')}, ENCODED_BY)
 			 VALUES (?, ${columns.map(() => '?').join(', ')}, ?)
 			 ON DUPLICATE KEY UPDATE ${columns.map((c) => `${c} = VALUES(${c})`).join(', ')}, EDITED_BY = ?, EDITED_DT = NOW()`,
-			[branchId, ...values, userId, userId]
+			[branchId, ...Object.values(values), userId, userId]
 		);
 	}
 }
+
+AttendanceSettingsModel.DEFAULT_CUTOFF = DEFAULT_CUTOFF;
+AttendanceSettingsModel.parseWeekdays = parseWeekdays;
+AttendanceSettingsModel.HHMM = HHMM;
 
 module.exports = AttendanceSettingsModel;

@@ -33,8 +33,11 @@ router.get('/attendance/settings', authenticate, getUserBranches, AttendanceCont
 // GET - Profiles of people no longer on the device (to link someone added back on the device)
 router.get('/attendance/former-employees', authenticate, getUserBranches, AttendanceController.getFormerEmployees);
 
-// GET - One employee profile
+// GET - One employee profile, with BRANCH_SCHEDULE (the branch schedule they'd follow)
 router.get('/attendance/employees/:id', authenticate, getUserBranches, AttendanceController.getEmployee);
+
+// GET - One branch's holidays (?branch_id=X). Nobody is absent on them.
+router.get('/attendance/holidays', authenticate, getUserBranches, AttendanceController.getHolidays);
 
 // ============================================
 // POST / PUT / PATCH ROUTES
@@ -44,8 +47,20 @@ router.get('/attendance/employees/:id', authenticate, getUserBranches, Attendanc
 router.post('/attendance/employees/link', authenticate, getUserBranches, AttendanceController.linkEmployee);
 
 // PUT - Save one branch's attendance rules (?branch_id=X)
-// Body: { standardHours, maxShiftHours }
+// Body: { standardHours, maxShiftHours, graceMinutes, scheduleStart, scheduleEnd, closedDays, cutoff }
 router.put('/attendance/settings', authenticate, getUserBranches, AttendanceController.updateSettings);
+
+// POST - Add a branch holiday (?branch_id=X). Body: { date, name }
+router.post('/attendance/holidays', authenticate, getUserBranches, AttendanceController.saveHoliday);
+
+// PUT - Mark one person's day as leave, day off or holiday. Body: { employee_id, date, type, note }
+router.put('/attendance/excused-days', authenticate, getUserBranches, AttendanceController.saveExcusedDay);
+
+// DELETE - A branch holiday (?branch_id=X)
+router.delete('/attendance/holidays/:id', authenticate, getUserBranches, AttendanceController.removeHoliday);
+
+// DELETE - One person's day mark (?branch_id=&employee_id=&date=)
+router.delete('/attendance/excused-days', authenticate, getUserBranches, AttendanceController.removeExcusedDay);
 
 // PATCH - Edit an employee profile (only the fields sent). Body: snake_case fields, see the controller.
 router.patch('/attendance/employees/:id', authenticate, getUserBranches, AttendanceController.updateEmployee);

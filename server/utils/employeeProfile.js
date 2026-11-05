@@ -10,6 +10,9 @@
 const { isValidYmd } = require('./wallClock');
 
 // The MB160 shows about 24 characters of a user's name (docs/zkteco-mb160.md).
+const SCHEDULE_MODES = ['branch', 'own', 'none'];
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 const DEVICE_NAME_MAX = 24;
 
 const text = (value, max) => {
@@ -44,6 +47,30 @@ function readProfile(body, current = {}) {
 		if (value && !isValidYmd(value)) return { error: 'Dates must be YYYY-MM-DD' };
 		fields[column] = value;
 	}
+	// Work schedule: the branch's (default), their own, or none (not tracked for late or absences).
+	if (has('schedule_mode')) {
+		if (!SCHEDULE_MODES.includes(body.schedule_mode)) return { error: `schedule_mode must be one of ${SCHEDULE_MODES.join(', ')}` };
+		fields.SCHEDULE_MODE = body.schedule_mode;
+	}
+	for (const [key, column] of [['schedule_start', 'SCHEDULE_START'], ['schedule_end', 'SCHEDULE_END']]) {
+		if (!has(key)) continue;
+		const value = body[key] || null;
+		if (value && !HHMM.test(value)) return { error: 'Times must be HH:MM' };
+		fields[column] = value;
+	}
+	if (has('schedule_rest_days')) {
+		const days = Array.isArray(body.schedule_rest_days) ? body.schedule_rest_days : [];
+		if (days.some((d) => !/^[0-6]$/.test(String(d)))) return { error: 'Rest days must be weekdays 0-6' };
+		const unique = [...new Set(days.map(Number))].sort();
+		if (unique.length === 7) return { error: 'Leave at least one work day' };
+		fields.SCHEDULE_REST_DAYS = unique.length ? unique.join(',') : null;
+	}
+	const mode = has('schedule_mode') ? fields.SCHEDULE_MODE : current.SCHEDULE_MODE;
+	const start = has('schedule_start') ? fields.SCHEDULE_START : current.SCHEDULE_START;
+	const end = has('schedule_end') ? fields.SCHEDULE_END : current.SCHEDULE_END;
+	if (mode === 'own' && !start) return { error: 'Set a start time for their own schedule' };
+	if (mode === 'own' && end && end === start) return { error: 'The end time must differ from the start time' };
+
 	const started = has('date_started') ? fields.DATE_STARTED : current.DATE_STARTED;
 	const separated = has('date_separated') ? fields.DATE_SEPARATED : current.DATE_SEPARATED;
 	if (started && separated && separated < started) return { error: 'The last day of work is before the hire date' };

@@ -75,7 +75,16 @@ export interface EmployeeProfile {
   emergencyContactName: string;
   emergencyContactPhone: string;
   notes: string;
+  /** Work schedule: the branch's (default), their own, or none (not tracked for late or absences). */
+  scheduleMode: ScheduleMode;
+  /** Own schedule: "HH:MM" or "". */
+  scheduleStart: string;
+  scheduleEnd: string;
+  /** Own schedule: rest days, 0 = Sunday. */
+  scheduleRestDays: number[];
 }
+
+export type ScheduleMode = 'branch' | 'own' | 'none';
 
 /** An employee as they are on the MB160. `id` and `employeeId` are both employee.IDNo. */
 export interface DeviceUser {
@@ -172,6 +181,10 @@ export type EmployeeProfileApiRecord = {
   EMERGENCY_CONTACT_NAME: string | null;
   EMERGENCY_CONTACT_PHONE: string | null;
   NOTES: string | null;
+  SCHEDULE_MODE?: string | null;
+  SCHEDULE_START?: string | null;
+  SCHEDULE_END?: string | null;
+  SCHEDULE_REST_DAYS?: string | null;
 };
 
 type DeviceUserApiRecord = {
@@ -290,6 +303,13 @@ export const mapEmployeeProfile = (row: EmployeeProfileApiRecord): EmployeeProfi
     emergencyContactName: row.EMERGENCY_CONTACT_NAME ?? '',
     emergencyContactPhone: row.EMERGENCY_CONTACT_PHONE ?? '',
     notes: row.NOTES ?? '',
+    scheduleMode: row.SCHEDULE_MODE === 'own' || row.SCHEDULE_MODE === 'none' ? row.SCHEDULE_MODE : 'branch',
+    scheduleStart: row.SCHEDULE_START ?? '',
+    scheduleEnd: row.SCHEDULE_END ?? '',
+    scheduleRestDays: String(row.SCHEDULE_REST_DAYS ?? '')
+      .split(',')
+      .filter((v) => /^[0-6]$/.test(v.trim()))
+      .map(Number),
   };
 };
 

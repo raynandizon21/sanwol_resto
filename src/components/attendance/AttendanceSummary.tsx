@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, CalendarCheck, ChevronRight, Clock, Hourglass, Settings2, UserCheck } from 'lucide-react';
+import { AlertTriangle, CalendarCheck, ChevronRight, Clock, Hourglass, Settings2, Timer, UserCheck, UserX } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { DataTable, type ColumnDef } from '../ui/DataTable';
 import { SkeletonTable } from '../ui/Skeleton';
@@ -199,6 +199,26 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
       ),
     },
     { header: t('attendance.days_worked', 'Days worked'), render: (e) => num(e.totals.daysWorked) },
+    {
+      header: t('attendance.absent', 'Absent'),
+      render: (e) =>
+        e.totals.absentDays ? (
+          <span className="text-sm font-bold tabular-nums text-red-700">{e.totals.absentDays}</span>
+        ) : (
+          num(e.schedule ? '0' : '—')
+        ),
+    },
+    {
+      header: t('attendance.late', 'Late'),
+      render: (e) =>
+        e.totals.lateDays ? (
+          <span className="text-sm font-bold tabular-nums text-orange-700">
+            {e.totals.lateDays} · {formatMinutes(e.totals.lateMinutes)}
+          </span>
+        ) : (
+          num(e.schedule ? '0' : '—')
+        ),
+    },
     { header: t('attendance.hours_worked', 'Hours worked'), render: (e) => num(formatMinutes(e.totals.workedMinutes)) },
     { header: t('attendance.regular_hours', 'Regular hours'), render: (e) => num(formatMinutes(e.totals.regularMinutes)) },
     {
@@ -248,6 +268,7 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
   const today = summary.today;
   const totals = summary.totals;
   const hasData = summary.employees.length > 0;
+  const tracked = summary.employees.some((e) => e.schedule);
 
   return (
     <div className={cn('space-y-6 transition-opacity', loading && 'opacity-60')}>
@@ -297,7 +318,7 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
       <p className="text-sm font-bold text-brand-text">
         {formatYmdDisplay(summary.range.start)} – {formatYmdDisplay(summary.range.end)}
       </p>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Tile icon={Hourglass} label={t('attendance.hours_worked', 'Hours worked')} value={formatMinutes(totals.workedMinutes)}>
           {totals.overMinutes > 0 && (
             <p className="text-xs text-brand-muted font-medium mt-1 tabular-nums">
@@ -323,6 +344,29 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
           value={totals.incompleteDays}
           tone={totals.incompleteDays ? 'text-orange-600' : 'text-brand-text'}
         />
+        <Tile icon={UserX} label={t('attendance.absences', 'Absences')} value={totals.absentDays} tone={totals.absentDays ? 'text-red-700' : 'text-brand-text'}>
+          <p className="text-xs text-brand-muted font-medium mt-1">
+            {tracked
+              ? t('attendance.absences_hint', 'Work days by the schedule with no punches')
+              : t('attendance.no_schedules_short', 'No one has a schedule yet (Attendance rules)')}
+          </p>
+        </Tile>
+        <Tile icon={Timer} label={t('attendance.late', 'Late')} value={totals.lateDays} tone={totals.lateDays ? 'text-orange-600' : 'text-brand-text'}>
+          {(totals.lateDays > 0 || totals.undertimeDays > 0) && (
+            <p className="text-xs text-brand-muted font-medium mt-1 tabular-nums">
+              {[
+                totals.lateDays > 0
+                  ? t('attendance.late_total', { time: formatMinutes(totals.lateMinutes), defaultValue: `${formatMinutes(totals.lateMinutes)} in total` })
+                  : null,
+                totals.undertimeDays > 0
+                  ? `${t('attendance.undertime', 'Undertime')} ${totals.undertimeDays} · ${formatMinutes(totals.undertimeMinutes)}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          )}
+        </Tile>
       </div>
 
       {!hasData ? (

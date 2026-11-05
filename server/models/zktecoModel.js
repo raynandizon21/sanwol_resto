@@ -433,10 +433,13 @@ class ZktecoModel {
 
 	/**
 	 * Someone added back directly on the device got a new employee row (`currentId`). This moves
-	 * their device link and punches onto their old profile (`formerId`) and deactivates the new one.
+	 * their device link, punches and excused days onto their old profile (`formerId`) and
+	 * deactivates the new one.
 	 */
 	static async mergeIntoFormerEmployee(currentId, formerId, userId) {
 		await ZktecoModel.ensureSchema();
+		// Before the transaction: creating the table would commit it halfway.
+		await require('./attendanceCalendarModel').ensureSchema();
 		const conn = await zkPool.getConnection();
 		try {
 			await conn.beginTransaction();
@@ -485,6 +488,8 @@ class ZktecoModel {
 			);
 			await conn.query('UPDATE zk_attendance_logs SET EMPLOYEE_ID = ? WHERE EMPLOYEE_ID = ?', [former.IDNo, current.IDNo]);
 			await conn.query('UPDATE zk_device_commands SET EMPLOYEE_ID = ? WHERE EMPLOYEE_ID = ?', [former.IDNo, current.IDNo]);
+			// Excused days; a date the old profile already has keeps its own mark.
+			await conn.query('UPDATE IGNORE attendance_excused_days SET EMPLOYEE_ID = ? WHERE EMPLOYEE_ID = ?', [former.IDNo, current.IDNo]);
 			await conn.commit();
 			return { deviceId: Number(current.ZK_DEVICE_ID) };
 		} catch (error) {

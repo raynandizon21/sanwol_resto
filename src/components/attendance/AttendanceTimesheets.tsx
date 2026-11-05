@@ -10,6 +10,7 @@ import {
   getTimesheets,
   ISSUE_FLAGS,
   MAX_TIMESHEETS_DAYS,
+  type AttendanceTotals,
   type Timesheets,
   type TimesheetsEmployee,
   type WorkDay,
@@ -17,8 +18,31 @@ import {
 } from '../../services/attendanceService';
 import { formatYmdDisplay, getManilaTodayYmd } from '../../utils/manilaDateTime';
 import { useZkLiveReload } from './zktecoShared';
-import { dayStatusLabel, flagLabel, formatClock, formatMinutes, weekdayOf, weekdayShort } from './attendanceShared';
-import { capAtToday, datesOf, dayCount, kindOf, periodOf, stepPeriod, type PeriodKind, type Range } from './timesheetPeriods';
+import {
+  dayMarkLabel,
+  dayStatusLabel,
+  dayStatusMeta,
+  excuseLabel,
+  flagLabel,
+  formatClock,
+  formatMinutes,
+  scheduleHours,
+  weekdayList,
+  weekdayOf,
+  weekdayShort,
+} from './attendanceShared';
+import {
+  DEFAULT_CUTOFF,
+  capAtToday,
+  cutoffPeriodOf,
+  datesOf,
+  dayCount,
+  kindOf,
+  periodOf,
+  shortRangeLabel,
+  stepPeriod,
+  type Range,
+} from './timesheetPeriods';
 
 // ---- Display ----
 
@@ -36,6 +60,16 @@ const shiftText = (shift: WorkShift, now: string, clock: (v: string | null) => s
 const decimalHours = (minutes: number) => (minutes / 60).toFixed(2);
 
 const personLabel = (t: TFunction, e: TimesheetsEmployee) => e.name || `${t('attendance.unknown_user', 'Not on device')} (${e.pin})`;
+
+/** "10:00 AM – 7:00 PM · Rest: Sun" / "Not tracked". */
+const scheduleText = (t: TFunction, e: TimesheetsEmployee) => {
+  if (!e.schedule) return t('attendance.schedule_not_tracked', 'No schedule (not checked for late or absences)');
+  const rest = e.schedule.restDays.length ? ` · ${t('attendance.rest_short', 'Rest')}: ${weekdayList(t, e.schedule.restDays)}` : '';
+  return `${scheduleHours(e.schedule.start, e.schedule.end)}${rest}`;
+};
+
+/** "2 · 35m" (days · minutes), or "—". */
+const countAndMinutes = (days: number, minutes: number) => (days ? `${days} · ${formatMinutes(minutes)}` : '—');
 
 const fileSafe = (value: string) => value.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '');
 
@@ -57,13 +91,36 @@ const csvCell = (value: string | number) => {
 
 const dayIssues = (day: WorkDay) => day.flags.filter((f) => ISSUE_FLAGS.includes(f));
 
+/** Late / undertime notes of a day: ["Late 20m", "Undertime 15m"]. */
+const timingNotes = (t: TFunction, day: WorkDay) =>
+  [
+    day.lateMinutes ? `${t('attendance.late', 'Late')} ${formatMinutes(day.lateMinutes)}` : null,
+    day.undertimeMinutes ? `${t('attendance.undertime', 'Undertime')} ${formatMinutes(day.undertimeMinutes)}` : null,
+  ].filter((v): v is string => Boolean(v));
+
+const ZERO_TOTALS: AttendanceTotals = {
+  daysWorked: 0,
+  daysWithHours: 0,
+  workedMinutes: 0,
+  regularMinutes: 0,
+  overMinutes: 0,
+  incompleteDays: 0,
+  absentDays: 0,
+  lateDays: 0,
+  lateMinutes: 0,
+  undertimeDays: 0,
+  undertimeMinutes: 0,
+  excusedDays: 0,
+  averageMinutes: 0,
+};
+
 // ---- Component ----
 
 interface AttendanceTimesheetsProps {
   branchId: string | number;
   branchName: string | null;
   dateRange: Range;
-  /** Sets the header's date range (the cutoff buttons). */
+  /** Sets the header's date range (the period buttons). */
   onDateRangeChange?: (range: Range) => void;
   /** Opens a person's timesheet on a date (to see the punches and fix them). */
   onOpenTimesheet: (employee: { employeeId: number; name: string | null; pin: string }, date?: string) => void;
@@ -71,8 +128,9 @@ interface AttendanceTimesheetsProps {
 
 /**
  * Everyone's timesheet for the header's date range: one row per person, one column per day with
- * the shifts (time-in – time-out) and hours, plus totals. Clicking a day opens the person's
- * timesheet there. Exports to CSV (one row per day worked) and PDF (the grid, then totals).
+ * the shifts (time-in – time-out), hours, late and undertime, or why nobody punched (absent, rest
+ * day, holiday, leave); plus totals. The period buttons follow the branch's cutoff. Clicking a day
+ * opens the person's timesheet there. Exports to CSV (one row per day) and PDF (grid, totals).
  */
 export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
   branchId,
@@ -122,6 +180,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
   const current = data;
   const stale = Boolean(data && (data.range.start !== dateRange.start || data.range.end !== dateRange.end));
   const dates = useMemo(() => (current ? datesOf(current.range) : []), [current]);
+  const cutoff = current?.cutoff ?? { ...DEFAULT_CUTOFF, mixed: false };
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -131,36 +190,30 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
       .sort((a, b) => (a.name ?? '￿').localeCompare(b.name ?? '￿', undefined, { sensitivity: 'base' }) || a.pin.localeCompare(b.pin, undefined, { numeric: true }));
   }, [current, search, hideEmpty]);
 
-  /** Per date, over the rows shown: hours worked and how many people worked. */
+  /** Per date, over the rows shown: hours worked, how many people worked, how many were absent. */
   const dayTotals = useMemo(
     () =>
       dates.map((date, i) => {
         let minutes = 0;
         let people = 0;
+        let absent = 0;
         for (const e of rows) {
           const d = e.days[i];
           if (!d || d.date !== date) continue;
           minutes += d.workedMinutes;
           if (d.shifts.some((s) => s.in)) people += 1;
+          if (d.status === 'absent') absent += 1;
         }
-        return { minutes, people };
+        return { minutes, people, absent };
       }),
     [dates, rows],
   );
-  const shownTotals = useMemo(
-    () =>
-      rows.reduce(
-        (acc, e) => ({
-          daysWorked: acc.daysWorked + e.totals.daysWorked,
-          workedMinutes: acc.workedMinutes + e.totals.workedMinutes,
-          regularMinutes: acc.regularMinutes + e.totals.regularMinutes,
-          overMinutes: acc.overMinutes + e.totals.overMinutes,
-          incompleteDays: acc.incompleteDays + e.totals.incompleteDays,
-        }),
-        { daysWorked: 0, workedMinutes: 0, regularMinutes: 0, overMinutes: 0, incompleteDays: 0 },
-      ),
-    [rows],
-  );
+  const shownTotals = useMemo(() => {
+    const sum = { ...ZERO_TOTALS };
+    for (const e of rows) for (const key of Object.keys(sum) as (keyof AttendanceTotals)[]) sum[key] += e.totals[key] || 0;
+    return sum;
+  }, [rows]);
+  const anyTracked = rows.some((e) => e.schedule);
 
   const nowLabel = t('attendance.now_short', 'now');
   const scopeLabel = isAllBranches ? t('attendance.all_branches', 'All branches') : branchName || '';
@@ -174,6 +227,8 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
       t('attendance.position', 'Position'),
       t('attendance.date', 'Date'),
       t('attendance.day', 'Day'),
+      t('attendance.day_status', 'Status'),
+      t('attendance.schedule', 'Schedule'),
       t('attendance.status_check_in', 'Time-in'),
       t('attendance.status_check_out', 'Time-out'),
       t('attendance.shifts', 'Shifts'),
@@ -181,33 +236,41 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
       t('attendance.hours_decimal', 'Hours (decimal)'),
       t('attendance.regular_decimal', 'Regular (decimal)'),
       t('attendance.over_decimal', 'Over (decimal)'),
-      t('attendance.day_status', 'Status'),
+      t('attendance.late_minutes', 'Late (minutes)'),
+      t('attendance.undertime_minutes', 'Undertime (minutes)'),
       t('attendance.problems', 'Problems'),
+      t('attendance.note', 'Note'),
     ];
     const lines = [headers.map(csvCell).join(',')];
     for (const e of rows) {
+      const schedule = e.schedule ? scheduleHours(e.schedule.start, e.schedule.end) : '';
       for (const d of e.days) {
-        // Days with punches only; a day off has nothing to record.
-        if (!d.shifts.length) continue;
+        // Days with punches, absences and marked days; rest days and days off have nothing to record.
+        if (!d.shifts.length && !['absent', 'holiday', 'excused'].includes(d.status)) continue;
         const firstIn = d.shifts.find((s) => s.in)?.in ?? null;
         const last = d.shifts[d.shifts.length - 1];
         // The day's last shift; blank when it has no time-out (the Problems column says so).
-        const lastOut = last.open ? null : last.out;
+        const lastOut = last && !last.open ? last.out : null;
+        const note = d.excuse ? [excuseLabel(t, d.excuse.type), d.excuse.note].filter(Boolean).join(': ') : d.holiday ?? '';
         const cells: (string | number)[] = [
           personLabel(t, e),
           e.pin,
           e.position ?? '',
           d.date,
           weekdayShort(t, weekdayOf(d.date)),
+          dayStatusLabel(t, d.status),
+          d.scheduled ? schedule : '',
           firstIn ? formatClock(firstIn) : '',
-          last.open ? nowLabel : lastOut ? formatClock(lastOut) : '',
+          last?.open ? nowLabel : lastOut ? formatClock(lastOut) : '',
           d.shifts.map((s) => shiftText(s, nowLabel, formatClock, ' - ')).join('; '),
           formatMinutes(d.workedMinutes),
           decimalHours(d.workedMinutes),
           decimalHours(d.regularMinutes),
           decimalHours(d.overMinutes),
-          dayStatusLabel(t, d.status),
+          d.lateMinutes,
+          d.undertimeMinutes,
           dayIssues(d).map((f) => flagLabel(t, f)).join('; '),
+          note,
         ];
         lines.push(cells.map(csvCell).join(','));
       }
@@ -230,11 +293,13 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
       doc.text(subtitle, 40, 46);
     };
     const pdfCell = (d: WorkDay | undefined) => {
-      if (!d || !d.shifts.length) return d?.status === 'upcoming' ? '' : '-';
+      if (!d) return '';
+      if (!d.shifts.length) return dayMarkLabel(t, d) ?? (d.status === 'upcoming' ? '' : '-');
       const lines = d.shifts.map((s) => shiftText(s, nowLabel, shortClock, '-'));
       const issues = dayIssues(d);
       if (issues.length) lines.push(`! ${issues.map((f) => flagLabel(t, f)).join(', ')}`);
       else if (d.workedMinutes) lines.push(formatMinutes(d.workedMinutes));
+      lines.push(...timingNotes(t, d));
       return lines.join('\n');
     };
     const headStyles = { fillColor: [79, 70, 229] as [number, number, number], fontSize: 7, halign: 'center' as const };
@@ -266,6 +331,19 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
 
     // Totals per person.
     doc.addPage();
+    const totalsRow = (label: string, pin: string, position: string, x: AttendanceTotals) => [
+      label,
+      pin,
+      position,
+      String(x.daysWorked),
+      x.absentDays ? String(x.absentDays) : '-',
+      countAndMinutes(x.lateDays, x.lateMinutes).replace('—', '-'),
+      countAndMinutes(x.undertimeDays, x.undertimeMinutes).replace('—', '-'),
+      `${formatMinutes(x.workedMinutes)} (${decimalHours(x.workedMinutes)})`,
+      formatMinutes(x.regularMinutes),
+      formatMinutes(x.overMinutes),
+      x.incompleteDays ? String(x.incompleteDays) : '-',
+    ];
     autoTable(doc, {
       ...common,
       startY: 58,
@@ -274,32 +352,17 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
         t('attendance.pin', 'User ID'),
         t('attendance.position', 'Position'),
         t('attendance.days_worked', 'Days worked'),
+        t('attendance.absent', 'Absent'),
+        t('attendance.late', 'Late'),
+        t('attendance.undertime', 'Undertime'),
         t('attendance.hours_worked', 'Hours worked'),
         t('attendance.regular_hours', 'Regular hours'),
         t('attendance.over_standard', 'Over the standard day'),
         t('attendance.needs_fixing', 'Needs fixing'),
       ]],
       body: [
-        ...rows.map((e) => [
-          personLabel(t, e),
-          e.pin,
-          e.position ?? '',
-          String(e.totals.daysWorked),
-          `${formatMinutes(e.totals.workedMinutes)} (${decimalHours(e.totals.workedMinutes)})`,
-          formatMinutes(e.totals.regularMinutes),
-          formatMinutes(e.totals.overMinutes),
-          e.totals.incompleteDays ? String(e.totals.incompleteDays) : '-',
-        ]),
-        [
-          t('attendance.total', 'Total'),
-          '',
-          '',
-          String(shownTotals.daysWorked),
-          `${formatMinutes(shownTotals.workedMinutes)} (${decimalHours(shownTotals.workedMinutes)})`,
-          formatMinutes(shownTotals.regularMinutes),
-          formatMinutes(shownTotals.overMinutes),
-          shownTotals.incompleteDays ? String(shownTotals.incompleteDays) : '-',
-        ],
+        ...rows.map((e) => totalsRow(personLabel(t, e), e.pin, e.position ?? '', e.totals)),
+        totalsRow(t('attendance.total', 'Total'), '', '', shownTotals),
       ],
       styles: { fontSize: 8, cellPadding: 4 },
       headStyles: { ...headStyles, fontSize: 8, halign: 'left' },
@@ -311,25 +374,35 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
   };
 
   // ---- Period bar ----
-  const kind = kindOf(dateRange, today);
+  const kind = kindOf(dateRange, today, cutoff);
   const applyPeriod = (range: Range) => {
     if (!onDateRangeChange || range.start > today) return;
     onDateRangeChange(capAtToday(range, today));
   };
-  const presets: { key: PeriodKind; label: string; range: Range }[] = [
-    { key: 'week', label: t('attendance.period_this_week', 'This week'), range: periodOf('week', today) },
-    { key: 'first_half', label: t('attendance.period_first_half', '1–15'), range: periodOf('first_half', dateRange.start) },
-    { key: 'second_half', label: t('attendance.period_second_half', '16–end'), range: periodOf('second_half', dateRange.start) },
-    { key: 'month', label: t('attendance.period_month', 'Whole month'), range: periodOf('month', dateRange.start) },
+  const thisCutoff = cutoffPeriodOf(cutoff, today);
+  const lastCutoff = stepPeriod('cutoff', thisCutoff, -1, cutoff);
+  const presets: { key: string; label: string; title: string; range: Range }[] = [
+    { key: 'this_cutoff', label: t('attendance.period_this_cutoff', 'This cutoff'), title: shortRangeLabel(thisCutoff), range: thisCutoff },
+    { key: 'last_cutoff', label: t('attendance.period_last_cutoff', 'Last cutoff'), title: shortRangeLabel(lastCutoff), range: lastCutoff },
+    { key: 'week', label: t('attendance.period_this_week', 'This week'), title: shortRangeLabel(periodOf('week', today)), range: periodOf('week', today) },
+    { key: 'month', label: t('attendance.period_month', 'Whole month'), title: shortRangeLabel(periodOf('month', dateRange.start)), range: periodOf('month', dateRange.start) },
   ];
-  const prev = kind ? stepPeriod(kind, dateRange, -1) : null;
-  const next = kind ? stepPeriod(kind, dateRange, 1) : null;
+  const prev = kind ? stepPeriod(kind, dateRange, -1, cutoff) : null;
+  const next = kind ? stepPeriod(kind, dateRange, 1, cutoff) : null;
   const navButton =
     'p-2 rounded-lg text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-brand-muted';
+  const stepTitle =
+    kind === 'cutoff'
+      ? t('attendance.period_step_cutoff', 'Previous / next cutoff')
+      : kind === 'week'
+        ? t('attendance.period_step_week', 'Previous / next week')
+        : kind === 'month'
+          ? t('attendance.period_step_month', 'Previous / next month')
+          : t('attendance.period_step_none', 'Pick a period to step through');
 
   const periodBar = onDateRangeChange && (
     <div className="flex items-center gap-1 bg-white rounded-xl shadow-sm p-1">
-      <button type="button" className={navButton} disabled={!prev} onClick={() => prev && applyPeriod(prev)} aria-label={t('attendance.period_prev', 'Previous period')}>
+      <button type="button" className={navButton} disabled={!prev} onClick={() => prev && applyPeriod(prev)} title={stepTitle} aria-label={t('attendance.period_prev', 'Previous period')}>
         <ChevronLeft size={16} />
       </button>
       {presets.map((p) => {
@@ -341,6 +414,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
             type="button"
             disabled={p.range.start > today}
             onClick={() => applyPeriod(p.range)}
+            title={p.title}
             className={cn(
               'px-3 py-1.5 rounded-lg text-xs font-bold transition-colors disabled:opacity-40',
               active ? 'bg-brand-primary text-white' : 'text-brand-muted hover:bg-gray-50',
@@ -355,6 +429,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
         className={navButton}
         disabled={!next || next.start > today}
         onClick={() => next && applyPeriod(next)}
+        title={stepTitle}
         aria-label={t('attendance.period_next', 'Next period')}
       >
         <ChevronRight size={16} />
@@ -389,6 +464,17 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
     </div>
   );
 
+  const totalHeaders = [
+    t('attendance.days_worked', 'Days worked'),
+    t('attendance.absent', 'Absent'),
+    t('attendance.late', 'Late'),
+    t('attendance.undertime', 'Undertime'),
+    t('attendance.hours_worked', 'Hours worked'),
+    t('attendance.regular_hours', 'Regular hours'),
+    t('attendance.over_standard', 'Over the standard day'),
+    t('attendance.needs_fixing', 'Needs fixing'),
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -418,6 +504,12 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
           {exportButtons}
         </div>
       </div>
+
+      {cutoff.mixed && (
+        <p className="text-xs font-medium text-orange-700">
+          {t('attendance.cutoff_mixed', 'These branches have different cutoffs, so 1–15 / 16–end is used. Choose a branch to use its cutoff.')}
+        </p>
+      )}
 
       {tooLong ? (
         <div className="bg-orange-50 border border-orange-100 text-orange-700 p-4 rounded-xl text-sm font-medium">
@@ -464,13 +556,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                         </th>
                       );
                     })}
-                    {[
-                      t('attendance.days_worked', 'Days worked'),
-                      t('attendance.hours_worked', 'Hours worked'),
-                      t('attendance.regular_hours', 'Regular hours'),
-                      t('attendance.over_standard', 'Over the standard day'),
-                      t('attendance.needs_fixing', 'Needs fixing'),
-                    ].map((label) => (
+                    {totalHeaders.map((label) => (
                       <th
                         key={label}
                         className="sticky top-0 z-20 bg-white px-3 py-3 text-[11px] font-medium uppercase tracking-wider text-brand-muted text-right border-b border-l border-gray-100 min-w-[96px]"
@@ -488,6 +574,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                           type="button"
                           disabled={e.employeeId == null}
                           onClick={() => openCell(e)}
+                          title={e.employeeId != null ? `${t('attendance.schedule', 'Schedule')}: ${scheduleText(t, e)}` : undefined}
                           className="text-left disabled:cursor-default"
                         >
                           <span className={cn('block text-sm font-bold', e.name ? 'text-brand-text hover:underline' : 'text-brand-muted italic')}>
@@ -499,6 +586,9 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                           </span>
                           <span className="block text-xs text-brand-text font-bold tabular-nums mt-0.5">
                             {formatMinutes(e.totals.workedMinutes)}
+                            {e.employeeId != null && !e.schedule && (
+                              <span className="ml-1.5 font-medium text-brand-muted">· {t('attendance.no_schedule_short', 'No schedule')}</span>
+                            )}
                             {!e.active && e.employeeId != null && (
                               <span className="ml-1.5 font-medium text-brand-muted">· {t('attendance.tag_removed', 'Removed')}</span>
                             )}
@@ -518,6 +608,11 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                         />
                       ))}
                       <TotalCell>{e.totals.daysWorked || '—'}</TotalCell>
+                      <TotalCell tone={e.totals.absentDays ? 'text-red-700' : undefined}>{e.totals.absentDays || '—'}</TotalCell>
+                      <TotalCell tone={e.totals.lateDays ? 'text-orange-700' : undefined}>{countAndMinutes(e.totals.lateDays, e.totals.lateMinutes)}</TotalCell>
+                      <TotalCell tone={e.totals.undertimeDays ? 'text-orange-700' : undefined}>
+                        {countAndMinutes(e.totals.undertimeDays, e.totals.undertimeMinutes)}
+                      </TotalCell>
                       <TotalCell bold>{formatMinutes(e.totals.workedMinutes)}</TotalCell>
                       <TotalCell>{formatMinutes(e.totals.regularMinutes)}</TotalCell>
                       <TotalCell>{e.totals.overMinutes ? formatMinutes(e.totals.overMinutes) : '—'}</TotalCell>
@@ -550,9 +645,17 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                             {t('attendance.people_count', { count: d.people, defaultValue: `${d.people} people` })}
                           </span>
                         )}
+                        {d.absent > 0 && (
+                          <span className="block text-[11px] text-red-700 font-bold">
+                            {t('attendance.absent_count', { count: d.absent, defaultValue: `${d.absent} absent` })}
+                          </span>
+                        )}
                       </td>
                     ))}
                     <TotalCell footer>{shownTotals.daysWorked}</TotalCell>
+                    <TotalCell footer>{shownTotals.absentDays || '—'}</TotalCell>
+                    <TotalCell footer>{countAndMinutes(shownTotals.lateDays, shownTotals.lateMinutes)}</TotalCell>
+                    <TotalCell footer>{countAndMinutes(shownTotals.undertimeDays, shownTotals.undertimeMinutes)}</TotalCell>
                     <TotalCell footer bold>{formatMinutes(shownTotals.workedMinutes)}</TotalCell>
                     <TotalCell footer>{formatMinutes(shownTotals.regularMinutes)}</TotalCell>
                     <TotalCell footer>{shownTotals.overMinutes ? formatMinutes(shownTotals.overMinutes) : '—'}</TotalCell>
@@ -564,22 +667,31 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
           </div>
           <p className="text-xs text-brand-muted font-medium">
             {t(
-              'attendance.timesheet_hint',
-              'Each day shows its shifts (time-in – time-out) and hours worked; a shift belongs to the day of its time-in. A day that needs fixing isn’t counted until its punches are fixed: click it to open the timesheet.',
+              'attendance.timesheet_hint_v2',
+              'Each day shows its shifts (time-in – time-out), hours worked, and late or undertime against the schedule. Late and Undertime totals are days · time. A day that needs fixing isn’t counted until its punches are fixed: click a day to open the timesheet.',
             )}
           </p>
+          {!anyTracked && (
+            <p className="text-xs text-brand-muted font-medium">
+              {t(
+                'attendance.no_schedules_hint',
+                'Nobody here has a schedule, so late, undertime and absences aren’t checked. Set a call time in Summary → Attendance rules, or a schedule per employee (Employees → Schedule).',
+              )}
+            </p>
+          )}
         </>
       )}
     </div>
   );
 };
 
-const TotalCell: React.FC<{ children: React.ReactNode; bold?: boolean; footer?: boolean }> = ({ children, bold, footer }) => (
+const TotalCell: React.FC<{ children: React.ReactNode; bold?: boolean; footer?: boolean; tone?: string }> = ({ children, bold, footer, tone }) => (
   <td
     className={cn(
       'px-3 py-2 text-right text-sm tabular-nums border-l border-gray-100 whitespace-nowrap',
       footer ? 'sticky bottom-0 z-20 bg-white border-t border-t-gray-200 font-bold' : 'border-b bg-white group-hover:bg-brand-bg/50',
-      bold ? 'font-bold text-brand-text' : 'font-medium text-brand-text',
+      bold ? 'font-bold' : 'font-medium',
+      tone ?? 'text-brand-text',
     )}
   >
     {children}
@@ -597,22 +709,56 @@ const DayCell: React.FC<{
 }> = ({ day, isSunday, isToday, standardHours, nowLabel, clickable, onClick }) => {
   const { t } = useTranslation();
   const base = cn('border-b border-gray-100 px-1.5 py-1.5 align-middle text-center', isSunday && 'bg-gray-50/70', isToday && 'bg-brand-primary/5');
-  if (!day || !day.shifts.length) {
+  if (!day) return <td className={base} />;
+
+  // No punches: absent, rest day, holiday or excused show as a labelled cell; other days a dash.
+  if (!day.shifts.length) {
+    const mark = dayMarkLabel(t, day);
+    if (!mark) {
+      return (
+        <td className={base}>
+          <span className={cn('text-xs', day.status === 'upcoming' ? 'text-gray-200' : 'text-gray-300')}>{day.status === 'upcoming' ? '' : '—'}</span>
+        </td>
+      );
+    }
+    const meta = dayStatusMeta(day.status);
+    const Icon = meta.icon;
+    const title = [
+      `${formatYmdDisplay(day.date)} · ${dayStatusLabel(t, day.status)}`,
+      day.holiday,
+      day.excuse ? [excuseLabel(t, day.excuse.type), day.excuse.note].filter(Boolean).join(': ') : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
     return (
       <td className={base}>
-        <span className={cn('text-xs', day?.status === 'upcoming' ? 'text-gray-200' : 'text-gray-300')}>{day?.status === 'upcoming' ? '' : '—'}</span>
+        <button
+          type="button"
+          disabled={!clickable}
+          onClick={onClick}
+          title={title}
+          className={cn('w-full rounded-lg px-1.5 py-1.5 transition-colors disabled:cursor-default hover:brightness-95', meta.cell)}
+        >
+          <span className="flex items-center justify-center gap-1 text-[11px] font-bold">
+            {Icon && <Icon size={11} className="shrink-0" />}
+            <span className="truncate max-w-[80px]">{mark}</span>
+          </span>
+        </button>
       </td>
     );
   }
+
   const issues = dayIssues(day);
+  const notes = timingNotes(t, day);
   const tone =
     day.status === 'incomplete'
       ? 'bg-orange-50 text-orange-800 hover:bg-orange-100'
       : day.status === 'on_shift'
         ? 'bg-brand-primary/10 text-brand-primary hover:bg-brand-primary/15'
         : 'bg-green-50 text-green-900 hover:bg-green-100';
+  const mark = day.excuse ? excuseLabel(t, day.excuse.type) : day.holiday;
   const title = [
-    `${formatYmdDisplay(day.date)} · ${dayStatusLabel(t, day.status)}`,
+    `${formatYmdDisplay(day.date)} · ${dayStatusLabel(t, day.status)}${mark ? ` · ${mark}` : ''}`,
     ...day.shifts.map((s) => shiftText(s, nowLabel, formatClock, ' – ') + (s.minutes != null ? ` (${formatMinutes(s.minutes)})` : '')),
     day.workedMinutes
       ? `${t('attendance.worked', 'Worked')} ${formatMinutes(day.workedMinutes)}${
@@ -621,6 +767,7 @@ const DayCell: React.FC<{
             : ''
         }`
       : null,
+    ...notes,
     ...issues.map((f) => flagLabel(t, f)),
     t('attendance.standard_day_label', { hours: standardHours, defaultValue: `Standard day: ${standardHours} h` }),
   ]
@@ -649,6 +796,17 @@ const DayCell: React.FC<{
         ) : day.workedMinutes > 0 ? (
           <span className="block text-xs font-bold tabular-nums">{formatMinutes(day.workedMinutes)}</span>
         ) : null}
+        {day.lateMinutes > 0 && (
+          <span className="block text-[10px] font-bold text-orange-700 tabular-nums whitespace-nowrap">
+            {t('attendance.late', 'Late')} {formatMinutes(day.lateMinutes)}
+          </span>
+        )}
+        {day.undertimeMinutes > 0 && (
+          <span className="block text-[10px] font-bold text-orange-700 tabular-nums whitespace-nowrap">
+            {t('attendance.undertime_short', 'UT')} {formatMinutes(day.undertimeMinutes)}
+          </span>
+        )}
+        {mark && <span className="block text-[10px] font-medium text-brand-muted truncate">{mark}</span>}
       </button>
     </td>
   );
