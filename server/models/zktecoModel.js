@@ -97,8 +97,13 @@ const TABLES = [
 		EDITED_DT DATETIME NULL DEFAULT NULL COMMENT 'Last time the template itself changed',
 		SYNCED_DT DATETIME NULL DEFAULT NULL COMMENT 'Last time the device reported this template',
 		PRIMARY KEY (IDNo),
+<<<<<<< Updated upstream
 		UNIQUE KEY uq_zk_biometric_templates (DEVICE_ID, PIN, TEMPLATE_KIND, BIO_TYPE, TEMPLATE_NO, TEMPLATE_INDEX)
 	) ${TABLE_OPTIONS} COMMENT='ZKTeco MB160: which biometrics each device user has (no biometric data)'`,
+=======
+		UNIQUE KEY uq_biometric_templates (DEVICE_ID, PIN, TEMPLATE_KIND, BIO_TYPE, TEMPLATE_NO, TEMPLATE_INDEX)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+>>>>>>> Stashed changes
 
 	// Server -> device queue. IDNo is sent to the device as C:<IDNo>:<COMMAND>.
 	`CREATE TABLE IF NOT EXISTS zk_device_commands (
@@ -116,6 +121,7 @@ const TABLES = [
 		SENT_DT DATETIME NULL DEFAULT NULL,
 		COMPLETED_DT DATETIME NULL DEFAULT NULL,
 		PRIMARY KEY (IDNo),
+<<<<<<< Updated upstream
 		KEY idx_zk_device_commands_queue (DEVICE_ID, STATUS, IDNo),
 		KEY idx_zk_device_commands_employee (EMPLOYEE_ID)
 	) ${TABLE_OPTIONS} COMMENT='ZKTeco MB160: commands queued for the device (finished ones pruned after ZK_COMMAND_LOG_DAYS)'`,
@@ -139,6 +145,10 @@ const TABLES = [
 		KEY idx_zk_raw_requests_serial (SERIAL_NO, IDNo),
 		KEY idx_zk_raw_requests_created (CREATED_DT)
 	) ${TABLE_OPTIONS} COMMENT='ZKTeco MB160: raw device traffic, pruned after ZK_RAW_LOG_DAYS'`,
+=======
+		KEY idx_device_commands_queue (DEVICE_ID, STATUS, IDNo)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+>>>>>>> Stashed changes
 ];
 
 // The person on the device = their employee row. These columns hold what the MB160 has for them.

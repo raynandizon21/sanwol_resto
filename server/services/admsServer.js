@@ -11,8 +11,11 @@
 const express = require('express');
 const AdmsService = require('./admsService');
 
+<<<<<<< Updated upstream
 const LOG_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+=======
+>>>>>>> Stashed changes
 const firstValue = (v) => (Array.isArray(v) ? v[0] : v);
 const clientIp = (req) => String(req.ip || req.socket.remoteAddress || '').replace(/^::ffff:/, '');
 
@@ -55,7 +58,6 @@ function createAdmsApp() {
 
 	// Old firmware uses /iclock/cdata.aspx.
 	app.all(/^\/iclock\/([A-Za-z]+)(?:\.aspx)?$/, async (req, res) => {
-		const started = Date.now();
 		const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
 		const remoteIp = clientIp(req);
 		const endpoint = req.params[0].toLowerCase();
@@ -63,7 +65,6 @@ function createAdmsApp() {
 
 		let status;
 		let out;
-		let error = null;
 		try {
 			[status, out] = await AdmsService.dispatch(
 				req.method,
@@ -75,28 +76,10 @@ function createAdmsApp() {
 		} catch (err) {
 			console.error('[ADMS]', err);
 			[status, out] = [500, 'ERROR'];
-			error = err.message || String(err);
 		}
 
 		// Buffer body: Express sends an explicit Content-Length (some firmware mishandles chunked replies).
 		res.status(status).set('Content-Type', 'text/plain; charset=utf-8').send(Buffer.from(out, 'utf8'));
-
-		// Idle polls arrive every few seconds; don't log them.
-		const idle = endpoint === 'getrequest' && out === 'OK' && !query.INFO;
-		if (idle) return;
-		const qsIndex = req.originalUrl.indexOf('?');
-		AdmsService.logRequest({
-			sn: query.SN ?? query.sn ?? null,
-			method: req.method,
-			path: req.path,
-			qs: qsIndex === -1 ? '' : req.originalUrl.slice(qsIndex + 1),
-			remoteIp,
-			headers: req.headers,
-			rawBody,
-			response: error ? `${out}\n[server error] ${error}` : out,
-			status,
-			durationMs: Date.now() - started,
-		}).catch((err) => console.error('[ADMS] raw request log failed:', err.message || err));
 	});
 
 	app.use((req, res) => {
@@ -125,6 +108,7 @@ function startAdmsServer() {
 		console.error(`[ADMS] listener on port ${port} failed:`, err.message || err);
 	});
 
+<<<<<<< Updated upstream
 	const prune = () =>
 		AdmsService.pruneLogs().catch((err) =>
 			console.warn('[ADMS] log prune failed:', err.message || err)
@@ -132,6 +116,8 @@ function startAdmsServer() {
 	prune();
 	setInterval(prune, LOG_PRUNE_INTERVAL_MS).unref();
 
+=======
+>>>>>>> Stashed changes
 	return server;
 }
 

@@ -35,10 +35,17 @@ The **device is the HTTP client**. It connects out to the server and polls it, a
  MB160 192.168.110.190                 Node server (this PC 192.168.110.26)                  MySQL
  ─────────────────────                 ─────────────────────────────────────                  ─────
  boot ── GET  /iclock/cdata?options=all ──▶ :2500 admsServer ─▶ reply options + stamps
+<<<<<<< Updated upstream
  punch ─ POST /iclock/cdata?table=ATTLOG ─▶ :2500             ─▶ "OK: n" after commit ─▶ zk_attendance_logs (EMPLOYEE_ID set on arrival)
  enroll  POST /iclock/cdata?table=OPERLOG ▶ :2500             ─▶ "OK: n"             ─▶ employee (ZK_ columns) / zk_biometric_templates
  every 10s GET /iclock/getrequest ────────▶ :2500             ─▶ "OK" or "C:<id>:<cmd>"  ◀─ zk_device_commands
  browser ── GET /data-api/zkteco/* ──▶ Vite :3600 ─▶ API :2300 zktecoRoutes (JWT auth, branch scope) ─▶ zk_* joined with employee / branches / user_info
+=======
+ punch ─ POST /iclock/cdata?table=ATTLOG ─▶ :2500             ─▶ "OK: n" after commit ─▶ zkteco.attendance_logs
+ enroll  POST /iclock/cdata?table=OPERLOG ▶ :2500             ─▶ "OK: n"             ─▶ zkteco.device_users / biometric_templates
+ every 10s GET /iclock/getrequest ────────▶ :2500             ─▶ "OK" or "C:<id>:<cmd>"  ◀─ zkteco.device_commands
+ browser ── GET /data-api/zkteco/* ──▶ Vite :3600 ─▶ API :2300 zktecoRoutes (JWT auth, branch scope) ─▶ zkteco (+ sanwol_resto.branches)
+>>>>>>> Stashed changes
  browser ── GET /data-api/zkteco/events (SSE) ◀── "change" events ◀── zktecoEvents ◀── admsService (after each commit)
  browser ── POST /data-api/zkteco/device-users ─▶ zk_device_commands (pending) ─▶ next poll ─▶ device ─▶ devicecmd ─▶ employee
 ```
@@ -71,8 +78,12 @@ The **device is the HTTP client**. It connects out to the server and polls it, a
 | `ZK_ALLOWED_SERIALS` | `ECV3262300063` | Allow-list. Other serials get HTTP 403, so they keep their data and retry. **A new device is registered only when listed**: with the list empty, devices registered before keep working and new serials are refused (since 2026-11-04; before, empty meant "any device", which let anyone register a fake device into `ZK_DEFAULT_BRANCH_ID`) |
 | `ZK_ALLOWED_IPS` | (empty) | Optional allow-list of source IPs (e.g. the restaurant's static public IP). Others get 403 before their body is read. Empty = any IP |
 | `ZK_TRUST_PROXY` | (empty = `loopback`) | Whose `X-Forwarded-For` to believe for the client IP (Express *trust proxy*). Default: only a proxy on the same server. Don't use `true` with the port exposed directly: anyone could fake their IP |
+<<<<<<< Updated upstream
 | `ZK_DEFAULT_BRANCH_ID` | `14` (Sanwol BBQ) | Branch assigned to a device **the first time it connects**. Change it later in `zk_devices.BRANCH_ID` |
 | `ZK_RAW_LOG_DAYS` | `14` | Days of `zk_raw_requests` to keep. `0` = don't log |
+=======
+| `ZK_DEFAULT_BRANCH_ID` | `14` (Sanwol BBQ) | Branch assigned to a device **the first time it connects**. Change it later in `devices.BRANCH_ID` |
+>>>>>>> Stashed changes
 | `ZK_RESYNC_HOURS` | `12` (default) | Hours between automatic full syncs (`DATA QUERY USERINFO`) that keep the app a mirror of the device. `0` = off |
 | `ZK_COMMAND_LOG_DAYS` | `30` (default) | Days to keep finished `zk_device_commands` (pending/sent ones are never pruned). `0` = keep |
 
@@ -218,12 +229,22 @@ All in the main `sanwol_resto` DB, with sanwol_resto conventions: snake_case tab
 
 | Table | Contents |
 |---|---|
+<<<<<<< Updated upstream
 | `zk_devices` | One row per serial number: `BRANCH_ID`, IP, firmware, device-reported counts, stamps, `LAST_SEEN_DT` (online = seen in the last 60 s) |
 | `employee` (`ZK_` columns) | **A person on the device = their employee row.** `ZK_DEVICE_ID`, `ZK_PIN` (User ID), `ZK_ON_DEVICE`, `ZK_ACTIVE_PIN` (generated, unique per device), `ZK_NAME`, `ZK_PRIVILEGE`, `ZK_PASSWORD` and `ZK_CARD_NO` (**never returned by the API**), `ZK_GROUP_NO`, `ZK_USER_TZ`, `ZK_VERIFY_MODE`, `ZK_SOURCE` (`device` / `server`), `ZK_ADDED_DT`, `ZK_EDITED_DT`, `ZK_REMOVED_BY`, `ZK_SYNCED_DT`. The profile columns are described in [attendance.md](attendance.md). Employees that were never on a device have `ZK_DEVICE_ID = NULL` and don't appear on the Employees page |
 | `zk_attendance_logs` | Every punch: from the device (`SOURCE = 'device'`, own fields never changed) or added in the app (`SOURCE = 'manual'`, no `DEVICE_ID`/`PIN`). `EMPLOYEE_ID` set on arrival; corrections in `PUNCH_DT_NEW` / `PUNCH_STATUS_NEW` / `IS_DELETED` / `REASON`; `EFFECTIVE_DT` generated. `BRANCH_ID` is the device's branch at punch time |
 | `zk_biometric_templates` | Which FP / FACE / BIODATA templates and photos each User ID has (kind, finger number, size, validity, `TEMPLATE_HASH`). **The biometric data itself is not stored** (since 2026-11-05) |
 | `zk_device_commands` | Server → device queue. `IDNo` is sent as `C:<IDNo>:<COMMAND>`; the result comes back on `/iclock/devicecmd`. `EMPLOYEE_ID`: the removed person an "Add again" brings back. `PROFILE_JSON`: Add employee details, applied when the device confirms, cleared when the add fails or is cancelled. Finished commands are deleted after `ZK_COMMAND_LOG_DAYS` |
 | `zk_raw_requests` | Every non-idle device request and response, with template and photo payloads blanked (`TMP=[1868 chars not stored]`). Deleted after `ZK_RAW_LOG_DAYS`. First place to look when something breaks |
+=======
+| `devices` | One row per serial number: `BRANCH_ID`, IP, firmware, device-reported counts, stamps, `LAST_SEEN_DT` (online = seen in the last 60 s) |
+| `attendance_logs` | Raw punches. **Never edit them**; compute attendance from them with `attendance_log_corrections` applied. `BRANCH_ID` is the device's branch at punch time |
+| `attendance_log_corrections` | The app's edits / soft deletes of punches, keyed by the original `(DEVICE_ID, PIN, PUNCH_DT)` (see *Correcting punches*) |
+| `device_users` | Users on each device: PIN, name, privilege, password, card, `SOURCE` (`device` / `server`). Removed users stay with `ACTIVE = 0`; one active row per PIN (`ACTIVE_PIN`); `READDED_AS_ID` links a removed row to the person's latest row after Add again; see *Removing users*. `EMPLOYEE_ID` = the person's profile in `sanwol_resto.employee` ([attendance.md](attendance.md)); `PENDING_PROFILE_JSON` = Add employee details waiting to be applied to it (cleared by the link pass; never returned by the API) |
+| `attendance_manual_punches` | Punches added in the app for forgotten time-ins/outs; counted like device punches, soft-deleted with `ACTIVE = 0` ([attendance.md](attendance.md)) |
+| `biometric_templates` | FP / FACE / BIODATA templates and user photos (base64). **Sensitive: no API returns them** |
+| `device_commands` | Server → device queue. `IDNo` is sent as `C:<IDNo>:<COMMAND>`; the result comes back on `/iclock/devicecmd`. `READD_OF_ID`: the removed user an "Add again" brings back. `PROFILE_JSON`: Add employee details, moved to the new user when the device confirms, cleared when the add fails or is cancelled |
+>>>>>>> Stashed changes
 
 **What replaced the old `zkteco` DB (2026-11-05).** `devices`, `attendance_logs`, `biometric_templates`, `device_commands`, `raw_requests` → the `zk_` tables above. `device_users` → `employee` `ZK_` columns (its history rows, `READDED_AS_ID`, `PENDING_PROFILE_JSON` and the link pass `employeeLinkService` went away: the profile is created in the same transaction as the device user). `attendance_log_corrections` and `attendance_manual_punches` → folded into `zk_attendance_logs`. `operation_logs` → dropped (it was only written; the 103/12 events it carried are still applied). Biometric payloads (`TEMPLATE`) and the raw `FIELDS_JSON` copies → no longer stored. The local data was not migrated: the device re-sent its users and punches on first connect, and the existing profile #6 (3Core) was linked to User ID 1 by hand.
 
@@ -241,7 +262,9 @@ The device always initiates the connection, so **only the device's Cloud Server 
 6. **Time.** Keep `ZK_TZ_OFFSET_HOURS=8` even if the cloud server runs in UTC.
 7. **Data.** Either export/import the `zk_` tables together with `employee`, or start clean: on first contact the new server queues `DATA QUERY USERINFO` + `DATA QUERY ATTLOG`, and the device sends back its users, templates and full punch log (the device does **not** re-upload on its own). Starting clean against an `employee` table that already has profiles creates a new profile per device user; link existing profiles first (set `ZK_DEVICE_ID`, `ZK_PIN`, `ZK_ON_DEVICE = 1` once the `zk_devices` row exists, as was done locally on 2026-11-05) or merge them afterwards with **Returning employee?**. Edits and manual punches live only in the app, so they come over only with an export.
 
-Security for an internet-facing ADMS port. The protocol has no login: **the serial number is the only identity**, and it is printed on the device and shown in the app. Anyone who knows it can push made-up punches or user changes, or poll for queued commands. So: keep `ZK_ALLOWED_SERIALS` set (only listed serials can register), set `ZK_ALLOWED_IPS` (or a firewall rule) to the restaurant's public IP if it is static, use HTTPS (step 3) so nothing can be read in transit, and rate-limit `/iclock/*` at the proxy. Refused requests are logged without their body.
+**Current deployment (since 2026-11-04):** the server is the VPS `45.32.103.210` and the device pushes plain HTTP to port 2500 from the restaurant's public IP `124.105.224.223`. Port 2500 is opened by `ufw` to that IP only (`ufw allow proto tcp from 124.105.224.223 to any port 2500`), and `ZK_ALLOWED_IPS` holds the same IP. **If the restaurant's ISP changes its public IP, the device stops connecting** (firewall drops it, `LAST_SEEN_DT` stops moving). To find the new IP, run `tcpdump -ni enp1s0 'tcp dst port 2500'`: blocked attempts still show up. Then update both the ufw rule and `ZK_ALLOWED_IPS`, and restart the node server.
+
+Security for an internet-facing ADMS port. The protocol has no login: **the serial number is the only identity**, and it is printed on the device and shown in the app. Anyone who knows it can push made-up punches or user changes, or poll for queued commands. So: keep `ZK_ALLOWED_SERIALS` set (only listed serials can register), set `ZK_ALLOWED_IPS` (or a firewall rule) to the restaurant's public IP if it is static, use HTTPS (step 3) so nothing can be read in transit, and rate-limit `/iclock/*` at the proxy.
 
 ## Roadmap notes
 
@@ -265,8 +288,12 @@ Security for an internet-facing ADMS port. The protocol has no login: **the seri
 
 ## Testing without touching the device
 
+<<<<<<< Updated upstream
 Real device traffic is recorded in `zk_raw_requests` (here and in `zkteco_test.raw_requests`; template payloads are blanked here, so replayed templates arrive without data). To test a protocol change, replay those rows (or hand-written device lines) through `createAdmsApp()` / `AdmsService.dispatch` into a throwaway DB: create it with `CREATE TABLE … LIKE` copies of `employee`, `branches` and `user_info`, set `DB_NAME` to it, stub `dotenv.config` so `.env` doesn't override it, and use a fake serial in `ZK_ALLOWED_SERIALS`. The 2026-11-05 refactor was checked this way (users, punches before/after their user, OPLOG 12/103, reused PINs, Add employee, Add again, edits, removals, manual punches, corrections, Returning employee, full-sync reconcile, log redaction). Never post fake data with the real serial number to the live DB.
 
 **Don't edit the zk code while the dev server (nodemon) and the device are both running if the schema is changing.** Each save restarts the server, and a half-edited model can create tables or rows with the old design (this happened on 2026-11-05: old-named tables and a duplicate profile had to be dropped). Stop the server, or write the model first.
+=======
+**Removed 2026-11-04:** `operation_logs` (OPLOG events were stored but only user-removed (103) and card-removed (12) are acted on, immediately; the time check in `saveOpLog` makes a replayed event harmless) and `raw_requests` (verbatim request log for debugging), together with `ZK_RAW_LOG_DAYS`. OPLOG lines are now acknowledged without being stored, and requests are not logged. To capture real traffic for a test, use `zkteco_test.raw_requests` (the PHP app still logs) or a temporary `tcpdump -A -ni enp1s0 'tcp port 2500'`. To test a protocol change, replay captured requests through `createAdmsApp()` (exported by `admsServer.js`) into a throwaway DB. Set `ZK_DB_NAME=zkteco_scratch` and stub `dotenv.config` so `.env` doesn't override it, then compare the tables. This is how the Node port was checked against the PHP app. Never post fake data with the real serial number to the live DB.
+>>>>>>> Stashed changes
 
 **Gotcha (cost a sync flood on 2026-10-23):** mysql2 sets `CLIENT_FOUND_ROWS`, so `INSERT … ON DUPLICATE KEY UPDATE` reports `affectedRows = 1` both for a new row **and** for an existing row whose values didn't change (several device requests in the same second). Don't use that number to detect "new row". `touchDevice` uses `INSERT IGNORE` (1 = inserted, 0 = existed) plus a separate `UPDATE`. A scratch test fires 20 concurrent first requests and expects exactly 2 sync commands.
