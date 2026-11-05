@@ -40,7 +40,14 @@ const SHARED_SESSION_PERMISSIONS = new Set([2]);
 // Who changed an order and how, sent with its socket event: the cashier's
 // notices name who did it and skip the cashier's own changes.
 function orderChange(req, type, extra = {}) {
-	return { type, by: req.user?.user_id ?? null, by_name: req.user?.username || null, ...extra };
+	return {
+		type,
+		by: req.user?.user_id ?? null,
+		by_name: req.user?.username || null,
+		// The role (15 = cashier): the cashier app doesn't alert on a cashier's own changes.
+		by_permissions: req.user?.permissions ?? null,
+		...extra,
+	};
 }
 
 // order_items rows (OrderItemsModel.getByOrderId) in the shape the apps read
@@ -1085,6 +1092,9 @@ class ApiController {
 					payment_ref: order.payment_ref || order.PAYMENT_REF || null,
 					encoded_by: order.ENCODED_BY ?? null,
 					encoded_by_name: order.ENCODED_BY_NAME || null,
+					// The encoder's role (15 = cashier): the cashier app doesn't
+					// alert on orders a cashier placed.
+					encoded_by_permissions: order.ENCODED_BY_PERMISSIONS ?? null,
 					encoded_dt: order.ENCODED_DT,
 					items: items.map(item => ({
 						item_id: item.IDNo,
@@ -1751,6 +1761,7 @@ class ApiController {
 				})),
 				items_count: items.length,
 				encoded_by: user_id || null,
+				encoded_by_permissions: req.user?.permissions ?? null,
 				branch_id: resolvedBranchId
 			});
 
