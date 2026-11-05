@@ -10,7 +10,6 @@ import {
   getAttendanceLogs,
   getZkDevices,
   restoreAttendanceLog,
-  restoreManualPunch,
   type AttendanceLog,
   type ZkDevice,
 } from '../../services/zktecoService';
@@ -140,8 +139,7 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
   const restore = async (log: AttendanceLog) => {
     setRestoringKey(log.key);
     try {
-      if (log.source === 'manual') await restoreManualPunch(branchId, log.id);
-      else await restoreAttendanceLog(branchId, log.id);
+      await restoreAttendanceLog(branchId, log.id);
       toast.success(t('attendance.restore_punch_done', 'Punch restored'));
       void load(true);
     } catch (err) {

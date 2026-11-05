@@ -80,7 +80,6 @@ export interface WorkDay {
 export interface SummaryEmployee {
   /** null for punches of a User ID that isn't on the device. */
   employeeId: number | null;
-  deviceUserId: number | null;
   deviceId: number;
   pin: string;
   name: string | null;
@@ -110,7 +109,6 @@ export interface AttendanceSummary {
 export interface Timesheet {
   employee: {
     employeeId: number;
-    deviceUserId: number;
     deviceId: number;
     pin: string;
     name: string | null;
@@ -219,12 +217,15 @@ export const getFormerEmployees = async (branchId: Branch): Promise<FormerEmploy
   }));
 };
 
-/** Gives a device user (someone added back on the device) a former employee's profile and history. */
-export const linkFormerEmployee = async (branchId: Branch, deviceUserId: number, employeeId: number): Promise<void> => {
+/**
+ * Someone added back directly on the device got a new profile (`employeeId`): their device link
+ * and punches move onto their former profile (`formerEmployeeId`), and the new one is removed.
+ */
+export const linkFormerEmployee = async (branchId: Branch, employeeId: number, formerEmployeeId: number): Promise<void> => {
   const response = await fetch(buildUrl('/attendance/employees/link', { branch_id: branchParam(branchId) }), {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device_user_id: deviceUserId, employee_id: employeeId }),
+    body: JSON.stringify({ employee_id: employeeId, former_employee_id: formerEmployeeId }),
   });
   await handleResponse<unknown>(response);
 };

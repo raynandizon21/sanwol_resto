@@ -2,13 +2,13 @@
 
 How the app turns MB160 punches into attendance (hours worked per day), and how employees are managed. The device side (ADMS protocol, device users, punches, corrections) is in [zkteco-mb160.md](zkteco-mb160.md).
 
-## Status (2026-11-04)
+## Status (2026-11-05)
 
 Attendance is **basic time tracking**: punches are paired into time-in → time-out shifts and added up per day, against a standard 8-hour day. Sanwol's staff have no fixed schedules, so there is no late, undertime, absence or overtime computation. Payroll was planned and then put on hold. What was planned is in *Not built yet* at the end.
 
 | Done | Not built (see the end) |
 |---|---|
-| **Employees** page = device users + an app-only profile per person | Overtime rules, OT approval |
+| **Employees** page = everyone on the MB160, one `employee` row each (profile + `ZK_` device columns) | Overtime rules, OT approval |
 | Add employee with profile details; the device name follows the profile name | Late, undertime, absences (need schedules) |
 | Hours worked per day, split into regular (up to the standard day) and "over" | Holidays, leaves, rest days |
 | **Add punch** / **Edit punch** for forgotten or wrong punches | Payroll, payslips, posting to Expenses |
@@ -32,18 +32,18 @@ Permissions (User Access → CRUD): **Employees** (key `device_users`) → Edit 
 
 ## Profiles (`sanwol_resto.employee`)
 
-- One profile per person, linked by **`zkteco.device_users.EMPLOYEE_ID`** (no foreign key, no cross-DB join: the DBs can live on different servers). `services/employeeLinkService.js` creates a profile the first time a device user is seen (named as on the device) whenever the Employees page or the summary loads. Linking runs one pass at a time per process.
-- **Add employee** sends the profile details with the device command; the profile is created only once the device confirms the new user (see *Adding users from the app* in [zkteco-mb160.md](zkteco-mb160.md)). **Add again** shows the person's saved details and updates their existing profile.
-- **All rows of one person share the profile**: "Add again" (`READDED_AS_ID`) carries it over. Someone deleted and re-created *on the device* gets a new profile; **Profile → Returning employee?** moves them onto their old one (`POST /attendance/employees/link`), and the unused new profile is soft-deleted.
+- **One `employee` row per person, and it is also their device user** (since 2026-11-05): the profile columns below plus the device's `ZK_` columns (`ZK_PIN`, `ZK_NAME`, `ZK_ON_DEVICE`, …; see *Database* in [zkteco-mb160.md](zkteco-mb160.md)). Someone created on the device gets a row the moment the device reports them (named as on the device), in the same transaction (`admsService.saveUser`). Removing someone from the device keeps their row (`ZK_ON_DEVICE = 0`).
+- **Add employee** sends the profile details with the device command; the row is created only once the device confirms the new user (see *Adding users from the app* in [zkteco-mb160.md](zkteco-mb160.md)). **Add again** puts the same row back on the device and updates its details.
+- Someone deleted and re-created *on the device* gets a new row; **Profile → Returning employee?** (`POST /attendance/employees/link`, `ZktecoModel.mergeIntoFormerEmployee`) moves their device link and punches onto their old profile, and the new row is deactivated (`ACTIVE = 0`).
 - **The name on the device follows the profile name** (`services/deviceNameSync.js`): saving a profile queues the profile name, shortened to the device's 24 characters, whenever it differs from what the device has (or will have after a pending rename). Role, card and password stay as the device has them. A pending removal skips it. A rename made on the device itself is not copied back: the profile is the source of truth, and the list shows *On device: …* when they differ. Shortening (`deviceNameFor`, server `utils/employeeProfile.js`, mirrored in `src/components/attendance/profileFields.tsx`): *First Last* → *First L.* → fewer first-name words with the initial → fewer first-name words → first word cut to 24 characters.
-- Columns used: `FIRSTNAME`, `LASTNAME`, `DEPARTMENT` (shown as *Position*), `DATE_STARTED`, `DATE_SEPARATED`, `CONTACTNo`, `BIRTHDATE`, `ADDRESS`, `EMERGENCY_CONTACT_NAME/PHONE`, `NOTES`. `USER_INFO_ID` and `BRANCH_ID` are optional (kitchen staff have no login). The first version also added `EMPLOYMENT_TYPE`, `SHIFT_START`, `SHIFT_END`, `BREAK_MINUTES` and `REST_DAYS`; `EmployeeModel.ensureSchema` drops them (2026-11-04). The legacy `/employees_list` and `/employee/:id` API is untouched.
+- Columns used: `FIRSTNAME`, `LASTNAME`, `DEPARTMENT` (shown as *Position*), `DATE_STARTED`, `DATE_SEPARATED`, `CONTACTNo`, `BIRTHDATE`, `ADDRESS`, `EMERGENCY_CONTACT_NAME/PHONE`, `NOTES`. `USER_INFO_ID` and `BRANCH_ID` are optional (kitchen staff have no login). The first version also added `EMPLOYMENT_TYPE`, `SHIFT_START`, `SHIFT_END`, `BREAK_MINUTES` and `REST_DAYS`; `EmployeeModel.ensureSchema` drops them (2026-11-04). The legacy `/employees_list` and `/employee/:id` API is untouched (it lists explicit columns, so it never returns the `ZK_` ones).
 - The Profile tab and Add employee share their fields and checks (`profileFields.tsx`; server `utils/employeeProfile.js`).
 
 ## The attendance engine (`server/services/attendanceEngine.js`)
 
-Pure function (no DB): one person's punches + the branch rules → one record per day. Unit tests: `cd server && npm test`. `services/attendanceService.js` loads the data (punches from `zkteco`, profiles and rules from `sanwol_resto`) and runs it per person.
+Pure function (no DB): one person's punches + the branch rules → one record per day. Unit tests: `cd server && npm test`. `services/attendanceService.js` loads the data (punches from `zk_attendance_logs`, people from `employee`, rules from `attendance_settings`) and runs it per person.
 
-**Input punches** are device punches with corrections applied (deleted ones left out) plus active manual punches (`ZktecoModel.getPunchesForAttendance`). A day before and after the range are loaded so shifts crossing the edges are complete.
+**Input punches** are every punch in `zk_attendance_logs`, device and manual, at its corrected time and status, deleted ones left out (`ZktecoModel.getPunchesForAttendance`). Each carries its `EMPLOYEE_ID`, set when it arrived. A day before and after the range are loaded so shifts crossing the edges are complete.
 
 **Shifts.**
 - Every punch is either **arriving** (Time-in 0, Break-in 3, OT-in 4) or **leaving** (Time-out 1, Break-out 2, OT-out 5). Whatever key staff press, time between arriving and leaving is time at work. Older punches with no state (255) alternate in / out and are flagged *inferred*.
@@ -73,9 +73,11 @@ One row per branch, edited in **Attendance Logs → Summary → Attendance rules
 
 The first version's columns (`GRACE_MINUTES`, `OT_MODE`, `OT_MIN_MINUTES`, `OT_ROUND_MINUTES`, `DEFAULT_BREAK_MINUTES`) are dropped by `AttendanceSettingsModel.ensureSchema`. Changing a rule recomputes everything on the fly (attendance is never stored).
 
-## Manual punches and punch types (`zkteco.attendance_manual_punches`)
+## Manual punches and punch types (`zk_attendance_logs`, `SOURCE = 'manual'`)
 
-For a forgotten punch: **Attendance Logs → Punches → Add punch**, or **Add punch** on a timesheet day (it suggests the missing type). A reason is required. They never touch `attendance_logs`, show in the punch list as *Added manually* (verified by "Entered in the app"), count like device punches, and can be edited, deleted (soft) and restored. A manual punch can't share the exact time of another of that person's counted punches. It stores the `device_users` row it belongs to (`DEVICE_USER_ID`), so PIN reuse can't move it.
+For a forgotten punch: **Attendance Logs → Punches → Add punch**, or **Add punch** on a timesheet day (it suggests the missing type). A reason is required. They're rows of `zk_attendance_logs` with `SOURCE = 'manual'`, no `DEVICE_ID`/`PIN`, and the person's `EMPLOYEE_ID` (so PIN reuse can't move them). They show in the punch list as *Added manually* (verified by "Entered in the app"), count like device punches, and are edited, deleted (soft) and restored through the same endpoints as device punches. A manual punch can't share the exact time of another of that person's counted punches.
+
+**A reason is required** to add, edit or delete any punch (device or manual). Only setting a device punch back to the device's record and restoring a deleted punch need none.
 
 The app sets only **Time-in / Time-out** (adding, and editing any punch). Editing can also keep the type a punch already has (e.g. an OT-in recorded by the device), so an edit never forces a change of type. The server enforces the same.
 
@@ -89,11 +91,11 @@ The app sets only **Time-in / Time-out** (adding, and editing any punch). Editin
 | GET | `/attendance/timesheet/:employeeId?branch_id&start_date&end_date` | One person's days with punches |
 | GET / PUT | `/attendance/settings?branch_id=X` | Rules of one branch (`{ standardHours, maxShiftHours }`) |
 | GET / PATCH | `/attendance/employees/:id?branch_id` | Profile (PATCH: snake_case fields; only those sent change; the response's `DEVICE_RENAME` is the device name queued, if any) |
-| GET | `/attendance/former-employees?branch_id` | Profiles with no active device user |
-| POST | `/attendance/employees/link?branch_id` | `{ device_user_id, employee_id }` |
-| POST / PATCH / DELETE | `/zkteco/manual-punches[/:id]`, `POST /zkteco/manual-punches/:id/restore` | Manual punches |
+| GET | `/attendance/former-employees?branch_id` | People removed from the device whose profile is active |
+| POST | `/attendance/employees/link?branch_id` | `{ employee_id (their new row), former_employee_id }` |
+| POST | `/zkteco/attendance-logs` | Add a manual punch `{ employee_id, punch_dt, status, reason }`. Edit / delete / restore use the punch endpoints in [zkteco-mb160.md](zkteco-mb160.md) |
 
-`GET /zkteco/device-users` returns `EMPLOYEE_ID` and `PROFILE` per user, and `GET /zkteco/attendance-logs` includes manual punches (`SOURCE = 'manual'`). There is no separate rename endpoint: the device name changes through the profile.
+`GET /zkteco/device-users` returns one row per employee (`IDNo` = `EMPLOYEE_ID` = `employee.IDNo`) with `PROFILE`, and `GET /zkteco/attendance-logs` includes manual punches (`SOURCE = 'manual'`). There is no separate rename endpoint: the device name changes through the profile.
 
 ## Files
 
@@ -101,13 +103,13 @@ The app sets only **Time-in / Time-out** (adding, and editing any punch). Editin
 |---|---|
 | `server/services/attendanceEngine.js` | The rules above (pure). Tests: `server/tests/attendanceEngine.test.js` (rules) and `attendanceHours.test.js` (hours checked against randomly generated work sessions) |
 | `server/services/attendanceService.js` | Loads punches/profiles/rules, runs the engine, builds summary and timesheet |
-| `server/services/employeeLinkService.js` | Device user → profile linking (and Add employee details) |
 | `server/services/deviceNameSync.js` | Device name follows the profile name |
 | `server/utils/employeeProfile.js` | Profile validation and the device-name shortening. Tests: `server/tests/employeeProfile.test.js` |
 | `server/models/attendanceSettingsModel.js` | Per-branch rules |
-| `server/models/employeeModel.js` | Profile schema migration and profile queries (legacy methods kept) |
+| `server/models/employeeModel.js` | Profile schema migration and profile queries (legacy methods kept). The `ZK_` columns are added by `zktecoModel.js` |
+| `server/models/zktecoModel.js` | People on the device (`getPeople`, `getFormerEmployees`, `mergeIntoFormerEmployee`) and punches |
 | `server/controllers/attendanceController.js`, `server/routes/attendanceRoutes.js` | `/attendance/*` |
-| `server/utils/zktecoHttp.js`, `server/utils/wallClock.js` | Branch scope, CRUD permission and name lookups; date/time text checks |
+| `server/utils/zktecoHttp.js`, `server/utils/wallClock.js` | Branch scope and CRUD permission checks; date/time text checks |
 | `src/services/attendanceService.ts` | Frontend client |
 | `src/components/attendance/Employees.tsx`, `EmployeePanel.tsx`, `EmployeeProfileForm.tsx`, `AddDeviceUserPanel.tsx`, `profileFields.tsx` | Employees page |
 | `src/components/attendance/AttendanceSummary.tsx`, `Timesheet.tsx`, `AttendanceRulesDialog.tsx`, `attendanceShared.tsx` | Summary, timesheet, rules, display helpers |

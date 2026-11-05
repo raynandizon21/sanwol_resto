@@ -8,7 +8,6 @@
 // device itself is not copied back: the profile is the source of truth. See docs/zkteco-mb160.md.
 // ============================================
 
-const zkPool = require('../config/zktecoDb');
 const ZktecoModel = require('../models/zktecoModel');
 const AdmsService = require('./admsService');
 const { deviceNameFor } = require('../utils/employeeProfile');
@@ -25,12 +24,7 @@ async function syncDeviceName({ deviceId, pin, firstName, lastName }, userId) {
 
 	// What the device will have once the queued changes run: the newest pending rename, else its
 	// current name. A pending removal wins over a rename.
-	const [pending] = await zkPool.query(
-		`SELECT COMMAND FROM device_commands
-		 WHERE DEVICE_ID = ? AND STATUS IN ('pending', 'sent') AND (COMMAND = ? OR COMMAND LIKE ?)
-		 ORDER BY IDNo DESC`,
-		[deviceId, ZktecoModel.userDeleteCommand(pin), `DATA UPDATE USERINFO PIN=${pin}\t%`]
-	);
+	const pending = await ZktecoModel.getPendingUserCommandsFor(deviceId, pin);
 	if (pending.some((c) => c.COMMAND === ZktecoModel.userDeleteCommand(pin))) return { name, queued: false };
 	const pendingName = pending.length ? /\tName=([^\t]*)/.exec(pending[0].COMMAND)?.[1] : null;
 	if ((pendingName ?? String(user.NAME ?? '')) === name) return { name, queued: false };

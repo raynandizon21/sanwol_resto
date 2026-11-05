@@ -197,7 +197,7 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
           <DayCard
             key={day.date}
             day={day}
-            canAdd={canAdd && Boolean(sheet?.employee.deviceUserId)}
+            canAdd={canAdd && Boolean(sheet?.employee.employeeId)}
             canEdit={canEdit}
             canDelete={canDelete}
             onAdd={(status) =>
@@ -215,7 +215,7 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
       <AddPunchDialog
         isOpen={Boolean(addFor)}
         branchId={branchId}
-        employee={sheet ? { deviceUserId: sheet.employee.deviceUserId, name, pin: sheet.employee.pin } : null}
+        employee={sheet ? { employeeId: sheet.employee.employeeId, name, pin: sheet.employee.pin } : null}
         defaultDate={addFor?.date}
         defaultStatus={addFor?.status}
         shiftIn={addFor?.shiftIn}

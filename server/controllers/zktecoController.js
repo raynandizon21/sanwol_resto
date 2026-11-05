@@ -10,7 +10,6 @@
 const ZktecoModel = require('../models/zktecoModel');
 const EmployeeModel = require('../models/employeeModel');
 const AdmsService = require('../services/admsService');
-const EmployeeLinkService = require('../services/employeeLinkService');
 const { onZkChange, emitZkChange } = require('../services/zktecoEvents');
 const { initSse, sendSse } = require('../utils/sse');
 const ApiResponse = require('../utils/apiResponse');
@@ -19,8 +18,6 @@ const {
 	HttpError,
 	resolveBranchScope,
 	inScope,
-	attachBranchNames,
-	attachUserNames,
 	hasCrudPermission,
 	handleError,
 	cleanReason,
@@ -57,19 +54,20 @@ const APP_PUNCH_STATUSES = [0, 1];
 const statusAllowed = (status, current = []) =>
 	APP_PUNCH_STATUSES.includes(status) || current.some((c) => c != null && Number(c) === status);
 
-/** Notifies open Attendance Logs / Employees pages after a correction is saved. */
-const emitPunchChange = (punch) => emitZkChange('attendance', { IDNo: punch.DEVICE_ID, BRANCH_ID: punch.DEVICE_BRANCH_ID });
+/** Notifies open Attendance Logs / Employees pages after a punch changes. */
+const emitPunchChange = (punch) => emitZkChange('attendance', { IDNo: punch.DEVICE_ID, BRANCH_ID: punch.BRANCH_ID });
 
 /**
- * Validates a manual punch's time and status; returns an error message or null.
- * `excludeId`: the manual punch being edited (it may keep its own time and type, `currentStatus`).
+ * Validates a punch's new time and status; returns an error message or null. `current`: statuses
+ * the punch may keep. `duplicateOf`: { employeeId, excludeId } to refuse a second punch of the same
+ * person at the exact same time (manual punches).
  */
-async function manualPunchError({ deviceId, pin, punchDt, status, excludeId = null, currentStatus = null }) {
+async function punchError({ punchDt, status, current = [], duplicateOf = null }) {
 	if (!isValidWallClock(punchDt)) return 'Enter a valid date and time';
 	// Both are device-local "YYYY-MM-DD HH:mm:ss", so they compare as text.
 	if (punchDt > String(await ZktecoModel.deviceNow())) return "The punch time can't be in the future";
-	if (!statusAllowed(status, [currentStatus])) return 'Choose Time-in or Time-out';
-	if (await ZktecoModel.punchExistsAt(deviceId, pin, punchDt, excludeId)) {
+	if (!statusAllowed(status, current)) return 'Choose Time-in or Time-out';
+	if (duplicateOf && (await ZktecoModel.punchExistsAt(duplicateOf.employeeId, punchDt, duplicateOf.excludeId))) {
 		return 'This person already has a punch at that exact time';
 	}
 	return null;
@@ -90,7 +88,7 @@ class ZktecoController {
 	static async getDevices(req, res) {
 		try {
 			const scope = resolveBranchScope(req);
-			const devices = await attachBranchNames(await ZktecoModel.getDevices(scope));
+			const devices = await ZktecoModel.getDevices(scope);
 			return ApiResponse.success(res, devices, 'Devices retrieved successfully');
 		} catch (error) {
 			return handleError(res, error, 'devices');
@@ -114,32 +112,25 @@ class ZktecoController {
 			});
 			// The newest `appliedLimit` punches only; the page says so instead of showing a short count.
 			res.set('X-Result-Truncated', truncated ? String(appliedLimit) : '0');
-			const named = await attachUserNames(
-				await attachUserNames(await attachBranchNames(rows), 'CORRECTED_BY', 'CORRECTED_BY_NAME'),
-				'ADDED_BY',
-				'ADDED_BY_NAME'
-			);
-			return ApiResponse.success(res, named, 'Attendance logs retrieved successfully');
+			return ApiResponse.success(res, rows, 'Attendance logs retrieved successfully');
 		} catch (error) {
 			return handleError(res, error, 'attendance logs');
 		}
 	}
 
 	// GET /zkteco/device-users?branch_id=&device_id=&include_deleted=1
-	// Each user carries PROFILE: their app-only employee profile (created on first sight).
+	// One row per employee on the device (IDNo = employee.IDNo), with PROFILE: their profile fields.
 	static async getDeviceUsers(req, res) {
 		try {
 			const scope = resolveBranchScope(req);
-			await EmployeeLinkService.ensureEmployeeLinks(scope);
 			const users = await ZktecoModel.getDeviceUsers(scope, {
 				device_id: parseInt(req.query.device_id, 10) || null,
 				include_deleted: req.query.include_deleted === '1',
 			});
-			const named = await attachUserNames(await attachBranchNames(users), 'EDITED_BY', 'EDITED_BY_NAME');
 			const profiles = new Map(
-				(await EmployeeModel.getProfilesByIds(named.map((u) => u.EMPLOYEE_ID))).map((p) => [Number(p.IDNo), p])
+				(await EmployeeModel.getProfilesByIds(users.map((u) => u.IDNo))).map((p) => [Number(p.IDNo), p])
 			);
-			const withProfiles = named.map((u) => ({ ...u, PROFILE: profiles.get(Number(u.EMPLOYEE_ID)) || null }));
+			const withProfiles = users.map((u) => ({ ...u, PROFILE: profiles.get(Number(u.IDNo)) || null }));
 			return ApiResponse.success(res, withProfiles, 'Device users retrieved successfully');
 		} catch (error) {
 			return handleError(res, error, 'device users');
@@ -150,17 +141,17 @@ class ZktecoController {
 	static async getPendingUserCommands(req, res) {
 		try {
 			const scope = resolveBranchScope(req);
-			const rows = await attachBranchNames(await ZktecoModel.getPendingUserCommands(scope));
+			const rows = await ZktecoModel.getPendingUserCommands(scope);
 			return ApiResponse.success(res, rows, 'Pending device users retrieved successfully');
 		} catch (error) {
 			return handleError(res, error, 'pending device users');
 		}
 	}
 
-	// POST /zkteco/device-users  { device_id?, pin, name, privilege, password?, readd_of? }
-	// readd_of: "Add again" of that removed device_users row; once confirmed, it's hidden from Show deleted.
+	// POST /zkteco/device-users  { device_id?, pin, profile?, name?, readd_of? }
+	// readd_of: "Add again" of that removed employee (employee.IDNo): the same person goes back on.
 	// Queues DATA UPDATE USERINFO; the device picks it up on its next poll (≤ 10 s).
-	// The user appears in device_users once the device confirms (admsService.applyCommandResult).
+	// The person is put on the device in the app once it confirms (admsService.applyCommandResult).
 	static async createDeviceUser(req, res) {
 		try {
 			if (!(await canCreateDeviceUser(req))) {
@@ -188,8 +179,8 @@ class ZktecoController {
 				return ApiResponse.badRequest(res, 'User ID must be 1–9 digits and not start with 0');
 			}
 
-			// Profile details (optional; first name required when sent). They're applied to the
-			// employee profile once the device confirms the user (employeeLinkService).
+			// Profile details (optional; first name required when sent). They're written to the
+			// employee profile once the device confirms the user.
 			let profileFields = null;
 			if (body.profile != null) {
 				if (typeof body.profile !== 'object' || Array.isArray(body.profile)) return ApiResponse.badRequest(res, 'Invalid profile');
@@ -221,7 +212,7 @@ class ZktecoController {
 				AdmsService.buildUserUpsertCommand({ pin, name, privilege: AdmsService.PRIVILEGE_USER, password: '' }),
 				req.user?.user_id ?? null,
 				{
-					readdOfId,
+					employeeId: readdOfId,
 					profileJson: profileFields ? JSON.stringify({ fields: profileFields, userId: req.user?.user_id ?? null }) : null,
 				}
 			);
@@ -422,9 +413,44 @@ class ZktecoController {
 		}
 	}
 
-	// PATCH /zkteco/attendance-logs/:id?branch_id=  { punch_dt: 'YYYY-MM-DD HH:mm:ss', status, reason? }
-	// Corrects a punch's time and/or status. The raw punch is never changed; the correction is
-	// stored in attendance_log_corrections. Setting the original values back clears the edit.
+	// ---- Punches (zk_attendance_logs): device punches and manual punches share these endpoints ----
+
+	// POST /zkteco/attendance-logs?branch_id=  { employee_id, punch_dt: 'YYYY-MM-DD HH:mm:ss', status (0 time-in | 1 time-out), reason }
+	// A forgotten time-in/out added in the app (SOURCE = 'manual'). A reason is required.
+	static async createManualPunch(req, res) {
+		try {
+			if (!(await canAddPunch(req))) return ApiResponse.forbidden(res, 'You are not allowed to add punches');
+			const scope = resolveBranchScope(req);
+			const person = await ZktecoModel.getEmployeeOnDevice(parseInt(req.body?.employee_id, 10));
+			if (!person || !Number(person.ACTIVE) || !inScope(scope, person.DEVICE_BRANCH_ID)) {
+				return ApiResponse.error(res, 'Employee not found', 404);
+			}
+
+			const punchDt = String(req.body?.punch_dt ?? '').trim();
+			const status = Number(req.body?.status);
+			const reason = cleanReason(req.body?.reason);
+			if (!reason) return ApiResponse.badRequest(res, 'Give a reason for adding the punch');
+			const problem = await punchError({ punchDt, status, duplicateOf: { employeeId: person.IDNo } });
+			if (problem) return ApiResponse.badRequest(res, problem);
+
+			const id = await ZktecoModel.insertManualPunch(
+				{ employeeId: person.IDNo, branchId: person.DEVICE_BRANCH_ID, punchDt, status, reason },
+				req.user?.user_id ?? null
+			);
+			emitPunchChange({ DEVICE_ID: person.ZK_DEVICE_ID, BRANCH_ID: person.DEVICE_BRANCH_ID });
+			return ApiResponse.created(res, { id }, 'Punch added');
+		} catch (error) {
+			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
+			console.error('Error adding punch:', error);
+			return ApiResponse.error(res, 'Failed to add the punch', 500, error.message);
+		}
+	}
+
+	// PATCH /zkteco/attendance-logs/:id?branch_id=  { punch_dt: 'YYYY-MM-DD HH:mm:ss', status, reason }
+	// A device punch is corrected (its own record never changes, and setting the device's values
+	// back clears the edit); a manual punch is simply changed. A reason is required for every change
+	// except putting a device punch back to what the device recorded. It replaces the previous one,
+	// so an old reason is never left on a new change.
 	static async updateAttendanceLog(req, res) {
 		try {
 			if (!(await canEditPunch(req))) return ApiResponse.forbidden(res, 'You are not allowed to edit punches');
@@ -435,26 +461,34 @@ class ZktecoController {
 
 			const punchDt = String(req.body?.punch_dt ?? '').trim();
 			const status = Number(req.body?.status);
-			if (!isValidWallClock(punchDt)) return ApiResponse.badRequest(res, 'Enter a valid date and time');
-			// Both are device-local "YYYY-MM-DD HH:mm:ss", so they compare as text.
-			if (punchDt > String(await ZktecoModel.deviceNow())) {
-				return ApiResponse.badRequest(res, "The punch time can't be in the future");
-			}
-			// Time-in / Time-out, or the type it has now or had on the device.
-			if (!statusAllowed(status, [punch.PUNCH_STATUS_NEW ?? punch.PUNCH_STATUS, punch.PUNCH_STATUS ?? 255])) {
-				return ApiResponse.badRequest(res, 'Choose Time-in or Time-out');
-			}
+			const reason = cleanReason(req.body?.reason);
+			const userId = req.user?.user_id ?? null;
+			const REASON_REQUIRED = 'Give a reason for the change';
 
-			await ZktecoModel.saveAttendanceCorrection(
-				punch,
-				{
-					punchDtNew: punchDt === punch.PUNCH_DT ? null : punchDt,
-					punchStatusNew: status === (punch.PUNCH_STATUS ?? 255) ? null : status,
-					isDeleted: false,
-					reason: cleanReason(req.body?.reason) ?? punch.REASON ?? null,
-				},
-				req.user?.user_id ?? null
-			);
+			if (punch.SOURCE === 'manual') {
+				if (!reason) return ApiResponse.badRequest(res, REASON_REQUIRED);
+				const problem = await punchError({
+					punchDt,
+					status,
+					current: [punch.PUNCH_STATUS],
+					duplicateOf: { employeeId: punch.EMPLOYEE_ID, excludeId: punch.IDNo },
+				});
+				if (problem) return ApiResponse.badRequest(res, problem);
+				await ZktecoModel.updateManualPunch(punch.IDNo, { punchDt, status, reason }, userId);
+			} else {
+				// Time-in / Time-out, or the type it has now or had on the device.
+				const problem = await punchError({
+					punchDt,
+					status,
+					current: [punch.PUNCH_STATUS_NEW ?? punch.PUNCH_STATUS, punch.PUNCH_STATUS ?? 255],
+				});
+				if (problem) return ApiResponse.badRequest(res, problem);
+				const punchDtNew = punchDt === punch.PUNCH_DT ? null : punchDt;
+				const punchStatusNew = status === (punch.PUNCH_STATUS ?? 255) ? null : status;
+				const backToDevice = punchDtNew === null && punchStatusNew === null;
+				if (!backToDevice && !reason) return ApiResponse.badRequest(res, REASON_REQUIRED);
+				await ZktecoModel.correctDevicePunch(punch.IDNo, { punchDtNew, punchStatusNew, reason }, userId);
+			}
 			emitPunchChange(punch);
 			return ApiResponse.success(res, { id: punch.IDNo }, 'Punch updated');
 		} catch (error) {
@@ -464,8 +498,9 @@ class ZktecoController {
 		}
 	}
 
-	// DELETE /zkteco/attendance-logs/:id?branch_id=  { reason? }
-	// Soft delete: the punch is hidden from attendance (and "Show deleted" lists it) until restored.
+	// DELETE /zkteco/attendance-logs/:id?branch_id=  { reason }
+	// Soft delete: the punch is left out of attendance (and "Show deleted" lists it) until restored.
+	// A reason is required; restoring needs none (it keeps the delete's reason).
 	static async deleteAttendanceLog(req, res) {
 		return ZktecoController.setPunchDeleted(req, res, true);
 	}
@@ -483,131 +518,23 @@ class ZktecoController {
 			const scope = resolveBranchScope(req);
 			const punch = await ZktecoModel.getAttendanceLog(parseInt(req.params.id, 10), scope);
 			if (!punch) return ApiResponse.error(res, 'Punch not found', 404);
-
+			const reason = deleted ? cleanReason(req.body?.reason) : null;
+			if (deleted && !reason) return ApiResponse.badRequest(res, 'Give a reason for deleting the punch');
+			// Restoring a manual punch must not make a second punch at the same time.
+			if (
+				!deleted &&
+				punch.SOURCE === 'manual' &&
+				(await ZktecoModel.punchExistsAt(punch.EMPLOYEE_ID, punch.EFFECTIVE_DT, punch.IDNo))
+			) {
+				return ApiResponse.error(res, 'This person already has another punch at that exact time', 409);
+			}
 			// Edits are kept either way, so a restored punch comes back as it was.
-			await ZktecoModel.saveAttendanceCorrection(
-				punch,
-				{
-					punchDtNew: punch.PUNCH_DT_NEW,
-					punchStatusNew: punch.PUNCH_STATUS_NEW,
-					isDeleted: deleted,
-					reason: (deleted ? cleanReason(req.body?.reason) : null) ?? punch.REASON ?? null,
-				},
-				req.user?.user_id ?? null
-			);
+			await ZktecoModel.setPunchDeleted(punch.IDNo, deleted, reason, req.user?.user_id ?? null);
 			emitPunchChange(punch);
 			return ApiResponse.success(res, { id: punch.IDNo, deleted }, deleted ? 'Punch deleted' : 'Punch restored');
 		} catch (error) {
 			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
 			console.error('Error changing punch:', error);
-			return ApiResponse.error(res, 'Failed to update the punch', 500, error.message);
-		}
-	}
-
-	// ---- Manual punches: a forgotten time-in/out added in the app (attendance_manual_punches) ----
-
-	// POST /zkteco/manual-punches?branch_id=  { device_user_id, punch_dt: 'YYYY-MM-DD HH:mm:ss', status (0 time-in | 1 time-out), reason }
-	static async createManualPunch(req, res) {
-		try {
-			if (!(await canAddPunch(req))) return ApiResponse.forbidden(res, 'You are not allowed to add punches');
-			const scope = resolveBranchScope(req);
-			const user = await ZktecoModel.getDeviceUserById(parseInt(req.body?.device_user_id, 10));
-			if (!user || !inScope(scope, user.BRANCH_ID)) return ApiResponse.error(res, 'Employee not found', 404);
-
-			const punchDt = String(req.body?.punch_dt ?? '').trim();
-			const status = Number(req.body?.status);
-			const reason = cleanReason(req.body?.reason);
-			if (!reason) return ApiResponse.badRequest(res, 'Give a reason for adding the punch');
-			const problem = await manualPunchError({ deviceId: user.DEVICE_ID, pin: user.PIN, punchDt, status });
-			if (problem) return ApiResponse.badRequest(res, problem);
-
-			const id = await ZktecoModel.insertManualPunch(
-				{
-					deviceId: user.DEVICE_ID,
-					branchId: user.BRANCH_ID,
-					deviceUserId: user.IDNo,
-					pin: user.PIN,
-					punchDt,
-					status,
-					reason,
-				},
-				req.user?.user_id ?? null
-			);
-			emitPunchChange({ DEVICE_ID: user.DEVICE_ID, DEVICE_BRANCH_ID: user.BRANCH_ID });
-			return ApiResponse.created(res, { id }, 'Punch added');
-		} catch (error) {
-			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
-			console.error('Error adding punch:', error);
-			return ApiResponse.error(res, 'Failed to add the punch', 500, error.message);
-		}
-	}
-
-	// PATCH /zkteco/manual-punches/:id?branch_id=  { punch_dt, status, reason? }
-	static async updateManualPunch(req, res) {
-		try {
-			if (!(await canEditPunch(req))) return ApiResponse.forbidden(res, 'You are not allowed to edit punches');
-			const scope = resolveBranchScope(req);
-			const punch = await ZktecoModel.getManualPunch(parseInt(req.params.id, 10), scope);
-			if (!punch) return ApiResponse.error(res, 'Punch not found', 404);
-			if (!Number(punch.ACTIVE)) return ApiResponse.error(res, 'Restore this punch before editing it', 409);
-
-			const punchDt = String(req.body?.punch_dt ?? '').trim();
-			const status = Number(req.body?.status);
-			const problem = await manualPunchError({
-				deviceId: punch.DEVICE_ID,
-				pin: punch.PIN,
-				punchDt,
-				status,
-				excludeId: punch.IDNo,
-				currentStatus: punch.PUNCH_STATUS,
-			});
-			if (problem) return ApiResponse.badRequest(res, problem);
-
-			await ZktecoModel.updateManualPunch(
-				punch.IDNo,
-				{ punchDt, status, reason: cleanReason(req.body?.reason) ?? punch.REASON },
-				req.user?.user_id ?? null
-			);
-			emitPunchChange(punch);
-			return ApiResponse.success(res, { id: punch.IDNo }, 'Punch updated');
-		} catch (error) {
-			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
-			console.error('Error editing manual punch:', error);
-			return ApiResponse.error(res, 'Failed to edit the punch', 500, error.message);
-		}
-	}
-
-	// DELETE /zkteco/manual-punches/:id?branch_id=  { reason? }   (soft delete, restorable)
-	static async deleteManualPunch(req, res) {
-		return ZktecoController.setManualPunchDeleted(req, res, true);
-	}
-
-	// POST /zkteco/manual-punches/:id/restore?branch_id=
-	static async restoreManualPunch(req, res) {
-		return ZktecoController.setManualPunchDeleted(req, res, false);
-	}
-
-	static async setManualPunchDeleted(req, res, deleted) {
-		try {
-			if (!(await canDeletePunch(req))) return ApiResponse.forbidden(res, 'You are not allowed to delete or restore punches');
-			const scope = resolveBranchScope(req);
-			const punch = await ZktecoModel.getManualPunch(parseInt(req.params.id, 10), scope);
-			if (!punch) return ApiResponse.error(res, 'Punch not found', 404);
-			// Restoring must not create a second punch at the same time.
-			if (!deleted && (await ZktecoModel.punchExistsAt(punch.DEVICE_ID, punch.PIN, punch.PUNCH_DT, punch.IDNo))) {
-				return ApiResponse.error(res, 'This person already has another punch at that exact time', 409);
-			}
-			await ZktecoModel.setManualPunchActive(
-				punch.IDNo,
-				!deleted,
-				deleted ? cleanReason(req.body?.reason) : null,
-				req.user?.user_id ?? null
-			);
-			emitPunchChange(punch);
-			return ApiResponse.success(res, { id: punch.IDNo, deleted }, deleted ? 'Punch deleted' : 'Punch restored');
-		} catch (error) {
-			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
-			console.error('Error changing manual punch:', error);
 			return ApiResponse.error(res, 'Failed to update the punch', 500, error.message);
 		}
 	}

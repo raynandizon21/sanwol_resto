@@ -9,10 +9,8 @@ import { cn } from '../../lib/utils';
 import {
   createManualPunch,
   deleteAttendanceLog,
-  deleteManualPunch,
   getDeviceUsers,
   updateAttendanceLog,
-  updateManualPunch,
   APP_PUNCH_STATUSES,
   type AttendanceLog,
 } from '../../services/zktecoService';
@@ -65,13 +63,23 @@ export const timesheetPunchToLog = (p: TimesheetPunch, name: string | null): Att
   addedBy: null,
 });
 
-const ReasonField: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
+/**
+ * Why the punch is being changed. Required for every change except putting a device punch back to
+ * what the device recorded. `previous`: the reason saved with the last change, shown for context
+ * (the field starts empty so an old reason is never saved against a new change).
+ */
+const ReasonField: React.FC<{ value: string; onChange: (v: string) => void; required: boolean; previous?: string | null }> = ({
+  value,
+  onChange,
+  required,
+  previous,
+}) => {
   const { t } = useTranslation();
   return (
     <div>
       <label className={labelClass}>
-        {t('attendance.correction_reason', 'Reason')}{' '}
-        <span className="normal-case font-medium">{t('attendance.optional', '(optional)')}</span>
+        {t('attendance.correction_reason', 'Reason')}
+        {!required && <span className="normal-case font-medium"> {t('attendance.optional', '(optional)')}</span>}
       </label>
       <input
         type="text"
@@ -81,6 +89,11 @@ const ReasonField: React.FC<{ value: string; onChange: (v: string) => void }> = 
         placeholder={t('attendance.correction_reason_placeholder', 'e.g. Forgot to punch out')}
         className={inputClass}
       />
+      {previous && (
+        <p className="mt-1.5 text-xs text-brand-muted font-medium">
+          {t('attendance.previous_reason', { reason: previous, defaultValue: `Previous reason: ${previous}` })}
+        </p>
+      )}
     </div>
   );
 };
@@ -98,7 +111,7 @@ interface PunchDialogProps {
 /**
  * Corrects a punch's time and status. The device's own record is never changed: the correction
  * is stored separately, and putting the original values back clears it. A manual punch (added
- * in the app) is simply changed.
+ * in the app) is simply changed. A reason is required, except when going back to the device's record.
  */
 export const EditPunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, onClose, onDone, layerClassName }) => {
   const { t } = useTranslation();
@@ -115,7 +128,7 @@ export const EditPunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, onC
     setDate(current.date);
     setTime(current.time);
     setStatus(log.status ?? NO_STATUS);
-    setReason(log.correctionReason ?? '');
+    setReason('');
     setError(null);
   }, [log]);
 
@@ -126,6 +139,8 @@ export const EditPunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, onC
   const originalStatus = punchStatusLabel(t, log.originalStatus) ?? t('attendance.status_none', 'No status');
   const isOriginal =
     !isManual && joinDt(date, time) === log.originalPunchDt && status === (log.originalStatus ?? NO_STATUS);
+  // Going back to what the device recorded needs no explanation; any other change does.
+  const reasonRequired = !isOriginal;
 
   const resetToOriginal = () => {
     const o = splitDt(log.originalPunchDt);
@@ -139,12 +154,14 @@ export const EditPunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, onC
       setError(t('attendance.edit_punch_err_dt', 'Enter a date and time'));
       return;
     }
+    if (reasonRequired && !reason.trim()) {
+      setError(t('attendance.edit_punch_err_reason', 'Give a reason for the change'));
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const changes = { punchDt: joinDt(date, time), status, reason: reason.trim() };
-      if (isManual) await updateManualPunch(branchId, log.id, changes);
-      else await updateAttendanceLog(branchId, log.id, changes);
+      await updateAttendanceLog(branchId, log.id, { punchDt: joinDt(date, time), status, reason: reason.trim() });
       toast.success(
         isOriginal
           ? t('attendance.edit_punch_cleared', 'Punch set back to what the device recorded')
@@ -250,7 +267,7 @@ export const EditPunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, onC
           />
         </div>
 
-        <ReasonField value={reason} onChange={setReason} />
+        <ReasonField value={reason} onChange={setReason} required={reasonRequired} previous={log.correctionReason} />
 
         {error && <div className="bg-red-50 border border-red-100 text-red-600 p-3 rounded-xl text-sm font-medium">{error}</div>}
       </div>
@@ -258,7 +275,7 @@ export const EditPunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, onC
   );
 };
 
-/** Soft-deletes a punch: hidden from attendance, restorable from "Show deleted". */
+/** Soft-deletes a punch: hidden from attendance, restorable from "Show deleted". A reason is required. */
 export const DeletePunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, onClose, onDone, layerClassName }) => {
   const { t } = useTranslation();
   const [reason, setReason] = useState('');
@@ -274,11 +291,14 @@ export const DeletePunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, o
   const when = formatDeviceDateTime(log.punchDt);
 
   const remove = async () => {
+    if (!reason.trim()) {
+      setError(t('attendance.delete_punch_err_reason', 'Give a reason for deleting the punch'));
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      if (log.source === 'manual') await deleteManualPunch(branchId, log.id, reason.trim());
-      else await deleteAttendanceLog(branchId, log.id, reason.trim());
+      await deleteAttendanceLog(branchId, log.id, reason.trim());
       toast.success(t('attendance.delete_punch_done', 'Punch deleted. Turn on "Show deleted" to restore it.'));
       onDone();
       onClose();
@@ -321,7 +341,7 @@ export const DeletePunchDialog: React.FC<PunchDialogProps> = ({ log, branchId, o
             defaultValue: `Delete the punch at ${when.time} on ${when.date}? It no longer counts in attendance, and you can restore it from "Show deleted". The device's own record isn't changed.`,
           })}
         </p>
-        <ReasonField value={reason} onChange={setReason} />
+        <ReasonField value={reason} onChange={setReason} required />
         {error && <div className="bg-red-50 border border-red-100 text-red-600 p-3 rounded-xl text-sm font-medium">{error}</div>}
       </div>
     </Modal>
@@ -332,7 +352,7 @@ interface AddPunchDialogProps {
   isOpen: boolean;
   branchId: string | number;
   /** Fixed person (from a timesheet); otherwise the dialog lists the device's active users. */
-  employee?: { deviceUserId: number; name: string | null; pin: string } | null;
+  employee?: { employeeId: number; name: string | null; pin: string } | null;
   defaultDate?: string;
   defaultStatus?: number;
   /** Time-in ("YYYY-MM-DD HH:mm") of the shift the punch is for, to catch a time-out put before it. */
@@ -362,7 +382,7 @@ export const AddPunchDialog: React.FC<AddPunchDialogProps> = ({
 }) => {
   const { t } = useTranslation();
   const [people, setPeople] = useState<{ value: number; label: string }[]>([]);
-  const [deviceUserId, setDeviceUserId] = useState<number | null>(null);
+  const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [status, setStatus] = useState<number>(0);
@@ -372,7 +392,7 @@ export const AddPunchDialog: React.FC<AddPunchDialogProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    setDeviceUserId(employee?.deviceUserId ?? null);
+    setEmployeeId(employee?.employeeId ?? null);
     setDate(defaultDate || getManilaTodayYmd());
     setTime('');
     setStatus(defaultStatus ?? 0);
@@ -397,7 +417,7 @@ export const AddPunchDialog: React.FC<AddPunchDialogProps> = ({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, employee?.deviceUserId, defaultDate, defaultStatus, branchId]);
+  }, [isOpen, employee?.employeeId, defaultDate, defaultStatus, branchId]);
 
   if (!isOpen) return null;
 
@@ -408,7 +428,7 @@ export const AddPunchDialog: React.FC<AddPunchDialogProps> = ({
   );
 
   const save = async () => {
-    if (!deviceUserId) {
+    if (!employeeId) {
       setError(t('attendance.add_punch_err_who', 'Choose who the punch is for'));
       return;
     }
@@ -423,7 +443,7 @@ export const AddPunchDialog: React.FC<AddPunchDialogProps> = ({
     setSaving(true);
     setError(null);
     try {
-      await createManualPunch(branchId, { deviceUserId, punchDt: joinDt(date, time), status, reason: reason.trim() });
+      await createManualPunch(branchId, { employeeId, punchDt: joinDt(date, time), status, reason: reason.trim() });
       toast.success(t('attendance.add_punch_done', 'Punch added'));
       onDone();
       onClose();
@@ -482,8 +502,8 @@ export const AddPunchDialog: React.FC<AddPunchDialogProps> = ({
             <label className={labelClass}>{t('attendance.employee', 'Employee')}</label>
             <Select2
               options={people}
-              value={deviceUserId}
-              onChange={(v) => setDeviceUserId(v == null ? null : Number(v))}
+              value={employeeId}
+              onChange={(v) => setEmployeeId(v == null ? null : Number(v))}
               placeholder={t('attendance.choose_employee', 'Choose an employee')}
             />
           </div>

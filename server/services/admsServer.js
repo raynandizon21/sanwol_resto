@@ -11,7 +11,7 @@
 const express = require('express');
 const AdmsService = require('./admsService');
 
-const RAW_LOG_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const LOG_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const firstValue = (v) => (Array.isArray(v) ? v[0] : v);
 const clientIp = (req) => String(req.ip || req.socket.remoteAddress || '').replace(/^::ffff:/, '');
@@ -126,11 +126,11 @@ function startAdmsServer() {
 	});
 
 	const prune = () =>
-		AdmsService.pruneRawRequests().catch((err) =>
-			console.warn('[ADMS] raw_requests prune failed:', err.message || err)
+		AdmsService.pruneLogs().catch((err) =>
+			console.warn('[ADMS] log prune failed:', err.message || err)
 		);
 	prune();
-	setInterval(prune, RAW_LOG_PRUNE_INTERVAL_MS).unref();
+	setInterval(prune, LOG_PRUNE_INTERVAL_MS).unref();
 
 	return server;
 }

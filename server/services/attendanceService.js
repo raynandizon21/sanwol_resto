@@ -2,15 +2,14 @@
 // ATTENDANCE SERVICE
 // ============================================
 // File: services/attendanceService.js
-// Description: Loads punches (zkteco DB) and profiles/rules (sanwol_resto DB), runs
-// attendanceEngine per person, and shapes the results for the Attendance Logs summary and the
-// timesheet. The two DBs are read separately and combined here. See docs/attendance.md.
+// Description: Loads punches (zk_attendance_logs), people (employee rows on a device) and
+// rules, runs attendanceEngine per person, and shapes the results for the Attendance Logs
+// summary and the timesheet. See docs/attendance.md.
 // ============================================
 
 const ZktecoModel = require('../models/zktecoModel');
 const EmployeeModel = require('../models/employeeModel');
 const AttendanceSettingsModel = require('../models/attendanceSettingsModel');
-const { ensureEmployeeLinks } = require('./employeeLinkService');
 const { computeAttendance, addDays, ymdOf, ISSUE_FLAGS, toMin } = require('./attendanceEngine');
 
 const MAX_RANGE_DAYS = 366;
@@ -20,36 +19,25 @@ const fullName = (profile, fallback) =>
 
 const dayCount = (startYmd, endYmd) => Math.round((toMin(`${endYmd} 00:00`) - toMin(`${startYmd} 00:00`)) / 1440) + 1;
 
-/**
- * Everyone in scope: one entry per profile, with their device rows. Links new device users to
- * profiles first, so a user added minutes ago is included.
- */
+/** Everyone who is or was on a device in scope, by employee IDNo. `active` = on the device now. */
 async function loadPeople(branchIds) {
-	await ensureEmployeeLinks(branchIds);
-	const rows = await ZktecoModel.getUserRowsForLinking(branchIds);
-	const profiles = new Map(
-		(await EmployeeModel.getProfilesByIds(rows.map((r) => r.EMPLOYEE_ID))).map((p) => [Number(p.IDNo), p])
-	);
+	const rows = await ZktecoModel.getPeople(branchIds);
+	const profiles = new Map((await EmployeeModel.getProfilesByIds(rows.map((r) => r.IDNo))).map((p) => [Number(p.IDNo), p]));
 	const people = new Map();
 	for (const row of rows) {
-		if (row.EMPLOYEE_ID == null) continue;
-		const id = Number(row.EMPLOYEE_ID);
-		if (!people.has(id)) people.set(id, { employeeId: id, profile: profiles.get(id) || null, rows: [] });
-		people.get(id).rows.push(row);
-	}
-	for (const person of people.values()) {
-		const active = person.rows.filter((r) => Number(r.ACTIVE));
-		// The row that represents them now: their active row, else their latest one.
-		const current = active[active.length - 1] || person.rows[person.rows.length - 1];
-		const p = person.profile;
-		person.deviceUserId = Number(current.IDNo);
-		person.deviceId = Number(current.DEVICE_ID);
-		person.pin = String(current.PIN);
-		person.active = active.length > 0;
-		person.branchId = p?.BRANCH_ID ?? current.BRANCH_ID ?? null;
-		person.name = fullName(p, current.NAME);
-		person.deviceName = current.NAME;
-		person.position = p?.DEPARTMENT || null;
+		const id = Number(row.IDNo);
+		const profile = profiles.get(id) || null;
+		people.set(id, {
+			employeeId: id,
+			profile,
+			deviceId: Number(row.ZK_DEVICE_ID),
+			pin: String(row.ZK_PIN),
+			active: Boolean(Number(row.ZK_ON_DEVICE)),
+			branchId: profile?.BRANCH_ID ?? row.DEVICE_BRANCH_ID ?? null,
+			name: fullName(profile, row.ZK_NAME),
+			deviceName: row.ZK_NAME,
+			position: profile?.DEPARTMENT || null,
+		});
 	}
 	return people;
 }
@@ -185,7 +173,6 @@ async function getSummary(branchIds, startYmd, endYmd) {
 
 	const employees = results.map(({ person, totals }) => ({
 		employeeId: person.employeeId,
-		deviceUserId: person.deviceUserId ?? null,
 		deviceId: person.deviceId,
 		pin: person.pin,
 		name: person.name,
@@ -286,7 +273,6 @@ async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 	return {
 		employee: {
 			employeeId: person.employeeId,
-			deviceUserId: person.deviceUserId,
 			deviceId: person.deviceId,
 			pin: person.pin,
 			name: person.name,

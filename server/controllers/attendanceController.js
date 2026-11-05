@@ -3,8 +3,8 @@
 // ============================================
 // File: controllers/attendanceController.js
 // Description: Computed attendance (summary, timesheet), per-branch attendance rules, and the
-// app-only employee profiles behind the Employees page. Punches come from the MB160
-// (zkteco DB); profiles and rules live in sanwol_resto. See docs/attendance.md.
+// employee profiles behind the Employees page. Punches come from the MB160 (zk_attendance_logs);
+// the people are employee rows with ZK_ device columns. See docs/attendance.md.
 // ============================================
 
 const ApiResponse = require('../utils/apiResponse');
@@ -12,7 +12,6 @@ const EmployeeModel = require('../models/employeeModel');
 const ZktecoModel = require('../models/zktecoModel');
 const AttendanceSettingsModel = require('../models/attendanceSettingsModel');
 const AttendanceService = require('../services/attendanceService');
-const EmployeeLinkService = require('../services/employeeLinkService');
 const { emitZkChange } = require('../services/zktecoEvents');
 const {
 	HttpError,
@@ -156,10 +155,10 @@ class AttendanceController {
 	static async getFormerEmployees(req, res) {
 		try {
 			const scope = resolveBranchScope(req);
-			const rows = await EmployeeLinkService.getFormerEmployees(scope);
+			const rows = await ZktecoModel.getFormerEmployees(scope);
 			const list = rows.map((p) => ({
 				IDNo: p.IDNo,
-				NAME: AttendanceService.fullName(p, null),
+				NAME: AttendanceService.fullName(p, p.ZK_NAME),
 				DEPARTMENT: p.DEPARTMENT,
 				DATE_STARTED: p.DATE_STARTED,
 				DATE_SEPARATED: p.DATE_SEPARATED,
@@ -170,25 +169,28 @@ class AttendanceController {
 		}
 	}
 
-	// POST /attendance/employees/link?branch_id=  { device_user_id, employee_id }
-	// For someone added back directly on the device: their new device user gets their old profile
-	// (and its attendance history). The profile created for the new user is removed.
+	// POST /attendance/employees/link?branch_id=  { employee_id, former_employee_id }
+	// For someone added back directly on the device (who got a new profile, employee_id): their
+	// device link and punches move onto their old profile, and the new profile is removed.
 	static async linkEmployee(req, res) {
 		try {
 			if (!(await canEditProfile(req))) return ApiResponse.forbidden(res, 'You are not allowed to edit employees');
 			const scope = resolveBranchScope(req);
-			const user = await ZktecoModel.getDeviceUserById(parseInt(req.body?.device_user_id, 10));
-			if (!user || !inScope(scope, user.BRANCH_ID)) return ApiResponse.error(res, 'Device user not found', 404);
-			if (!Number(user.ACTIVE)) return ApiResponse.badRequest(res, 'This user is no longer on the device');
-			const employeeId = parseInt(req.body?.employee_id, 10);
-			const former = await EmployeeLinkService.getFormerEmployees(scope);
-			if (!former.some((p) => Number(p.IDNo) === employeeId)) {
+			const user = await ZktecoModel.getEmployeeOnDevice(parseInt(req.body?.employee_id, 10));
+			if (!user || !Number(user.ACTIVE) || !inScope(scope, user.DEVICE_BRANCH_ID)) {
+				return ApiResponse.error(res, 'Employee not found', 404);
+			}
+			if (!Number(user.ZK_ON_DEVICE)) return ApiResponse.badRequest(res, 'This user is no longer on the device');
+			const formerId = parseInt(req.body?.former_employee_id, 10);
+			const former = await ZktecoModel.getFormerEmployees(scope);
+			if (!former.some((p) => Number(p.IDNo) === formerId)) {
 				return ApiResponse.error(res, 'That profile is not a former employee in this branch', 409);
 			}
-			await EmployeeLinkService.relinkDeviceUser(user, employeeId, req.user?.user_id ?? null);
-			emitZkChange('users', { IDNo: user.DEVICE_ID, BRANCH_ID: user.BRANCH_ID });
-			emitZkChange('attendance', { IDNo: user.DEVICE_ID, BRANCH_ID: user.BRANCH_ID });
-			return ApiResponse.success(res, { employeeId }, 'Linked to the former employee');
+			await ZktecoModel.mergeIntoFormerEmployee(Number(user.IDNo), formerId, req.user?.user_id ?? null);
+			const evt = { IDNo: user.ZK_DEVICE_ID, BRANCH_ID: user.DEVICE_BRANCH_ID };
+			emitZkChange('users', evt);
+			emitZkChange('attendance', evt);
+			return ApiResponse.success(res, { employeeId: formerId }, 'Linked to the former employee');
 		} catch (error) {
 			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
 			console.error('Error linking employee:', error);

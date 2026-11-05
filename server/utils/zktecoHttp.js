@@ -3,10 +3,9 @@
 // ============================================
 // File: utils/zktecoHttp.js
 // Description: Request helpers shared by the ZKTeco (MB160) and attendance controllers:
-// branch scope, CRUD permissions, and name lookups across the two databases.
+// branch scope, CRUD permissions, reasons.
 // ============================================
 
-const pool = require('../config/db');
 const RoleCrudPermissionModel = require('../models/roleCrudPermissionModel');
 const ApiResponse = require('./apiResponse');
 const { YMD, isValidWallClock, isValidYmd } = require('./wallClock');
@@ -41,32 +40,6 @@ function resolveBranchScope(req) {
 /** True when `branchId` is inside the scope from resolveBranchScope (null = everything). */
 const inScope = (scope, branchId) => scope == null || scope.includes(Number(branchId));
 
-/** Device rows live in another DB, so branch names are looked up here instead of joined. */
-async function attachBranchNames(rows) {
-	const ids = [...new Set(rows.map((r) => r.BRANCH_ID).filter((id) => id != null))];
-	if (ids.length === 0) return rows.map((r) => ({ ...r, BRANCH_NAME: null }));
-	const [branches] = await pool.query(
-		`SELECT IDNo, BRANCH_NAME FROM branches WHERE IDNo IN (${ids.map(() => '?').join(',')})`,
-		ids
-	);
-	const names = new Map(branches.map((b) => [Number(b.IDNo), b.BRANCH_NAME]));
-	return rows.map((r) => ({ ...r, BRANCH_NAME: r.BRANCH_ID != null ? names.get(Number(r.BRANCH_ID)) ?? null : null }));
-}
-
-/** sanwol_resto users live in the other DB, so names are looked up here instead of joined. */
-async function attachUserNames(rows, idKey, nameKey) {
-	const ids = [...new Set(rows.map((r) => r[idKey]).filter((id) => id != null))];
-	if (ids.length === 0) return rows.map((r) => ({ ...r, [nameKey]: null }));
-	const [users] = await pool.query(
-		`SELECT IDNo, FIRSTNAME, LASTNAME, USERNAME FROM user_info WHERE IDNo IN (${ids.map(() => '?').join(',')})`,
-		ids
-	);
-	const names = new Map(
-		users.map((u) => [Number(u.IDNo), [u.FIRSTNAME, u.LASTNAME].filter(Boolean).join(' ') || u.USERNAME || null])
-	);
-	return rows.map((r) => ({ ...r, [nameKey]: r[idKey] != null ? names.get(Number(r[idKey])) ?? null : null }));
-}
-
 /**
  * Admins always; other roles need one of `actions` for the module in
  * User Access → CRUD permissions (create = Add, update = Edit, delete = Delete).
@@ -95,8 +68,6 @@ module.exports = {
 	HttpError,
 	resolveBranchScope,
 	inScope,
-	attachBranchNames,
-	attachUserNames,
 	hasCrudPermission,
 	handleError,
 	cleanReason,
