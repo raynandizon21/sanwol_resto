@@ -20,6 +20,7 @@
 // - Punches are unique on (device, PIN, time), so resends never duplicate.
 // ============================================
 
+const crypto = require('crypto');
 const zkPool = require('../config/zktecoDb');
 const ZktecoModel = require('../models/zktecoModel');
 const EmployeeModel = require('../models/employeeModel');
@@ -104,10 +105,7 @@ const UNANSWERED_RESEND_MINUTES = 5;
 const RESENT_MARKER = 'No answer; re-sent';
 
 const COMMANDS_PER_POLL = 10;
-<<<<<<< Updated upstream
 const RAW_BODY_MAX = 262144; // bytes of each body kept in zk_raw_requests (XAMPP max_allowed_packet is 1M)
-=======
->>>>>>> Stashed changes
 const ATTLOG_INSERT_CHUNK = 500;
 
 // Fields of a device record (USER / FP / FACE / BIODATA / USERPIC / BIOPHOTO line) that hold
@@ -121,12 +119,9 @@ const config = {
 		.map((s) => s.trim())
 		.filter(Boolean),
 	defaultBranchId: Number(process.env.ZK_DEFAULT_BRANCH_ID) || null,
-<<<<<<< Updated upstream
 	rawLogDays: Number(process.env.ZK_RAW_LOG_DAYS || 14),
 	// Days finished device commands are kept (the queue is only needed until they're answered).
 	commandLogDays: Number(process.env.ZK_COMMAND_LOG_DAYS || 30),
-=======
->>>>>>> Stashed changes
 	// Hours between automatic full user/biometric syncs (keeps the app a mirror of the device:
 	// fingerprints or users removed at the device disappear here too). 0 = off.
 	resyncHours: Number(process.env.ZK_RESYNC_HOURS || 12),
@@ -359,11 +354,7 @@ async function receiveData(device, q, body) {
 	const count = await inTransaction(async (conn) => {
 		let n;
 		if (table === 'ATTLOG') n = await saveAttLogs(conn, device, lines, changes);
-<<<<<<< Updated upstream
 		else if (table === 'ATTPHOTO') n = 1; // binary JPEG; kept in zk_raw_requests only
-=======
-		else if (table === 'ATTPHOTO') n = 1; // binary JPEG; acknowledged, not stored
->>>>>>> Stashed changes
 		else if (table === 'OPTIONS') n = await saveOptions(conn, device, lines);
 		else n = await saveRecords(conn, device, table, lines, changes);
 
@@ -461,11 +452,7 @@ async function saveRecords(conn, device, table, lines, changes) {
 			await saveTemplate(conn, device, type, parseKv(rest));
 			changes.add('users');
 		}
-<<<<<<< Updated upstream
 		// unknown record types stay visible in zk_raw_requests
-=======
-		// unknown record types are acknowledged and ignored
->>>>>>> Stashed changes
 	}
 	return lines.length;
 }
@@ -481,34 +468,19 @@ function splitRecord(line, table) {
 }
 
 // OPLOG line: OpType \t Operator \t Time \t Obj1 \t Obj2 \t Obj3 \t Obj4
-<<<<<<< Updated upstream
 // Acts on the two events the device sends instead of a USER line; returns true when that changed
 // someone. Resent or replayed events are harmless: only rows last written before the event are
 // touched (a history re-upload can replay an old delete for a User ID enrolled again later).
-=======
-// Returns true when the event changed device users (OPLOG_USER_DELETED, OPLOG_CARD_DELETED).
->>>>>>> Stashed changes
 async function saveOpLog(conn, device, rest) {
 	const f = rest.split('\t');
 	const opType = intOrNull(f[0]);
 	const opDt = normalizeDatetime(f[2]);
-<<<<<<< Updated upstream
 	const pin = strOrNull(f[3]);
 	if (pin === null || opDt === null) return false;
 
 	if (opType === OPLOG_USER_DELETED) {
 		const [users] = await conn.execute(
 			`${REMOVE_SQL} WHERE ZK_DEVICE_ID = ? AND ZK_PIN = ? AND ZK_ON_DEVICE = 1 AND COALESCE(ZK_EDITED_DT, ZK_ADDED_DT) <= ?`,
-=======
-
-	// The device sends no USER line when a user is deleted on it, only this OPLOG event.
-	const pin = strOrNull(f[3]);
-	if (opType === OPLOG_USER_DELETED && pin !== null && opDt !== null) {
-		// Only rows last written before the delete: a history re-upload can replay an old
-		// delete for a PIN that was enrolled again later.
-		await conn.execute(
-			`${DEACTIVATE_USER_SQL} WHERE DEVICE_ID = ? AND PIN = ? AND ACTIVE = 1 AND COALESCE(EDITED_DT, ENCODED_DT) <= ?`,
->>>>>>> Stashed changes
 			[null, device.IDNo, pin, opDt]
 		);
 		const [templates] = await conn.execute(
@@ -517,12 +489,7 @@ async function saveOpLog(conn, device, rest) {
 		);
 		return users.affectedRows > 0 || templates.affectedRows > 0;
 	}
-<<<<<<< Updated upstream
 	if (opType === OPLOG_CARD_DELETED) {
-=======
-	// Same for a card removed on the device: no USER line, only this event.
-	if (opType === OPLOG_CARD_DELETED && pin !== null && opDt !== null) {
->>>>>>> Stashed changes
 		const [cleared] = await conn.execute(
 			`UPDATE employee SET ZK_CARD_NO = NULL, ZK_EDITED_DT = NOW()
 			 WHERE ZK_DEVICE_ID = ? AND ZK_PIN = ? AND ZK_ON_DEVICE = 1 AND ZK_CARD_NO IS NOT NULL
@@ -962,7 +929,6 @@ async function dispatch(method, endpoint, query, body, remoteIp) {
 	}
 }
 
-<<<<<<< Updated upstream
 const PAYLOAD_IN_BODY = new RegExp(`(^|[\\t\\r\\n ])(${PAYLOAD_KEYS.join('|')})=([^\\t\\r\\n]*)`, 'gi');
 
 /**
@@ -1019,8 +985,6 @@ async function pruneLogs() {
 	}
 }
 
-=======
->>>>>>> Stashed changes
 module.exports = {
 	dispatch,
 	queueCommand,
@@ -1031,10 +995,7 @@ module.exports = {
 	ENROLL_PICKUP_TIMEOUT_SECONDS,
 	PRIVILEGE_USER,
 	PRIVILEGE_ADMIN,
-<<<<<<< Updated upstream
 	logRequest,
 	pruneLogs,
-=======
->>>>>>> Stashed changes
 	decodeBody,
 };
