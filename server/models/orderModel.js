@@ -43,6 +43,7 @@ class OrderModel {
 				o.ENCODED_DT,
 				o.ENCODED_BY,
 				ui.FIRSTNAME AS ENCODED_BY_NAME,
+				ui.PERMISSIONS AS ENCODED_BY_PERMISSIONS,
 				(SELECT bill.PAYMENT_METHOD
 				   FROM billing bill
 				  WHERE bill.ORDER_ID = o.IDNo
