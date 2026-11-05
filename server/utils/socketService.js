@@ -249,6 +249,21 @@ function emitSessionReplaced(userId) {
   }
 }
 
+// A menu tablet's "Call Waiter": the branch's cashiers ring for it. One emit
+// over both cashier rooms, so a cashier in both gets it once.
+function emitWaiterCalled(branchId, data) {
+  if (!io) {
+    console.warn('[SOCKET] Socket.io not initialized');
+    return;
+  }
+  const bid = normalizeBranchId(branchId);
+  const rooms = bid != null ? [`cashier_${bid}`, 'cashier'] : ['cashier'];
+  io.to(rooms).emit('waiter_called', { ...data, branch_id: bid, timestamp: new Date().toISOString() });
+  if (SOCKET_LOG_EMITS) {
+    console.log(`[SOCKET] Emitted waiter_called (branch ${bid ?? 'shared'}): ${data?.label || data?.table_number || '?'}`);
+  }
+}
+
 // Get socket.io instance
 function getIO() {
   return io;
@@ -263,5 +278,6 @@ module.exports = {
   emitMenuUpdated,
   emitNotificationCreated,
   emitSessionReplaced,
+  emitWaiterCalled,
   getIO
 };

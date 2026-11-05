@@ -123,6 +123,10 @@ router.post("/waiter/orders/:order_id/transfer-table", authenticateJWT, ApiContr
 // Body: { pax: number } (1-999)
 router.patch("/waiter/orders/:order_id/pax", authenticateJWT, ApiController.updateOrderPax);
 
+// POST - Menu tablet's "Call Waiter" (the cashier rings for that table)
+// URL: /api/waiter-call   Body: { table_id, table_number, label, call_id }
+router.post("/waiter-call", authenticateJWT, ApiController.callWaiter);
+
 // GET / PUT - The branch's printer setup from the cashier tablet (backup a
 // reinstalled / new tablet restores). Cashier (15) and admin.
 // Body (PUT): { printers: [...], routing: {...}, auto_print: bool }

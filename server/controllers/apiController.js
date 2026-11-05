@@ -1443,6 +1443,29 @@ class ApiController {
 		}
 	}
 
+	// POST /api/waiter-call — a menu tablet's "Call Waiter": the cashier rings
+	// with a popup and the voice ("Table 1 is calling for a waiter"). Nothing
+	// is stored; the call is only passed on.
+	static async callWaiter(req, res) {
+		try {
+			const { table_id, table_number, label, call_id } = req.body || {};
+			const place = String(label || table_number || '').trim();
+			if (!place) return res.status(400).json({ success: false, error: 'Table is required' });
+			socketService.emitWaiterCalled(req.user?.branch_id ?? null, {
+				call_id: call_id || null,
+				table_id: table_id ?? null,
+				table_number: table_number ?? null,
+				label: place.slice(0, 60),
+				by: req.user?.user_id ?? null,
+				by_name: req.user?.username || null,
+			});
+			return res.json({ success: true });
+		} catch (error) {
+			console.error('[API ERROR] POST /api/waiter-call - Error:', error);
+			return res.status(500).json({ success: false, error: 'Failed to call a waiter' });
+		}
+	}
+
 	// Guests at the table (pax) changed after the order was opened (more
 	// people joined, someone left). The kitchen slip prints it.
 	static async updateOrderPax(req, res) {
