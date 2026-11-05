@@ -879,7 +879,7 @@ export default function App() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                   >
-                    <AttendanceLogs selectedBranch={selectedBranch} dateRange={dateRange} />
+                    <AttendanceLogs selectedBranch={selectedBranch} dateRange={dateRange} onDateRangeChange={setDateRange} />
                   </motion.div>
                 } />
 

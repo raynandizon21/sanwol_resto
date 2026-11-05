@@ -80,7 +80,6 @@ export interface WorkDay {
 export interface SummaryEmployee {
   /** null for punches of a User ID that isn't on the device. */
   employeeId: number | null;
-  deviceUserId: number | null;
   deviceId: number;
   pin: string;
   name: string | null;
@@ -110,7 +109,6 @@ export interface AttendanceSummary {
 export interface Timesheet {
   employee: {
     employeeId: number;
-    deviceUserId: number;
     deviceId: number;
     pin: string;
     name: string | null;
@@ -123,6 +121,25 @@ export interface Timesheet {
   days: (WorkDay & { punches: TimesheetPunch[] })[];
   totals: AttendanceTotals;
 }
+
+/** One person's row of the Timesheet tab. */
+export interface TimesheetsEmployee extends Omit<SummaryEmployee, 'totals'> {
+  /** The standard day of the person's branch (hours counted as regular). */
+  standardHours: number;
+  days: WorkDay[];
+  totals: AttendanceTotals;
+}
+
+/** Everyone's days for the Timesheet tab (at most MAX_TIMESHEETS_DAYS days). */
+export interface Timesheets {
+  range: { start: string; end: string };
+  now: string;
+  employees: TimesheetsEmployee[];
+  totals: AttendanceTotals;
+}
+
+/** Longest range the Timesheet tab takes (one column per day; the server checks the same). */
+export const MAX_TIMESHEETS_DAYS = 62;
 
 export interface FormerEmployee {
   id: number;
@@ -172,6 +189,14 @@ export const getTimesheet = async (
   return handleResponse<Timesheet>(response);
 };
 
+export const getTimesheets = async (branchId: Branch, startDate: string, endDate: string): Promise<Timesheets> => {
+  const response = await fetch(
+    buildUrl('/attendance/timesheets', { branch_id: branchParam(branchId), start_date: startDate, end_date: endDate }),
+    { headers: authHeaders() },
+  );
+  return handleResponse<Timesheets>(response);
+};
+
 export const getAttendanceRules = async (branchId: Branch): Promise<{ rules: AttendanceRules; canEdit: boolean }> => {
   const response = await fetch(buildUrl('/attendance/settings', { branch_id: branchParam(branchId) }), {
     headers: authHeaders(),
@@ -219,12 +244,15 @@ export const getFormerEmployees = async (branchId: Branch): Promise<FormerEmploy
   }));
 };
 
-/** Gives a device user (someone added back on the device) a former employee's profile and history. */
-export const linkFormerEmployee = async (branchId: Branch, deviceUserId: number, employeeId: number): Promise<void> => {
+/**
+ * Someone added back directly on the device got a new profile (`employeeId`): their device link
+ * and punches move onto their former profile (`formerEmployeeId`), and the new one is removed.
+ */
+export const linkFormerEmployee = async (branchId: Branch, employeeId: number, formerEmployeeId: number): Promise<void> => {
   const response = await fetch(buildUrl('/attendance/employees/link', { branch_id: branchParam(branchId) }), {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device_user_id: deviceUserId, employee_id: employeeId }),
+    body: JSON.stringify({ employee_id: employeeId, former_employee_id: formerEmployeeId }),
   });
   await handleResponse<unknown>(response);
 };

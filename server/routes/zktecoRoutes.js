@@ -37,23 +37,20 @@ router.get('/zkteco/events', authenticate, getUserBranches, ZktecoController.str
 // POST ROUTES
 // ============================================
 
-// POST - Add a user to the device (queued; delivered on the device's next poll)
-// Body: { device_id?, pin, name, privilege (0 user | 14 admin), password? }
+// POST - Add an employee to the device (queued; delivered on the device's next poll)
+// Body: { device_id?, pin, profile?, name?, readd_of? (employee IDNo, for "Add again") }
 router.post('/zkteco/device-users', authenticate, getUserBranches, ZktecoController.createDeviceUser);
 
 // POST - Make the device prompt for a fingerprint for this user (ENROLL_FP)
 // Body: { device_id, finger (0-9) }
 router.post('/zkteco/device-users/:pin/fingerprint', authenticate, getUserBranches, ZktecoController.startFingerprintEnrollment);
 
-// POST - Restore a soft-deleted punch
+// POST - Add a punch someone forgot (SOURCE = 'manual')
+// Body: { employee_id, punch_dt: 'YYYY-MM-DD HH:mm:ss', status: 0 (time-in) | 1 (time-out), reason }
+router.post('/zkteco/attendance-logs', authenticate, getUserBranches, ZktecoController.createManualPunch);
+
+// POST - Restore a soft-deleted punch (device or manual)
 router.post('/zkteco/attendance-logs/:id/restore', authenticate, getUserBranches, ZktecoController.restoreAttendanceLog);
-
-// POST - Add a punch someone forgot (stored apart from the device's punches)
-// Body: { device_user_id, punch_dt: 'YYYY-MM-DD HH:mm:ss', status: 0-5, reason }
-router.post('/zkteco/manual-punches', authenticate, getUserBranches, ZktecoController.createManualPunch);
-
-// POST - Restore a deleted manual punch
-router.post('/zkteco/manual-punches/:id/restore', authenticate, getUserBranches, ZktecoController.restoreManualPunch);
 
 // GET - Progress of a fingerprint command. Enroll: waiting | prompting | enrolled | timed_out | duplicate | expired | cancelled | failed. Remove: waiting | removed | cancelled | failed
 router.get('/zkteco/enrollments/:id', authenticate, getUserBranches, ZktecoController.getEnrollment);
@@ -62,25 +59,19 @@ router.get('/zkteco/enrollments/:id', authenticate, getUserBranches, ZktecoContr
 // PATCH ROUTES
 // ============================================
 
-// PATCH - Correct a punch's time/status (stored as a correction; the raw punch is never changed)
-// Body: { punch_dt: 'YYYY-MM-DD HH:mm:ss', status: 0 (time-in) | 1 (time-out) | its current type, reason? }
+// PATCH - Edit a punch's time/status. A device punch keeps the device's record (the edit is kept
+// beside it); a manual punch is changed.
+// Body: { punch_dt: 'YYYY-MM-DD HH:mm:ss', status: 0 (time-in) | 1 (time-out) | its current type, reason (required unless setting a device punch back to the device's values) }
 router.patch('/zkteco/attendance-logs/:id', authenticate, getUserBranches, ZktecoController.updateAttendanceLog);
-
-// PATCH - Change a manual punch's time/status. Body: { punch_dt, status: 0 | 1 | its current type, reason? }
-router.patch('/zkteco/manual-punches/:id', authenticate, getUserBranches, ZktecoController.updateManualPunch);
-
 
 // ============================================
 // DELETE ROUTES
 // ============================================
 
-// DELETE - Soft-delete a punch (restorable). Body: { reason? }
+// DELETE - Soft-delete a punch, device or manual (restorable). Body: { reason } (required)
 router.delete('/zkteco/attendance-logs/:id', authenticate, getUserBranches, ZktecoController.deleteAttendanceLog);
 
-// DELETE - Soft-delete a manual punch (restorable). Body: { reason? }
-router.delete('/zkteco/manual-punches/:id', authenticate, getUserBranches, ZktecoController.deleteManualPunch);
-
-// DELETE - Remove a user from the device (queued); soft-deleted here once the device confirms
+// DELETE - Remove a user from the device (queued); their employee row stays (ZK_ON_DEVICE = 0) once the device confirms
 // Query params: ?branch_id=&device_id=
 router.delete('/zkteco/device-users/:pin', authenticate, getUserBranches, ZktecoController.deleteDeviceUser);
 

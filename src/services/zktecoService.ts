@@ -59,7 +59,7 @@ export interface AttendanceLog {
   addedBy: string | null;
 }
 
-/** The app-only profile of a device user (sanwol_resto.employee). */
+/** The profile part of an employee (sanwol_resto.employee); the device part is DeviceUser. */
 export interface EmployeeProfile {
   id: number;
   firstName: string;
@@ -77,6 +77,7 @@ export interface EmployeeProfile {
   notes: string;
 }
 
+/** An employee as they are on the MB160. `id` and `employeeId` are both employee.IDNo. */
 export interface DeviceUser {
   id: number;
   deviceId: number;
@@ -393,7 +394,7 @@ export interface NewDeviceUser {
   /** Only used without a profile; with one, the server makes the device name from the profile name. */
   name?: string;
   profile?: EmployeeProfileChanges;
-  /** "Add again": the removed user's id; once the device confirms, that row leaves Show deleted. */
+  /** "Add again": the removed person's id (their employee profile); the same person goes back on the device. */
   readdOf?: number;
 }
 
@@ -497,7 +498,7 @@ export const cancelUserCommand = async (
   await handleResponse<unknown>(response);
 };
 
-// ---- Correcting punches (the raw punch is never changed; see docs/zkteco-mb160.md) ----
+// ---- Editing punches, device or manual (a device punch's own record is never changed; see docs/zkteco-mb160.md) ----
 
 /**
  * Punch types the app sets: Time-in (0) and Time-out (1). Attendance is basic time tracking, and
@@ -506,7 +507,10 @@ export const cancelUserCommand = async (
  */
 export const APP_PUNCH_STATUSES = [0, 1] as const;
 
-/** Sets a punch's time ("YYYY-MM-DD HH:mm:ss", device-local) and status. The original values clear the edit. */
+/**
+ * Sets a punch's time ("YYYY-MM-DD HH:mm:ss", device-local) and status. The original values clear the edit.
+ * `reason` is required for any change except setting a device punch back to what the device recorded.
+ */
 export const updateAttendanceLog = async (
   branchId: string | number | null | undefined,
   id: number,
@@ -520,11 +524,11 @@ export const updateAttendanceLog = async (
   await handleResponse<unknown>(response);
 };
 
-/** Soft delete: hidden from attendance until restored. */
+/** Soft delete: hidden from attendance until restored. `reason` is required. */
 export const deleteAttendanceLog = async (
   branchId: string | number | null | undefined,
   id: number,
-  reason?: string,
+  reason: string,
 ): Promise<void> => {
   const response = await fetch(buildUrl(`/zkteco/attendance-logs/${id}`, { branch_id: branchParam(branchId) }), {
     method: 'DELETE',
@@ -542,57 +546,25 @@ export const restoreAttendanceLog = async (branchId: string | number | null | un
   await handleResponse<unknown>(response);
 };
 
-// ---- Manual punches: a forgotten punch added in the app (the device's punches are never changed) ----
-
+/**
+ * Adds a punch someone forgot (stored as SOURCE 'manual'; the device's punches are never changed).
+ * Edit, delete and restore it with the functions above, like any punch.
+ */
 export const createManualPunch = async (
   branchId: string | number | null | undefined,
-  punch: { deviceUserId: number; punchDt: string; status: number; reason: string },
+  punch: { employeeId: number; punchDt: string; status: number; reason: string },
 ): Promise<{ id: number }> => {
-  const response = await fetch(buildUrl('/zkteco/manual-punches', { branch_id: branchParam(branchId) }), {
+  const response = await fetch(buildUrl('/zkteco/attendance-logs', { branch_id: branchParam(branchId) }), {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      device_user_id: punch.deviceUserId,
+      employee_id: punch.employeeId,
       punch_dt: punch.punchDt,
       status: punch.status,
       reason: punch.reason,
     }),
   });
   return handleResponse<{ id: number }>(response);
-};
-
-export const updateManualPunch = async (
-  branchId: string | number | null | undefined,
-  id: number,
-  changes: { punchDt: string; status: number; reason?: string },
-): Promise<void> => {
-  const response = await fetch(buildUrl(`/zkteco/manual-punches/${id}`, { branch_id: branchParam(branchId) }), {
-    method: 'PATCH',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ punch_dt: changes.punchDt, status: changes.status, reason: changes.reason || '' }),
-  });
-  await handleResponse<unknown>(response);
-};
-
-export const deleteManualPunch = async (
-  branchId: string | number | null | undefined,
-  id: number,
-  reason?: string,
-): Promise<void> => {
-  const response = await fetch(buildUrl(`/zkteco/manual-punches/${id}`, { branch_id: branchParam(branchId) }), {
-    method: 'DELETE',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason: reason || '' }),
-  });
-  await handleResponse<unknown>(response);
-};
-
-export const restoreManualPunch = async (branchId: string | number | null | undefined, id: number): Promise<void> => {
-  const response = await fetch(buildUrl(`/zkteco/manual-punches/${id}/restore`, { branch_id: branchParam(branchId) }), {
-    method: 'POST',
-    headers: authHeaders(),
-  });
-  await handleResponse<unknown>(response);
 };
 
 // ---- Fingerprint enrollment / removal ----

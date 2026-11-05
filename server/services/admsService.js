@@ -3,7 +3,9 @@
 // ============================================
 // File: services/admsService.js
 // Description: Handles requests from ZKTeco devices (MB160). Ported from
-// zkteco_test/src/Adms.php; keep the two in step when the protocol handling changes.
+// zkteco_test/src/Adms.php; keep the two in step when the protocol handling changes. The storage
+// differs since 2026-11-05: device users are `employee` rows (ZK_ columns), punches carry their
+// EMPLOYEE_ID, operation logs and biometric payloads aren't stored (see docs/zkteco-mb160.md).
 //
 // The device is the HTTP client:
 //   GET  /iclock/cdata?SN=..&options=all   handshake, server replies with options
@@ -21,6 +23,7 @@
 const crypto = require('crypto');
 const zkPool = require('../config/zktecoDb');
 const ZktecoModel = require('../models/zktecoModel');
+const EmployeeModel = require('../models/employeeModel');
 const { emitZkChange } = require('./zktecoEvents');
 
 // Record prefixes seen inside OPERLOG/USERINFO/BIODATA bodies, mapped to how we store them.
@@ -61,14 +64,13 @@ const OPLOG_USER_DELETED = 103;
 // 2026-10-26: no USER line follows, and DATA QUERY USERINFO afterwards reported "Card=".
 // (A card added on the device does send a USER line with Card=..., alongside OPLOG 8.)
 const OPLOG_CARD_DELETED = 12;
+// Other OPLOG events (menu access, enrollments...) are acknowledged but not stored; they stay in
+// zk_raw_requests for ZK_RAW_LOG_DAYS.
 
-// Soft delete of a user removed from the device (on the device, from the app, or missing from a
-// full sync). The row stays (ACTIVE = 0) so past punches keep the name; a reused PIN gets a new
-// row (unique key on ACTIVE_PIN). What the device erased is erased here too: password, card and
-// the raw fields that hold them. Callers also delete that PIN's biometric templates. Append
-// WHERE ...; the first parameter is EDITED_BY (the app user, or null for device-side changes).
-const DEACTIVATE_USER_SQL = `UPDATE device_users
-	SET ACTIVE = 0, PASSWORD = NULL, CARD_NO = NULL, FIELDS_JSON = NULL, EDITED_DT = NOW(), EDITED_BY = ?`;
+// Takes a person off the device (on the device, from the app, or missing from a full sync). Their
+// employee row stays, so past punches keep the name; "Add again" puts the same row back. Callers
+// also delete that PIN's biometric templates. Append WHERE ...; first parameter = ZK_REMOVED_BY.
+const REMOVE_SQL = ZktecoModel.REMOVE_FROM_DEVICE_SQL;
 
 // Queued the first time a device connects. A device that already uploaded to another
 // server (e.g. zkteco_test, or before a DB move) ignores "Stamp=None" in the handshake
@@ -103,8 +105,13 @@ const UNANSWERED_RESEND_MINUTES = 5;
 const RESENT_MARKER = 'No answer; re-sent';
 
 const COMMANDS_PER_POLL = 10;
-const RAW_BODY_MAX = 262144; // bytes of each body kept in raw_requests (XAMPP max_allowed_packet is 1M)
+const RAW_BODY_MAX = 262144; // bytes of each body kept in zk_raw_requests (XAMPP max_allowed_packet is 1M)
 const ATTLOG_INSERT_CHUNK = 500;
+
+// Fields of a device record (USER / FP / FACE / BIODATA / USERPIC / BIOPHOTO line) that hold
+// biometric data or a photo. Never stored: only a hash in zk_biometric_templates, and the value is
+// blanked in zk_raw_requests.
+const PAYLOAD_KEYS = ['tmp', 'content', 'template'];
 
 const config = {
 	allowedSerials: String(process.env.ZK_ALLOWED_SERIALS || '')
@@ -113,6 +120,8 @@ const config = {
 		.filter(Boolean),
 	defaultBranchId: Number(process.env.ZK_DEFAULT_BRANCH_ID) || null,
 	rawLogDays: Number(process.env.ZK_RAW_LOG_DAYS || 14),
+	// Days finished device commands are kept (the queue is only needed until they're answered).
+	commandLogDays: Number(process.env.ZK_COMMAND_LOG_DAYS || 30),
 	// Hours between automatic full user/biometric syncs (keeps the app a mirror of the device:
 	// fingerprints or users removed at the device disappear here too). 0 = off.
 	resyncHours: Number(process.env.ZK_RESYNC_HOURS || 12),
@@ -197,16 +206,16 @@ async function touchDevice(sn, ip) {
 	// INSERT ... ON DUPLICATE KEY UPDATE for this: mysql2 sets CLIENT_FOUND_ROWS, so an
 	// unchanged existing row also reports 1, and the sync would be queued on every request.)
 	const [inserted] = await zkPool.execute(
-		'INSERT IGNORE INTO devices (SERIAL_NO, BRANCH_ID, IP_ADDRESS, LAST_SEEN_DT) VALUES (?, ?, ?, NOW())',
+		'INSERT IGNORE INTO zk_devices (SERIAL_NO, BRANCH_ID, IP_ADDRESS, LAST_SEEN_DT) VALUES (?, ?, ?, NOW())',
 		[sn, config.defaultBranchId, ip || null]
 	);
 	if (inserted.affectedRows === 0) {
-		await zkPool.execute('UPDATE devices SET IP_ADDRESS = ?, LAST_SEEN_DT = NOW() WHERE SERIAL_NO = ?', [
+		await zkPool.execute('UPDATE zk_devices SET IP_ADDRESS = ?, LAST_SEEN_DT = NOW() WHERE SERIAL_NO = ?', [
 			ip || null,
 			sn,
 		]);
 	}
-	const [rows] = await zkPool.execute('SELECT IDNo, BRANCH_ID, ACTIVE FROM devices WHERE SERIAL_NO = ?', [sn]);
+	const [rows] = await zkPool.execute('SELECT IDNo, BRANCH_ID, ACTIVE FROM zk_devices WHERE SERIAL_NO = ?', [sn]);
 	const device = rows[0];
 
 	if (inserted.affectedRows === 1) {
@@ -220,13 +229,13 @@ async function touchDevice(sn, ip) {
 
 /**
  * Adds a command to the device's queue; it is delivered on the next poll (every Delay = 10 s).
- * `readdOfId`: for "Add again", the removed device_users row the add brings back.
+ * `employeeId`: for "Add again", the removed employee the add puts back on the device.
  * `profileJson`: for Add employee, the profile details to apply once the device confirms.
  */
-async function queueCommand(deviceId, label, command, encodedBy, { readdOfId = null, profileJson = null } = {}) {
+async function queueCommand(deviceId, label, command, encodedBy, { employeeId = null, profileJson = null } = {}) {
 	const [result] = await zkPool.execute(
-		'INSERT INTO device_commands (DEVICE_ID, LABEL, COMMAND, READD_OF_ID, PROFILE_JSON, ENCODED_BY) VALUES (?, ?, ?, ?, ?, ?)',
-		[deviceId, truncate(label, 120), command, readdOfId, profileJson, encodedBy ?? null]
+		'INSERT INTO zk_device_commands (DEVICE_ID, LABEL, COMMAND, EMPLOYEE_ID, PROFILE_JSON, ENCODED_BY) VALUES (?, ?, ?, ?, ?, ?)',
+		[deviceId, truncate(label, 120), command, employeeId, profileJson, encodedBy ?? null]
 	);
 	return result.insertId;
 }
@@ -294,13 +303,13 @@ function later(ms, label, fn) {
 
 async function handshake(device, sn, q) {
 	await zkPool.execute(
-		`UPDATE devices SET LAST_HANDSHAKE_DT = NOW(),
+		`UPDATE zk_devices SET LAST_HANDSHAKE_DT = NOW(),
 			PUSH_VERSION = COALESCE(?, PUSH_VERSION), LANGUAGE = COALESCE(?, LANGUAGE)
 		 WHERE IDNo = ?`,
 		[strOrNull(q.pushver), strOrNull(q.language), device.IDNo]
 	);
 	const [[dev]] = await zkPool.execute(
-		'SELECT ATTLOG_STAMP, OPERLOG_STAMP, ATTPHOTO_STAMP FROM devices WHERE IDNo = ?',
+		'SELECT ATTLOG_STAMP, OPERLOG_STAMP, ATTPHOTO_STAMP FROM zk_devices WHERE IDNo = ?',
 		[device.IDNo]
 	);
 
@@ -345,12 +354,12 @@ async function receiveData(device, q, body) {
 	const count = await inTransaction(async (conn) => {
 		let n;
 		if (table === 'ATTLOG') n = await saveAttLogs(conn, device, lines, changes);
-		else if (table === 'ATTPHOTO') n = 1; // binary JPEG; kept in raw_requests only
+		else if (table === 'ATTPHOTO') n = 1; // binary JPEG; kept in zk_raw_requests only
 		else if (table === 'OPTIONS') n = await saveOptions(conn, device, lines);
 		else n = await saveRecords(conn, device, table, lines, changes);
 
 		if (stamp !== null && STAMP_COLUMNS[table]) {
-			await conn.execute(`UPDATE devices SET ${STAMP_COLUMNS[table]} = ? WHERE IDNo = ?`, [
+			await conn.execute(`UPDATE zk_devices SET ${STAMP_COLUMNS[table]} = ? WHERE IDNo = ?`, [
 				truncate(String(stamp), 32),
 				device.IDNo,
 			]);
@@ -363,30 +372,64 @@ async function receiveData(device, q, body) {
 	return [200, `OK: ${count}`];
 }
 
+/**
+ * Whose punch this is: the employee who had `pin` on the device at `time`. A User ID can be
+ * reused after someone is removed, so it's the person put on the device most recently at or
+ * before the punch; punches older than everyone (history uploaded on first connect) go to the
+ * earliest. `candidates` are that PIN's employees (on the device or removed), oldest first.
+ */
+function punchOwner(candidates, time) {
+	if (!candidates || candidates.length === 0) return null;
+	let owner = null;
+	for (const c of candidates) {
+		if (c.ZK_ADDED_DT != null && c.ZK_ADDED_DT <= time) owner = c;
+	}
+	return Number((owner || candidates[0]).IDNo);
+}
+
 // ATTLOG line: PIN \t Time \t Status \t Verify \t WorkCode \t Reserved...
 async function saveAttLogs(conn, device, lines, changes) {
-	const rows = [];
+	const parsed = [];
 	for (const line of lines) {
 		const f = line.split('\t');
-		const pin = f[0].trim();
+		const pin = truncate(f[0].trim(), 32);
 		const time = normalizeDatetime(f[1]);
 		if (pin === '' || time === null) continue;
-		rows.push([
-			device.IDNo,
-			device.BRANCH_ID,
-			truncate(pin, 32),
-			time,
-			intOrNull(f[2]),
-			intOrNull(f[3]),
-			strOrNull(f[4]),
-			truncate(line, 500),
-		]);
+		parsed.push({ pin, time, f, line });
 	}
+	// Each punch is tied to its employee when it arrives (EMPLOYEE_ID); a User ID nobody has yet
+	// stays NULL until that user shows up (saveUser).
+	const pins = [...new Set(parsed.map((p) => p.pin))];
+	const byPin = new Map();
+	if (pins.length) {
+		const [people] = await conn.query(
+			`SELECT IDNo, ZK_PIN, ZK_ADDED_DT FROM employee
+			 WHERE ZK_DEVICE_ID = ? AND ZK_PIN IN (?)
+			 ORDER BY ZK_ADDED_DT, IDNo`,
+			[device.IDNo, pins]
+		);
+		for (const p of people) {
+			if (!byPin.has(p.ZK_PIN)) byPin.set(p.ZK_PIN, []);
+			byPin.get(p.ZK_PIN).push(p);
+		}
+	}
+	const rows = parsed.map(({ pin, time, f, line }) => [
+		'device',
+		punchOwner(byPin.get(pin), time),
+		device.BRANCH_ID,
+		device.IDNo,
+		pin,
+		time,
+		intOrNull(f[2]),
+		intOrNull(f[3]),
+		strOrNull(f[4]),
+		truncate(line, 500),
+	]);
 	for (let i = 0; i < rows.length; i += ATTLOG_INSERT_CHUNK) {
 		const chunk = rows.slice(i, i + ATTLOG_INSERT_CHUNK);
 		const [result] = await conn.query(
-			`INSERT IGNORE INTO attendance_logs
-				(DEVICE_ID, BRANCH_ID, PIN, PUNCH_DT, PUNCH_STATUS, VERIFY_TYPE, WORK_CODE, RAW_LINE)
+			`INSERT IGNORE INTO zk_attendance_logs
+				(SOURCE, EMPLOYEE_ID, BRANCH_ID, DEVICE_ID, PIN, PUNCH_DT, PUNCH_STATUS, VERIFY_TYPE, WORK_CODE, RAW_LINE)
 			 VALUES ?`,
 			[chunk]
 		);
@@ -401,7 +444,7 @@ async function saveRecords(conn, device, table, lines, changes) {
 	for (const line of lines) {
 		const [type, rest] = splitRecord(line, table);
 		if (type === 'OPLOG') {
-			if (await saveOpLog(conn, device, rest, line)) changes.add('users');
+			if (await saveOpLog(conn, device, rest)) changes.add('users');
 		} else if (type === 'USER') {
 			await saveUser(conn, device, parseKv(rest), 'device');
 			changes.add('users');
@@ -409,7 +452,7 @@ async function saveRecords(conn, device, table, lines, changes) {
 			await saveTemplate(conn, device, type, parseKv(rest));
 			changes.add('users');
 		}
-		// unknown record types stay visible in raw_requests
+		// unknown record types stay visible in zk_raw_requests
 	}
 	return lines.length;
 }
@@ -425,53 +468,32 @@ function splitRecord(line, table) {
 }
 
 // OPLOG line: OpType \t Operator \t Time \t Obj1 \t Obj2 \t Obj3 \t Obj4
-// Returns true when the event changed device users (OPLOG_USER_DELETED, OPLOG_CARD_DELETED).
-async function saveOpLog(conn, device, rest, line) {
+// Acts on the two events the device sends instead of a USER line; returns true when that changed
+// someone. Resent or replayed events are harmless: only rows last written before the event are
+// touched (a history re-upload can replay an old delete for a User ID enrolled again later).
+async function saveOpLog(conn, device, rest) {
 	const f = rest.split('\t');
-	const obj = (v) => {
-		const s = strOrNull(v);
-		return s === null ? null : truncate(s, 64);
-	};
 	const opType = intOrNull(f[0]);
 	const opDt = normalizeDatetime(f[2]);
-	const [result] = await conn.execute(
-		`INSERT IGNORE INTO operation_logs
-			(DEVICE_ID, OP_TYPE, OPERATOR, OP_DT, OBJ1, OBJ2, OBJ3, OBJ4, RAW_LINE, LINE_HASH)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		[
-			device.IDNo,
-			opType,
-			obj(f[1]),
-			opDt,
-			obj(f[3]),
-			obj(f[4]),
-			obj(f[5]),
-			obj(f[6]),
-			truncate(line, 500),
-			crypto.createHash('sha1').update(line).digest('hex'),
-		]
-	);
-
-	// The device sends no USER line when a user is deleted on it, only this OPLOG event.
 	const pin = strOrNull(f[3]);
-	if (result.affectedRows && opType === OPLOG_USER_DELETED && pin !== null && opDt !== null) {
-		// Only rows last written before the delete: a history re-upload can replay an old
-		// delete for a PIN that was enrolled again later.
-		await conn.execute(
-			`${DEACTIVATE_USER_SQL} WHERE DEVICE_ID = ? AND PIN = ? AND ACTIVE = 1 AND COALESCE(EDITED_DT, ENCODED_DT) <= ?`,
+	if (pin === null || opDt === null) return false;
+
+	if (opType === OPLOG_USER_DELETED) {
+		const [users] = await conn.execute(
+			`${REMOVE_SQL} WHERE ZK_DEVICE_ID = ? AND ZK_PIN = ? AND ZK_ON_DEVICE = 1 AND COALESCE(ZK_EDITED_DT, ZK_ADDED_DT) <= ?`,
 			[null, device.IDNo, pin, opDt]
 		);
-		await conn.execute(
-			'DELETE FROM biometric_templates WHERE DEVICE_ID = ? AND PIN = ? AND COALESCE(EDITED_DT, ENCODED_DT) <= ?',
+		const [templates] = await conn.execute(
+			'DELETE FROM zk_biometric_templates WHERE DEVICE_ID = ? AND PIN = ? AND COALESCE(EDITED_DT, ENCODED_DT) <= ?',
 			[device.IDNo, pin, opDt]
 		);
-		return true;
+		return users.affectedRows > 0 || templates.affectedRows > 0;
 	}
-	// Same for a card removed on the device: no USER line, only this event.
-	if (result.affectedRows && opType === OPLOG_CARD_DELETED && pin !== null && opDt !== null) {
+	if (opType === OPLOG_CARD_DELETED) {
 		const [cleared] = await conn.execute(
-			`UPDATE device_users SET CARD_NO = NULL, EDITED_DT = NOW()
-			 WHERE DEVICE_ID = ? AND PIN = ? AND ACTIVE = 1 AND CARD_NO IS NOT NULL AND COALESCE(EDITED_DT, ENCODED_DT) <= ?`,
+			`UPDATE employee SET ZK_CARD_NO = NULL, ZK_EDITED_DT = NOW()
+			 WHERE ZK_DEVICE_ID = ? AND ZK_PIN = ? AND ZK_ON_DEVICE = 1 AND ZK_CARD_NO IS NOT NULL
+			   AND COALESCE(ZK_EDITED_DT, ZK_ADDED_DT) <= ?`,
 			[device.IDNo, pin, opDt]
 		);
 		return cleared.affectedRows > 0;
@@ -479,52 +501,116 @@ async function saveOpLog(conn, device, rest, line) {
 	return false;
 }
 
-async function saveUser(conn, device, kv, source) {
-	const pin = kvGet(kv, 'PIN');
-	if (pin === null) return;
-
-	// The duplicate key is (DEVICE_ID, ACTIVE_PIN): this updates the active user with the PIN,
-	// or inserts a new row when the PIN is free or only held by removed users (a reused PIN is a
-	// new person; removed rows are never reactivated).
-	// SOURCE is not updated on duplicates: it keeps where the user was first created
-	// (an app-created user who later enrolls a fingerprint on the device stays "server").
-	// EDITED_DT moves only when a field really changes (assignments run left to right, so it
-	// is compared before the new values are written); SYNCED_DT on every report.
-	await conn.execute(
-		`INSERT INTO device_users
-			(DEVICE_ID, PIN, NAME, PRIVILEGE, PASSWORD, CARD_NO, GROUP_NO, USER_TZ, VERIFY_MODE, FIELDS_JSON, SOURCE, SYNCED_DT)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-		 ON DUPLICATE KEY UPDATE
-			EDITED_DT = IF(NAME <=> VALUES(NAME) AND PRIVILEGE <=> VALUES(PRIVILEGE) AND PASSWORD <=> VALUES(PASSWORD)
-				AND CARD_NO <=> VALUES(CARD_NO) AND GROUP_NO <=> VALUES(GROUP_NO), EDITED_DT, NOW()),
-			NAME = VALUES(NAME), PRIVILEGE = VALUES(PRIVILEGE), PASSWORD = VALUES(PASSWORD),
-			CARD_NO = VALUES(CARD_NO), GROUP_NO = VALUES(GROUP_NO), USER_TZ = VALUES(USER_TZ),
-			VERIFY_MODE = VALUES(VERIFY_MODE), FIELDS_JSON = VALUES(FIELDS_JSON),
-			SYNCED_DT = NOW()`,
-		[
-			device.IDNo,
-			pin,
-			kvGet(kv, 'Name'),
-			intOrNull(kvGet(kv, 'Pri', 'privilege')),
-			kvGet(kv, 'Passwd', 'password'),
-			kvGet(kv, 'Card', 'cardno'),
-			kvGet(kv, 'Grp', 'group'),
-			kvGet(kv, 'TZ'),
-			kvGet(kv, 'Verify'),
-			JSON.stringify(kv),
-			source,
-		]
-	);
+/** { fields, userId } from a command's PROFILE_JSON, or null when missing or unreadable. */
+function readProfileJson(json) {
+	if (!json) return null;
+	try {
+		const data = JSON.parse(json);
+		if (!data || typeof data.fields !== 'object' || data.fields === null) return null;
+		const fields = Object.fromEntries(
+			Object.entries(data.fields).filter(([key]) => EmployeeModel.PROFILE_EDITABLE.includes(key))
+		);
+		return { fields, userId: data.userId ?? null };
+	} catch {
+		return null;
+	}
 }
 
+/**
+ * A USER record (reported by the device, or confirmed after the app sent it). The person holding
+ * the PIN is updated; otherwise the PIN gets a person: `employeeId` for "Add again", else a new
+ * employee row (profile from Add employee's `profile`, or named as on the device). A reused PIN
+ * is a new person; someone removed is only put back through "Add again".
+ * ZK_SOURCE keeps where they were first put on the device. ZK_EDITED_DT moves only when a field
+ * really changes; ZK_SYNCED_DT on every report. Returns the employee's IDNo.
+ */
+async function saveUser(conn, device, kv, source, { employeeId = null, profile = null, encodedBy = null } = {}) {
+	const pin = kvGet(kv, 'PIN');
+	if (pin === null) return null;
+	const v = {
+		name: kvGet(kv, 'Name'),
+		privilege: intOrNull(kvGet(kv, 'Pri', 'privilege')),
+		password: kvGet(kv, 'Passwd', 'password'),
+		card: kvGet(kv, 'Card', 'cardno'),
+		group: kvGet(kv, 'Grp', 'group'),
+		tz: kvGet(kv, 'TZ'),
+		verify: kvGet(kv, 'Verify'),
+	};
+	const deviceValues = [v.name, v.privilege, v.password, v.card, v.group, v.tz, v.verify];
+
+	const [[holder]] = await conn.execute('SELECT IDNo FROM employee WHERE ZK_DEVICE_ID = ? AND ZK_ACTIVE_PIN = ? FOR UPDATE', [
+		device.IDNo,
+		pin,
+	]);
+	if (holder) {
+		// Assignments run left to right, so ZK_EDITED_DT compares the old values first.
+		await conn.execute(
+			`UPDATE employee SET
+				ZK_EDITED_DT = IF(ZK_NAME <=> ? AND ZK_PRIVILEGE <=> ? AND ZK_PASSWORD <=> ? AND ZK_CARD_NO <=> ? AND ZK_GROUP_NO <=> ?,
+					ZK_EDITED_DT, NOW()),
+				ZK_NAME = ?, ZK_PRIVILEGE = ?, ZK_PASSWORD = ?, ZK_CARD_NO = ?, ZK_GROUP_NO = ?, ZK_USER_TZ = ?, ZK_VERIFY_MODE = ?,
+				ZK_SYNCED_DT = NOW()
+			 WHERE IDNo = ?`,
+			[v.name, v.privilege, v.password, v.card, v.group, ...deviceValues, holder.IDNo]
+		);
+		return Number(holder.IDNo);
+	}
+
+	const fields = profile?.fields || {};
+	const profileBy = profile?.userId ?? encodedBy ?? null;
+	let id = null;
+	if (employeeId) {
+		// Add again: the same person (profile, past punches) is back on the device. ZK_EDITED_DT is
+		// cleared so an old OPLOG delete replayed later can't take them off again.
+		const [result] = await conn.execute(
+			`UPDATE employee SET ZK_DEVICE_ID = ?, ZK_PIN = ?, ZK_ON_DEVICE = 1,
+				ZK_NAME = ?, ZK_PRIVILEGE = ?, ZK_PASSWORD = ?, ZK_CARD_NO = ?, ZK_GROUP_NO = ?, ZK_USER_TZ = ?, ZK_VERIFY_MODE = ?,
+				ZK_SOURCE = ?, ZK_ADDED_DT = NOW(), ZK_EDITED_DT = NULL, ZK_REMOVED_BY = NULL, ZK_SYNCED_DT = NOW()
+			 WHERE IDNo = ? AND ACTIVE = 1 AND ZK_ON_DEVICE = 0`,
+			[device.IDNo, pin, ...deviceValues, source, employeeId]
+		);
+		if (result.affectedRows) {
+			id = Number(employeeId);
+			const entries = Object.entries(fields);
+			if (entries.length) {
+				await conn.execute(
+					`UPDATE employee SET ${entries.map(([key]) => `${key} = ?`).join(', ')}, EDITED_BY = ?, EDITED_DT = NOW() WHERE IDNo = ?`,
+					[...entries.map(([, value]) => value), profileBy, id]
+				);
+			}
+		}
+	}
+	if (!id) {
+		const data = new Map(Object.entries(fields));
+		if (!String(data.get('FIRSTNAME') ?? '').trim()) data.set('FIRSTNAME', String(v.name || '').trim() || `User ${pin}`);
+		const columns = [...data.keys()];
+		const [result] = await conn.execute(
+			`INSERT INTO employee (BRANCH_ID, ${columns.join(', ')}, STATUS, ACTIVE, ENCODED_BY, ENCODED_DT,
+				ZK_DEVICE_ID, ZK_PIN, ZK_ON_DEVICE, ZK_NAME, ZK_PRIVILEGE, ZK_PASSWORD, ZK_CARD_NO, ZK_GROUP_NO, ZK_USER_TZ,
+				ZK_VERIFY_MODE, ZK_SOURCE, ZK_ADDED_DT, ZK_SYNCED_DT)
+			 VALUES (?, ${columns.map(() => '?').join(', ')}, 1, 1, ?, NOW(), ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+			[device.BRANCH_ID ?? null, ...data.values(), profileBy, device.IDNo, pin, ...deviceValues, source]
+		);
+		id = Number(result.insertId);
+	}
+	// Punches of this User ID that arrived before them (history uploads, or a punch sent before
+	// the USER line) become theirs.
+	await conn.execute('UPDATE zk_attendance_logs SET EMPLOYEE_ID = ? WHERE DEVICE_ID = ? AND PIN = ? AND EMPLOYEE_ID IS NULL', [
+		id,
+		device.IDNo,
+		pin,
+	]);
+	return id;
+}
+
+/** Only which biometrics a user has is kept; the payload is reduced to a hash. */
 async function saveTemplate(conn, device, kind, kv) {
 	const pin = kvGet(kv, 'PIN');
 	if (pin === null) return;
 
-	const templateKey = Object.keys(kv).find((k) => ['tmp', 'content', 'template'].includes(k.toLowerCase())) ?? null;
-	const template = templateKey !== null ? kv[templateKey] : null;
-	const fields = { ...kv };
-	if (templateKey !== null) delete fields[templateKey];
+	const payloadKey = Object.keys(kv).find((k) => PAYLOAD_KEYS.includes(k.toLowerCase())) ?? null;
+	const payload = payloadKey !== null ? kv[payloadKey] : null;
+	const hash = payload ? crypto.createHash('sha1').update(payload).digest('hex') : null;
 
 	let bioType = 0;
 	if (kind === 'FP') bioType = 1;
@@ -532,13 +618,12 @@ async function saveTemplate(conn, device, kind, kv) {
 	else if (kind === 'BIODATA' || kind === 'BIOPHOTO') bioType = intOrNull(kvGet(kv, 'Type')) ?? 0;
 
 	await conn.execute(
-		`INSERT INTO biometric_templates
-			(DEVICE_ID, PIN, TEMPLATE_KIND, BIO_TYPE, TEMPLATE_NO, TEMPLATE_INDEX, TEMPLATE_SIZE, VALID, TEMPLATE_KEY, TEMPLATE, FIELDS_JSON, SYNCED_DT)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+		`INSERT INTO zk_biometric_templates
+			(DEVICE_ID, PIN, TEMPLATE_KIND, BIO_TYPE, TEMPLATE_NO, TEMPLATE_INDEX, TEMPLATE_SIZE, VALID, TEMPLATE_HASH, SYNCED_DT)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
 		 ON DUPLICATE KEY UPDATE
-			EDITED_DT = IF(TEMPLATE <=> VALUES(TEMPLATE) AND VALID <=> VALUES(VALID), EDITED_DT, NOW()),
-			TEMPLATE_SIZE = VALUES(TEMPLATE_SIZE), VALID = VALUES(VALID),
-			TEMPLATE_KEY = VALUES(TEMPLATE_KEY), TEMPLATE = VALUES(TEMPLATE), FIELDS_JSON = VALUES(FIELDS_JSON),
+			EDITED_DT = IF(TEMPLATE_HASH <=> VALUES(TEMPLATE_HASH) AND VALID <=> VALUES(VALID), EDITED_DT, NOW()),
+			TEMPLATE_SIZE = VALUES(TEMPLATE_SIZE), VALID = VALUES(VALID), TEMPLATE_HASH = VALUES(TEMPLATE_HASH),
 			SYNCED_DT = NOW()`,
 		[
 			device.IDNo,
@@ -549,9 +634,7 @@ async function saveTemplate(conn, device, kind, kv) {
 			intOrNull(kvGet(kv, 'Index')) ?? 0,
 			intOrNull(kvGet(kv, 'Size')),
 			intOrNull(kvGet(kv, 'Valid')),
-			templateKey,
-			template,
-			JSON.stringify(fields),
+			hash,
 		]
 	);
 }
@@ -565,7 +648,7 @@ async function saveOptions(conn, device, lines) {
 			if (!(k in incoming)) incoming[k] = v;
 		}
 	}
-	const [[row]] = await conn.execute('SELECT OPTIONS_JSON FROM devices WHERE IDNo = ?', [device.IDNo]);
+	const [[row]] = await conn.execute('SELECT OPTIONS_JSON FROM zk_devices WHERE IDNo = ?', [device.IDNo]);
 	let current = {};
 	try {
 		current = JSON.parse(row?.OPTIONS_JSON || '{}') || {};
@@ -576,7 +659,7 @@ async function saveOptions(conn, device, lines) {
 	const deviceName = strOrNull(kvGet(merged, '~DeviceName', 'DeviceName'));
 
 	await conn.execute(
-		'UPDATE devices SET OPTIONS_JSON = ?, DEVICE_NAME = COALESCE(DEVICE_NAME, ?) WHERE IDNo = ?',
+		'UPDATE zk_devices SET OPTIONS_JSON = ?, DEVICE_NAME = COALESCE(DEVICE_NAME, ?) WHERE IDNo = ?',
 		[JSON.stringify(merged), deviceName ? truncate(deviceName, 64) : null, device.IDNo]
 	);
 	return lines.length;
@@ -588,7 +671,7 @@ async function getRequest(device, q) {
 	// An enrollment nobody picked up in time must not pop up on the device later
 	// (e.g. hours after it comes back online), so it expires instead.
 	await zkPool.execute(
-		`UPDATE device_commands SET STATUS = 'expired', COMPLETED_DT = NOW()
+		`UPDATE zk_device_commands SET STATUS = 'expired', COMPLETED_DT = NOW()
 		 WHERE DEVICE_ID = ? AND STATUS = 'pending' AND COMMAND LIKE 'ENROLL\\_%'
 		   AND ENCODED_DT < NOW() - INTERVAL ${ENROLL_PICKUP_TIMEOUT_SECONDS} SECOND`,
 		[device.IDNo]
@@ -599,17 +682,17 @@ async function getRequest(device, q) {
 	const unanswered = `DEVICE_ID = ? AND STATUS = 'sent' AND (COMMAND LIKE 'DATA UPDATE %' OR COMMAND LIKE 'DATA DELETE %')
 		AND SENT_DT < NOW() - INTERVAL ${UNANSWERED_RESEND_MINUTES} MINUTE`;
 	await zkPool.execute(
-		`UPDATE device_commands SET STATUS = 'failed', COMPLETED_DT = NOW(), PROFILE_JSON = NULL WHERE ${unanswered} AND RESULT = ?`,
+		`UPDATE zk_device_commands SET STATUS = 'failed', COMPLETED_DT = NOW(), PROFILE_JSON = NULL WHERE ${unanswered} AND RESULT = ?`,
 		[device.IDNo, RESENT_MARKER]
 	);
 	await zkPool.execute(
-		`UPDATE device_commands SET STATUS = 'pending', RESULT = ? WHERE ${unanswered} AND RESULT IS NULL`,
+		`UPDATE zk_device_commands SET STATUS = 'pending', RESULT = ? WHERE ${unanswered} AND RESULT IS NULL`,
 		[RESENT_MARKER, device.IDNo]
 	);
 
 	if (config.resyncHours > 0) {
 		const [recent] = await zkPool.execute(
-			`SELECT 1 FROM device_commands
+			`SELECT 1 FROM zk_device_commands
 			 WHERE DEVICE_ID = ? AND COMMAND = 'DATA QUERY USERINFO' AND ENCODED_DT >= NOW() - INTERVAL ? HOUR
 			 LIMIT 1`,
 			[device.IDNo, config.resyncHours]
@@ -620,7 +703,7 @@ async function getRequest(device, q) {
 	}
 
 	const [cmds] = await zkPool.query(
-		`SELECT IDNo, COMMAND FROM device_commands
+		`SELECT IDNo, COMMAND FROM zk_device_commands
 		 WHERE DEVICE_ID = ? AND STATUS = 'pending' ORDER BY IDNo LIMIT ${COMMANDS_PER_POLL}`,
 		[device.IDNo]
 	);
@@ -628,7 +711,7 @@ async function getRequest(device, q) {
 
 	let out = '';
 	for (const c of cmds) {
-		await zkPool.execute(`UPDATE device_commands SET STATUS = 'sent', SENT_DT = NOW() WHERE IDNo = ?`, [c.IDNo]);
+		await zkPool.execute(`UPDATE zk_device_commands SET STATUS = 'sent', SENT_DT = NOW() WHERE IDNo = ?`, [c.IDNo]);
 		out += `C:${c.IDNo}:${c.COMMAND}\n`;
 	}
 	return [200, out];
@@ -638,10 +721,9 @@ async function getRequest(device, q) {
 async function saveInfo(device, info) {
 	const p = info.split(',');
 	await zkPool.execute(
-		`UPDATE devices SET INFO_RAW = ?, FIRMWARE = ?, USER_COUNT = ?, FP_COUNT = ?, ATT_COUNT = ?, FACE_COUNT = ?
+		`UPDATE zk_devices SET FIRMWARE = ?, USER_COUNT = ?, FP_COUNT = ?, ATT_COUNT = ?, FACE_COUNT = ?
 		 WHERE IDNo = ?`,
 		[
-			truncate(info, 255),
 			strOrNull(p[0]),
 			intOrNull(p[1]),
 			intOrNull(p[2]),
@@ -667,7 +749,7 @@ async function deviceCmd(device, body) {
 
 	for (const r of results) {
 		const [[cmd]] = await zkPool.execute(
-			'SELECT COMMAND, ENCODED_BY, READD_OF_ID, PROFILE_JSON FROM device_commands WHERE IDNo = ? AND DEVICE_ID = ?',
+			'SELECT COMMAND, ENCODED_BY, EMPLOYEE_ID, PROFILE_JSON FROM zk_device_commands WHERE IDNo = ? AND DEVICE_ID = ?',
 			[r.id, device.IDNo]
 		);
 		if (!cmd) continue;
@@ -675,14 +757,14 @@ async function deviceCmd(device, body) {
 		// Enrollment answers 0 only when a finger was actually enrolled; positive codes
 		// such as 6 (nobody scanned in time) are failures too.
 		const ok = command.startsWith('ENROLL_') ? r.ret === 0 : r.ret >= 0;
-		// A failed add drops its profile details; a successful one moves them to the new user
-		// (applyCommandResult), so they're kept until then.
+		// A failed add drops its profile details; a successful one turns them into the person's
+		// profile (applyCommandResult), so they're kept until then.
 		await zkPool.execute(
-			`UPDATE device_commands SET STATUS = ?, RETURN_CODE = ?, RESULT = ?, COMPLETED_DT = NOW()${ok ? '' : ', PROFILE_JSON = NULL'}
+			`UPDATE zk_device_commands SET STATUS = ?, RETURN_CODE = ?, RESULT = ?, COMPLETED_DT = NOW()${ok ? '' : ', PROFILE_JSON = NULL'}
 			 WHERE IDNo = ? AND DEVICE_ID = ?`,
 			[ok ? 'done' : 'failed', r.ret, r.payload.length ? r.payload.join('\n') : null, r.id, device.IDNo]
 		);
-		const extra = { commandId: r.id, readdOfId: cmd.READD_OF_ID, profileJson: cmd.PROFILE_JSON };
+		const extra = { commandId: r.id, employeeId: cmd.EMPLOYEE_ID, profileJson: cmd.PROFILE_JSON };
 		if (ok && (await applyCommandResult(device, command, r.payload, cmd.ENCODED_BY, extra))) {
 			emitZkChange('users', device);
 		}
@@ -703,8 +785,8 @@ async function deviceCmd(device, body) {
 async function ensureEnrolledTemplate(device, commandId, command) {
 	const kv = parseKv(command.slice('ENROLL_FP '.length));
 	const [rows] = await zkPool.execute(
-		`SELECT 1 FROM biometric_templates t
-		 JOIN device_commands c ON c.IDNo = ?
+		`SELECT 1 FROM zk_biometric_templates t
+		 JOIN zk_device_commands c ON c.IDNo = ?
 		 WHERE t.DEVICE_ID = ? AND t.PIN = ? AND t.TEMPLATE_KIND = 'FP' AND t.TEMPLATE_NO = ?
 		   AND COALESCE(t.EDITED_DT, t.ENCODED_DT) >= c.SENT_DT
 		 LIMIT 1`,
@@ -723,16 +805,21 @@ async function ensureEnrolledTemplate(device, commandId, command) {
  */
 async function reconcileAfterUserQuery(device, commandId, command) {
 	const pin = kvGet(parseKv(command.slice('DATA QUERY USERINFO'.length).trim()), 'PIN');
-	const [[cmd]] = await zkPool.execute('SELECT SENT_DT FROM device_commands WHERE IDNo = ?', [commandId]);
+	const [[cmd]] = await zkPool.execute('SELECT SENT_DT FROM zk_device_commands WHERE IDNo = ?', [commandId]);
 	if (!cmd?.SENT_DT) return;
 
-	const scope = `DEVICE_ID = ? AND (SYNCED_DT IS NULL OR SYNCED_DT < ?)${pin ? ' AND PIN = ?' : ''}`;
 	const params = pin ? [device.IDNo, cmd.SENT_DT, pin] : [device.IDNo, cmd.SENT_DT];
-	const [users] = await zkPool.execute(`${DEACTIVATE_USER_SQL} WHERE ACTIVE = 1 AND ${scope}`, [null, ...params]);
-	const [templates] = await zkPool.execute(`DELETE FROM biometric_templates WHERE ${scope}`, params);
+	const [users] = await zkPool.execute(
+		`${REMOVE_SQL} WHERE ZK_DEVICE_ID = ? AND ZK_ON_DEVICE = 1 AND (ZK_SYNCED_DT IS NULL OR ZK_SYNCED_DT < ?)${pin ? ' AND ZK_PIN = ?' : ''}`,
+		[null, ...params]
+	);
+	const [templates] = await zkPool.execute(
+		`DELETE FROM zk_biometric_templates WHERE DEVICE_ID = ? AND (SYNCED_DT IS NULL OR SYNCED_DT < ?)${pin ? ' AND PIN = ?' : ''}`,
+		params
+	);
 	if (users.affectedRows || templates.affectedRows) {
 		console.log(
-			`[ADMS] sync: deactivated ${users.affectedRows} user(s) and removed ${templates.affectedRows} template(s) no longer on device ${device.IDNo}`
+			`[ADMS] sync: took ${users.affectedRows} user(s) off and removed ${templates.affectedRows} template(s) no longer on device ${device.IDNo}`
 		);
 		emitZkChange('users', device);
 	}
@@ -740,49 +827,33 @@ async function reconcileAfterUserQuery(device, commandId, command) {
 
 // Mirrors successful server-initiated changes into our tables (the device does not echo them back).
 // Returns true when device users changed. `encodedBy` is the app user who queued the command;
-// `readdOfId` the removed row an "Add again" brings back; `profileJson` the Add employee details,
-// moved onto the new user (and off the command `commandId`) in the same transaction.
-async function applyCommandResult(device, command, payload, encodedBy = null, { commandId = null, readdOfId = null, profileJson = null } = {}) {
+// `employeeId` the removed employee an "Add again" puts back; `profileJson` the Add employee
+// details, written to the profile (and cleared off the command `commandId`) in the same transaction.
+async function applyCommandResult(device, command, payload, encodedBy = null, { commandId = null, employeeId = null, profileJson = null } = {}) {
 	if (command.startsWith('DATA UPDATE USERINFO ')) {
 		const kv = parseKv(command.slice(21));
 		await inTransaction(async (conn) => {
-			await saveUser(conn, device, kv, 'server');
-			if (profileJson) {
-				await conn.execute('UPDATE device_users SET PENDING_PROFILE_JSON = ? WHERE DEVICE_ID = ? AND ACTIVE_PIN = ?', [
-					profileJson,
-					device.IDNo,
-					kvGet(kv, 'PIN'),
-				]);
-				if (commandId) await conn.execute('UPDATE device_commands SET PROFILE_JSON = NULL WHERE IDNo = ?', [commandId]);
-			}
-			if (readdOfId) {
-				// The removed row, and any earlier rows already pointing at it, now point at the new
-				// row, so READDED_AS_ID always names the person's latest row (Show deleted hides them).
-				await conn.execute(
-					`UPDATE device_users p
-					 JOIN device_users n ON n.DEVICE_ID = p.DEVICE_ID AND n.ACTIVE_PIN = ?
-					 SET p.READDED_AS_ID = n.IDNo
-					 WHERE p.DEVICE_ID = ? AND p.ACTIVE = 0 AND (p.IDNo = ? OR p.READDED_AS_ID = ?)`,
-					[kvGet(kv, 'PIN'), device.IDNo, readdOfId, readdOfId]
-				);
+			await saveUser(conn, device, kv, 'server', { employeeId, profile: readProfileJson(profileJson), encodedBy });
+			if (profileJson && commandId) {
+				await conn.execute('UPDATE zk_device_commands SET PROFILE_JSON = NULL WHERE IDNo = ?', [commandId]);
 			}
 		});
 		return true;
 	}
 	if (command.startsWith('DATA DELETE USERINFO ')) {
 		const pin = kvGet(parseKv(command.slice(21)), 'PIN');
-		await zkPool.execute(`${DEACTIVATE_USER_SQL} WHERE DEVICE_ID = ? AND PIN = ? AND ACTIVE = 1`, [
+		await zkPool.execute(`${REMOVE_SQL} WHERE ZK_DEVICE_ID = ? AND ZK_PIN = ? AND ZK_ON_DEVICE = 1`, [
 			encodedBy ?? null,
 			device.IDNo,
 			pin,
 		]);
-		await zkPool.execute('DELETE FROM biometric_templates WHERE DEVICE_ID = ? AND PIN = ?', [device.IDNo, pin]);
+		await zkPool.execute('DELETE FROM zk_biometric_templates WHERE DEVICE_ID = ? AND PIN = ?', [device.IDNo, pin]);
 		return true;
 	}
 	if (command.startsWith('DATA DELETE FINGERTMP ')) {
 		const kv = parseKv(command.slice('DATA DELETE FINGERTMP '.length));
 		await zkPool.execute(
-			`DELETE FROM biometric_templates
+			`DELETE FROM zk_biometric_templates
 			 WHERE DEVICE_ID = ? AND PIN = ? AND TEMPLATE_NO = ?
 			   AND (TEMPLATE_KIND = 'FP' OR (TEMPLATE_KIND = 'BIODATA' AND BIO_TYPE = 1))`,
 			[device.IDNo, kvGet(kv, 'PIN'), intOrNull(kvGet(kv, 'FID')) ?? 0]
@@ -835,7 +906,7 @@ async function dispatch(method, endpoint, query, body, remoteIp) {
 	// before keep working but nobody can register a new one (e.g. a fake device that would land
 	// in ZK_DEFAULT_BRANCH_ID and push made-up punches).
 	if (!config.allowedSerials.length) {
-		const [known] = await zkPool.execute('SELECT 1 FROM devices WHERE SERIAL_NO = ? LIMIT 1', [sn]);
+		const [known] = await zkPool.execute('SELECT 1 FROM zk_devices WHERE SERIAL_NO = ? LIMIT 1', [sn]);
 		if (known.length === 0) {
 			warnUnlisted(sn);
 			return [403, 'ERROR: unknown device'];
@@ -858,14 +929,29 @@ async function dispatch(method, endpoint, query, body, remoteIp) {
 	}
 }
 
+const PAYLOAD_IN_BODY = new RegExp(`(^|[\\t\\r\\n ])(${PAYLOAD_KEYS.join('|')})=([^\\t\\r\\n]*)`, 'gi');
+
+/**
+ * The body with biometric templates and photos blanked (USER/FP/FACE/BIODATA/USERPIC lines), so
+ * the log never holds biometric data. latin1 keeps every other byte as it was.
+ */
+function redactBody(buf) {
+	const text = buf.toString('latin1');
+	if (!/(?:tmp|content|template)=/i.test(text)) return buf;
+	return Buffer.from(
+		text.replace(PAYLOAD_IN_BODY, (_, lead, key, value) => `${lead}${key}=[${value.length} chars not stored]`),
+		'latin1'
+	);
+}
+
 async function logRequest({ sn, method, path, qs, remoteIp, headers, rawBody, response, status, durationMs }) {
 	if (config.rawLogDays <= 0) return;
 	// Refused requests (unknown device, blocked IP, bad request) keep only the body's length, so
 	// anyone on the internet can't fill the log with large bodies.
 	const bodyLength = rawBody.length;
-	const kept = status >= 400 && status < 500 ? Buffer.alloc(0) : rawBody.subarray(0, RAW_BODY_MAX);
+	const kept = status >= 400 && status < 500 ? Buffer.alloc(0) : redactBody(rawBody).subarray(0, RAW_BODY_MAX);
 	await zkPool.execute(
-		`INSERT INTO raw_requests
+		`INSERT INTO zk_raw_requests
 			(SERIAL_NO, METHOD, PATH, QUERY_STRING, REMOTE_IP, HEADERS, BODY, BODY_LENGTH, RESPONSE, STATUS_CODE, DURATION_MS)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		[
@@ -884,10 +970,19 @@ async function logRequest({ sn, method, path, qs, remoteIp, headers, rawBody, re
 	);
 }
 
-async function pruneRawRequests() {
-	if (config.rawLogDays <= 0) return;
+/** Deletes old raw requests (ZK_RAW_LOG_DAYS) and finished commands (ZK_COMMAND_LOG_DAYS). */
+async function pruneLogs() {
 	await ZktecoModel.ensureSchema();
-	await zkPool.execute('DELETE FROM raw_requests WHERE CREATED_DT < NOW() - INTERVAL ? DAY', [config.rawLogDays]);
+	if (config.rawLogDays > 0) {
+		await zkPool.execute('DELETE FROM zk_raw_requests WHERE CREATED_DT < NOW() - INTERVAL ? DAY', [config.rawLogDays]);
+	}
+	if (config.commandLogDays > 0) {
+		await zkPool.execute(
+			`DELETE FROM zk_device_commands
+			 WHERE STATUS NOT IN ('pending', 'sent') AND COALESCE(COMPLETED_DT, ENCODED_DT) < NOW() - INTERVAL ? DAY`,
+			[config.commandLogDays]
+		);
+	}
 }
 
 module.exports = {
@@ -901,6 +996,6 @@ module.exports = {
 	PRIVILEGE_USER,
 	PRIVILEGE_ADMIN,
 	logRequest,
-	pruneRawRequests,
+	pruneLogs,
 	decodeBody,
 };

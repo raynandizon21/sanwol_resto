@@ -7,8 +7,8 @@
 
 const pool = require('../config/db');
 
-// Profile columns added for the Employees page (one profile per MB160 device user, linked by
-// zkteco.device_users.EMPLOYEE_ID). See docs/attendance.md.
+// Profile columns added for the Employees page. Each person on the MB160 is an employee row; the
+// device columns (ZK_*) are added by models/zktecoModel.js. See docs/attendance.md.
 const ADDED_COLUMNS = [
 	{ name: 'BIRTHDATE', ddl: 'ADD COLUMN BIRTHDATE DATE NULL DEFAULT NULL AFTER ADDRESS' },
 	{ name: 'DATE_SEPARATED', ddl: "ADD COLUMN DATE_SEPARATED DATE NULL DEFAULT NULL COMMENT 'Last day of work' AFTER DATE_STARTED" },
@@ -106,7 +106,8 @@ class EmployeeModel {
 		return EmployeeModel._schemaPromise;
 	}
 
-	// ---- Profiles for the Employees page (one per device user; see employeeLinkService) ----
+	// ---- Profiles for the Employees page (people on the MB160; their device columns, ZK_*, are
+	// managed by models/zktecoModel.js and services/admsService.js) ----
 
 	static async getProfilesByIds(ids) {
 		const unique = [...new Set(ids.map(Number).filter(Boolean))];
@@ -123,37 +124,6 @@ class EmployeeModel {
 		return (await EmployeeModel.getProfilesByIds([id]))[0] || null;
 	}
 
-	/** Active profiles in a branch scope (null = all branches). */
-	static async getProfilesInScope(branchIds) {
-		await EmployeeModel.ensureSchema();
-		if (branchIds && branchIds.length === 0) return [];
-		const [rows] = await pool.query(
-			`SELECT ${PROFILE_SELECT} FROM employee e
-			 WHERE e.ACTIVE = 1${branchIds ? ` AND e.BRANCH_ID IN (${branchIds.map(() => '?').join(',')})` : ''}
-			 ORDER BY e.FIRSTNAME, e.LASTNAME`,
-			branchIds || []
-		);
-		return rows;
-	}
-
-	/**
-	 * A new profile for a device user: from `fields` (employee columns, validated when the person
-	 * was added in the app) or, for someone added on the device, named as on the device.
-	 */
-	static async createForDeviceUser({ name, branchId, fields = null, userId = null }) {
-		await EmployeeModel.ensureSchema();
-		const entries = Object.entries(fields || {}).filter(([key]) => PROFILE_EDITABLE.includes(key));
-		const data = new Map(entries);
-		if (!String(data.get('FIRSTNAME') ?? '').trim()) data.set('FIRSTNAME', String(name || '').trim() || null);
-		const columns = [...data.keys()];
-		const [result] = await pool.query(
-			`INSERT INTO employee (BRANCH_ID, ${columns.join(', ')}, STATUS, ACTIVE, ENCODED_BY, ENCODED_DT)
-			 VALUES (?, ${columns.map(() => '?').join(', ')}, 1, 1, ?, NOW())`,
-			[branchId ?? null, ...data.values(), userId]
-		);
-		return result.insertId;
-	}
-
 	/** Writes the given profile fields (validated by the caller). */
 	static async updateProfile(id, fields, userId) {
 		await EmployeeModel.ensureSchema();
@@ -165,12 +135,6 @@ class EmployeeModel {
 			[...entries.map(([, value]) => value), userId, id]
 		);
 		return result.affectedRows > 0;
-	}
-
-	/** Soft-deletes a profile no device user points at any more (e.g. after linking to an older one). */
-	static async deactivateProfile(id, userId) {
-		await EmployeeModel.ensureSchema();
-		await pool.query('UPDATE employee SET ACTIVE = 0, EDITED_BY = ?, EDITED_DT = NOW() WHERE IDNo = ?', [userId, id]);
 	}
 
 	static get PROFILE_EDITABLE() {

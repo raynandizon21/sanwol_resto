@@ -260,7 +260,8 @@ app.use((err, req, res, next) => {
 		console.error('[Schema] ensure startup schema failed:', e?.message || e);
 	}
 
-	// ZKTeco (MB160) device data lives in its own DB; a failure there must not block the app.
+	// ZKTeco (MB160): zk_* tables and the ZK_* columns of employee (also ensures employee itself).
+	// A failure there must not block the app.
 	try {
 		await ZktecoModel.ensureSchema();
 	} catch (e) {

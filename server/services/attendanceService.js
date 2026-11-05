@@ -2,54 +2,44 @@
 // ATTENDANCE SERVICE
 // ============================================
 // File: services/attendanceService.js
-// Description: Loads punches (zkteco DB) and profiles/rules (sanwol_resto DB), runs
-// attendanceEngine per person, and shapes the results for the Attendance Logs summary and the
-// timesheet. The two DBs are read separately and combined here. See docs/attendance.md.
+// Description: Loads punches (zk_attendance_logs), people (employee rows on a device) and
+// rules, runs attendanceEngine per person, and shapes the results for the Attendance Logs
+// summary, the Timesheet tab (everyone's days) and one person's timesheet. See docs/attendance.md.
 // ============================================
 
 const ZktecoModel = require('../models/zktecoModel');
 const EmployeeModel = require('../models/employeeModel');
 const AttendanceSettingsModel = require('../models/attendanceSettingsModel');
-const { ensureEmployeeLinks } = require('./employeeLinkService');
 const { computeAttendance, addDays, ymdOf, ISSUE_FLAGS, toMin } = require('./attendanceEngine');
 
 const MAX_RANGE_DAYS = 366;
+// The Timesheet tab shows one column per day.
+const MAX_TIMESHEETS_DAYS = 62;
 
 const fullName = (profile, fallback) =>
 	[profile?.FIRSTNAME, profile?.LASTNAME].map((v) => String(v ?? '').trim()).filter(Boolean).join(' ') || fallback || null;
 
 const dayCount = (startYmd, endYmd) => Math.round((toMin(`${endYmd} 00:00`) - toMin(`${startYmd} 00:00`)) / 1440) + 1;
 
-/**
- * Everyone in scope: one entry per profile, with their device rows. Links new device users to
- * profiles first, so a user added minutes ago is included.
- */
+/** Everyone who is or was on a device in scope, by employee IDNo. `active` = on the device now. */
 async function loadPeople(branchIds) {
-	await ensureEmployeeLinks(branchIds);
-	const rows = await ZktecoModel.getUserRowsForLinking(branchIds);
-	const profiles = new Map(
-		(await EmployeeModel.getProfilesByIds(rows.map((r) => r.EMPLOYEE_ID))).map((p) => [Number(p.IDNo), p])
-	);
+	const rows = await ZktecoModel.getPeople(branchIds);
+	const profiles = new Map((await EmployeeModel.getProfilesByIds(rows.map((r) => r.IDNo))).map((p) => [Number(p.IDNo), p]));
 	const people = new Map();
 	for (const row of rows) {
-		if (row.EMPLOYEE_ID == null) continue;
-		const id = Number(row.EMPLOYEE_ID);
-		if (!people.has(id)) people.set(id, { employeeId: id, profile: profiles.get(id) || null, rows: [] });
-		people.get(id).rows.push(row);
-	}
-	for (const person of people.values()) {
-		const active = person.rows.filter((r) => Number(r.ACTIVE));
-		// The row that represents them now: their active row, else their latest one.
-		const current = active[active.length - 1] || person.rows[person.rows.length - 1];
-		const p = person.profile;
-		person.deviceUserId = Number(current.IDNo);
-		person.deviceId = Number(current.DEVICE_ID);
-		person.pin = String(current.PIN);
-		person.active = active.length > 0;
-		person.branchId = p?.BRANCH_ID ?? current.BRANCH_ID ?? null;
-		person.name = fullName(p, current.NAME);
-		person.deviceName = current.NAME;
-		person.position = p?.DEPARTMENT || null;
+		const id = Number(row.IDNo);
+		const profile = profiles.get(id) || null;
+		people.set(id, {
+			employeeId: id,
+			profile,
+			deviceId: Number(row.ZK_DEVICE_ID),
+			pin: String(row.ZK_PIN),
+			active: Boolean(Number(row.ZK_ON_DEVICE)),
+			branchId: profile?.BRANCH_ID ?? row.DEVICE_BRANCH_ID ?? null,
+			name: fullName(profile, row.ZK_NAME),
+			deviceName: row.ZK_NAME,
+			position: profile?.DEPARTMENT || null,
+		});
 	}
 	return people;
 }
@@ -73,9 +63,9 @@ function groupPunches(punches) {
 	return { byEmployee, unknown };
 }
 
-function checkRange(startYmd, endYmd) {
+function checkRange(startYmd, endYmd, maxDays = MAX_RANGE_DAYS) {
 	if (startYmd > endYmd) return 'The start date must be on or before the end date';
-	if (dayCount(startYmd, endYmd) > MAX_RANGE_DAYS) return `Choose a range of at most ${MAX_RANGE_DAYS} days`;
+	if (dayCount(startYmd, endYmd) > maxDays) return `Choose a range of at most ${maxDays} days`;
 	return null;
 }
 
@@ -87,17 +77,11 @@ const loadRange = (branchIds, startYmd, endYmd) =>
 const publicDay = ({ presence, punches, ...day }) => day;
 
 /**
- * Summary for the Attendance Logs page: per-person totals for the range, a daily series, average
- * staffing by hour, problems to fix, and a live block for today (who is on shift now).
+ * Attendance for everyone in scope over the range: everyone on the device, people removed from it
+ * who punched in the range, and punches of User IDs that aren't on the device (so they aren't
+ * silently lost). `rangePunches` comes from loadRange.
  */
-async function getSummary(branchIds, startYmd, endYmd) {
-	const now = String(await ZktecoModel.deviceNow());
-	const today = now.slice(0, 10);
-	const people = await loadPeople(branchIds);
-	const [rangePunches, todayPunches] = await Promise.all([
-		loadRange(branchIds, startYmd, endYmd),
-		loadRange(branchIds, addDays(today, -1), today),
-	]);
+async function computeEveryone(people, rangePunches, startYmd, endYmd, now) {
 	const ruleBranchIds = [...people.values()].map((p) => p.branchId);
 	const rangeGroups = groupPunches(rangePunches);
 	rangeGroups.unknown.forEach((u) => ruleBranchIds.push(u.branchId));
@@ -115,7 +99,6 @@ async function getSummary(branchIds, startYmd, endYmd) {
 		if (!person.active && !inRange(punches)) continue;
 		results.push({ person, ...compute(punches, person.branchId) });
 	}
-	// Punches of User IDs that aren't on the device: shown so they aren't silently lost.
 	for (const u of rangeGroups.unknown.values()) {
 		if (!inRange(u.punches)) continue;
 		results.push({
@@ -123,6 +106,51 @@ async function getSummary(branchIds, startYmd, endYmd) {
 			...compute(u.punches, u.branchId),
 		});
 	}
+	return { results, rulesFor };
+}
+
+/** The person fields the summary and the timesheets send. */
+const publicPerson = (person) => ({
+	employeeId: person.employeeId,
+	deviceId: person.deviceId,
+	pin: person.pin,
+	name: person.name,
+	position: person.position ?? null,
+	branchId: person.branchId,
+	active: person.active,
+});
+
+/** Adds up per-person totals. */
+function sumTotals(list) {
+	const totals = list.reduce(
+		(acc, t) => {
+			acc.workedMinutes += t.workedMinutes;
+			acc.regularMinutes += t.regularMinutes;
+			acc.overMinutes += t.overMinutes;
+			acc.daysWorked += t.daysWorked;
+			acc.daysWithHours += t.daysWithHours;
+			acc.incompleteDays += t.incompleteDays;
+			return acc;
+		},
+		{ workedMinutes: 0, regularMinutes: 0, overMinutes: 0, daysWorked: 0, daysWithHours: 0, incompleteDays: 0 }
+	);
+	totals.averageMinutes = totals.daysWithHours ? Math.round(totals.workedMinutes / totals.daysWithHours) : 0;
+	return totals;
+}
+
+/**
+ * Summary for the Attendance Logs page: per-person totals for the range, a daily series, average
+ * staffing by hour, problems to fix, and a live block for today (who is on shift now).
+ */
+async function getSummary(branchIds, startYmd, endYmd) {
+	const now = String(await ZktecoModel.deviceNow());
+	const today = now.slice(0, 10);
+	const people = await loadPeople(branchIds);
+	const [rangePunches, todayPunches] = await Promise.all([
+		loadRange(branchIds, startYmd, endYmd),
+		loadRange(branchIds, addDays(today, -1), today),
+	]);
+	const { results, rulesFor } = await computeEveryone(people, rangePunches, startYmd, endYmd, now);
 
 	// Daily series: hours (regular / over) and people at work (complete / needs fixing).
 	const daily = [];
@@ -183,31 +211,8 @@ async function getSummary(branchIds, startYmd, endYmd) {
 		days: hourDays[hour],
 	}));
 
-	const employees = results.map(({ person, totals }) => ({
-		employeeId: person.employeeId,
-		deviceUserId: person.deviceUserId ?? null,
-		deviceId: person.deviceId,
-		pin: person.pin,
-		name: person.name,
-		position: person.position ?? null,
-		branchId: person.branchId,
-		active: person.active,
-		totals,
-	}));
-
-	const totals = employees.reduce(
-		(acc, e) => {
-			acc.workedMinutes += e.totals.workedMinutes;
-			acc.regularMinutes += e.totals.regularMinutes;
-			acc.overMinutes += e.totals.overMinutes;
-			acc.daysWorked += e.totals.daysWorked;
-			acc.daysWithHours += e.totals.daysWithHours;
-			acc.incompleteDays += e.totals.incompleteDays;
-			return acc;
-		},
-		{ workedMinutes: 0, regularMinutes: 0, overMinutes: 0, daysWorked: 0, daysWithHours: 0, incompleteDays: 0 }
-	);
-	totals.averageMinutes = totals.daysWithHours ? Math.round(totals.workedMinutes / totals.daysWithHours) : 0;
+	const employees = results.map(({ person, totals }) => ({ ...publicPerson(person), totals }));
+	const totals = sumTotals(employees.map((e) => e.totals));
 
 	return {
 		range: { start: startYmd, end: endYmd },
@@ -250,6 +255,30 @@ function summarizeToday(people, punches, rulesFor, now) {
 	return { date: today, onShift: onShift.sort((a, b) => String(a.since).localeCompare(String(b.since))), ...counts };
 }
 
+/**
+ * Everyone's days for the Timesheet tab (a grid of people × days): each day's status, hours and
+ * shifts, without the punches (one person's punches come from getTimesheet). At most
+ * MAX_TIMESHEETS_DAYS days, one column each.
+ */
+async function getTimesheets(branchIds, startYmd, endYmd) {
+	const now = String(await ZktecoModel.deviceNow());
+	const people = await loadPeople(branchIds);
+	const rangePunches = await loadRange(branchIds, startYmd, endYmd);
+	const { results, rulesFor } = await computeEveryone(people, rangePunches, startYmd, endYmd, now);
+	const employees = results.map(({ person, days, totals }) => ({
+		...publicPerson(person),
+		standardHours: rulesFor(person.branchId).standardHours,
+		days: days.map(publicDay),
+		totals,
+	}));
+	return {
+		range: { start: startYmd, end: endYmd },
+		now,
+		employees,
+		totals: sumTotals(employees.map((e) => e.totals)),
+	};
+}
+
 /** One person's days (with their punches) for the timesheet. Null when not in scope. */
 async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 	const people = await loadPeople(branchIds);
@@ -286,7 +315,6 @@ async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 	return {
 		employee: {
 			employeeId: person.employeeId,
-			deviceUserId: person.deviceUserId,
 			deviceId: person.deviceId,
 			pin: person.pin,
 			name: person.name,
@@ -301,4 +329,4 @@ async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 	};
 }
 
-module.exports = { getSummary, getTimesheet, loadPeople, checkRange, fullName };
+module.exports = { getSummary, getTimesheet, getTimesheets, loadPeople, checkRange, fullName, MAX_TIMESHEETS_DAYS };
