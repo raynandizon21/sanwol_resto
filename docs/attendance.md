@@ -12,7 +12,7 @@ Attendance is **basic time tracking**: punches are paired into time-in → time-
 | Add employee with profile details; the device name follows the profile name | Late, undertime, absences (need schedules) |
 | Hours worked per day, split into regular (up to the standard day) and "over" | Holidays, leaves, rest days |
 | **Add punch** / **Edit punch** for forgotten or wrong punches | Payroll, payslips, posting to Expenses |
-| Attendance Logs **Summary** tab (charts, problems, per-person totals) and per-person **Timesheet** | Night differential |
+| Attendance Logs **Summary** tab (charts, problems, per-person totals), **Timesheet** tab (everyone × days, CSV/PDF export) and per-person **Timesheet** | Night differential |
 
 ## Pages
 
@@ -23,10 +23,11 @@ Attendance is **basic time tracking**: punches are paired into time-in → time-
 
   Removed people (Show deleted → eye button) open with Profile and Attendance only.
 - **Add employee**: User ID\*, first name\*, last name, position, date hired, then contact and other details. A line shows how the name will look on the device. Everyone is added as a regular device user with no password (staff punch with fingerprints); fingerprint enrollment is offered next.
-- **Staff → Attendance Logs**, two tabs, both for the header's date range:
+- **Staff → Attendance Logs**, three tabs, all for the header's date range:
   - **Summary**: today (on shift now, came in, needs fixing), range tiles (hours worked, days worked, average per day, needs fixing), *Hours worked per day* (regular vs over), *People at work per day* (worked vs needs fixing), *Staffing by hour*, a *Needs fixing* list and a per-employee table. Clicking a person or a problem opens their timesheet.
+  - **Timesheet**: everyone in one grid, one row per person and one column per day (at most 62 days). Each day shows its shifts (`10:02a–7:15p`) and hours worked, colored by day status (worked, needs fixing, on shift); a day that needs fixing shows *Fix*, and a still-running shift ends in *now*. Totals per person (days worked, hours, regular, over, needs fixing) on the right, and per day (hours, people) at the bottom. Clicking a day or a name opens that person's timesheet there. Search, *Hide people with no punches*, and period buttons that set the header range: *This week* (Monday–Sunday), *1–15*, *16–end*, *Whole month*, with ‹ › to step to the previous / next period (halves step 1–15 → 16–end → next month's 1–15). Periods never end after today. Exports (of the people shown): **CSV** with one row per day worked (name, User ID, position, date, first time-in, last time-out, all shifts, hours as `8h 30m` and as decimals for regular / over, status, problems), and a landscape **PDF** with the grid in blocks of 8 days and a totals page.
   - **Punches**: the punch list, plus **Add punch** and manual punches tagged *Added manually*.
-- **Timesheet** (side panel from the Summary, or the Attendance tab): a month calendar of hours worked per day, totals, and each day's shifts (`Time-in 10:02 AM → Time-out 7:15 PM · 9h 13m`), problems and punches with edit / delete / add.
+- **Timesheet** of one person (side panel from the Summary or the Timesheet tab, or the Employees page's Attendance tab): a month calendar of hours worked per day, totals, and each day's shifts (`Time-in 10:02 AM → Time-out 7:15 PM · 9h 13m`), problems and punches with edit / delete / add.
 
 Permissions (User Access → CRUD): **Employees** (key `device_users`) → Edit allows profile edits (and with them the device name); **Attendance Logs** → Add = add punches, Edit = edit punches and the attendance rules, Delete = delete/restore punches. The sidebar key for Employees is still `employee`.
 
@@ -88,6 +89,7 @@ The app sets only **Time-in / Time-out** (adding, and editing any punch). Editin
 | Method | Path | |
 |---|---|---|
 | GET | `/attendance/summary?branch_id&start_date&end_date` | Summary (max 366 days) |
+| GET | `/attendance/timesheets?branch_id&start_date&end_date` | Everyone's days (status, hours, shifts; no punches) and totals, for the Timesheet tab (max 62 days). Same people as the summary |
 | GET | `/attendance/timesheet/:employeeId?branch_id&start_date&end_date` | One person's days with punches |
 | GET / PUT | `/attendance/settings?branch_id=X` | Rules of one branch (`{ standardHours, maxShiftHours }`) |
 | GET / PATCH | `/attendance/employees/:id?branch_id` | Profile (PATCH: snake_case fields; only those sent change; the response's `DEVICE_RENAME` is the device name queued, if any) |
@@ -102,7 +104,7 @@ The app sets only **Time-in / Time-out** (adding, and editing any punch). Editin
 | File | Role |
 |---|---|
 | `server/services/attendanceEngine.js` | The rules above (pure). Tests: `server/tests/attendanceEngine.test.js` (rules) and `attendanceHours.test.js` (hours checked against randomly generated work sessions) |
-| `server/services/attendanceService.js` | Loads punches/profiles/rules, runs the engine, builds summary and timesheet |
+| `server/services/attendanceService.js` | Loads punches/profiles/rules, runs the engine (`computeEveryone`), builds the summary, the Timesheet tab (`getTimesheets`) and one person's timesheet |
 | `server/services/deviceNameSync.js` | Device name follows the profile name |
 | `server/utils/employeeProfile.js` | Profile validation and the device-name shortening. Tests: `server/tests/employeeProfile.test.js` |
 | `server/models/attendanceSettingsModel.js` | Per-branch rules |
@@ -112,7 +114,8 @@ The app sets only **Time-in / Time-out** (adding, and editing any punch). Editin
 | `server/utils/zktecoHttp.js`, `server/utils/wallClock.js` | Branch scope and CRUD permission checks; date/time text checks |
 | `src/services/attendanceService.ts` | Frontend client |
 | `src/components/attendance/Employees.tsx`, `EmployeePanel.tsx`, `EmployeeProfileForm.tsx`, `AddDeviceUserPanel.tsx`, `profileFields.tsx` | Employees page |
-| `src/components/attendance/AttendanceSummary.tsx`, `Timesheet.tsx`, `AttendanceRulesDialog.tsx`, `attendanceShared.tsx` | Summary, timesheet, rules, display helpers |
+| `src/components/attendance/AttendanceSummary.tsx`, `Timesheet.tsx`, `AttendanceRulesDialog.tsx`, `attendanceShared.tsx` | Summary, one person's timesheet, rules, display helpers |
+| `src/components/attendance/AttendanceTimesheets.tsx`, `timesheetPeriods.ts` | Timesheet tab (grid, CSV/PDF export) and its period buttons |
 | `src/components/attendance/PunchDialogs.tsx` | Edit / delete / **add** punch |
 
 ## Not built yet / ideas for later

@@ -20,6 +20,10 @@ const AttendanceController = require('../controllers/attendanceController');
 // Query params: ?branch_id=all|X&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD (at most 366 days)
 router.get('/attendance/summary', authenticate, getUserBranches, AttendanceController.getSummary);
 
+// GET - Everyone's work days (status, hours, shifts) for the Timesheet tab. Query params as
+// above, at most 62 days.
+router.get('/attendance/timesheets', authenticate, getUserBranches, AttendanceController.getTimesheets);
+
 // GET - One employee's work days with their punches. Query params as above.
 router.get('/attendance/timesheet/:employeeId', authenticate, getUserBranches, AttendanceController.getTimesheet);
 

@@ -29,10 +29,10 @@ const canEditProfile = (req) => hasCrudPermission(req, 'device_users', ['update'
 const canEditRules = (req) => hasCrudPermission(req, 'attendance_logs', ['update']);
 
 /** start_date / end_date query params, both required. */
-function readRange(req) {
+function readRange(req, maxDays) {
 	const { start_date: start, end_date: end } = req.query;
 	if (!isValidYmd(start) || !isValidYmd(end)) throw new HttpError(400, 'start_date and end_date must be YYYY-MM-DD');
-	const problem = AttendanceService.checkRange(start, end);
+	const problem = AttendanceService.checkRange(start, end, maxDays);
 	if (problem) throw new HttpError(400, problem);
 	return { start, end };
 }
@@ -62,6 +62,18 @@ class AttendanceController {
 			return ApiResponse.success(res, summary, 'Attendance summary retrieved successfully');
 		} catch (error) {
 			return handleError(res, error, 'attendance summary');
+		}
+	}
+
+	// GET /attendance/timesheets?branch_id=&start_date=&end_date= (everyone, for the Timesheet tab)
+	static async getTimesheets(req, res) {
+		try {
+			const scope = resolveBranchScope(req);
+			const { start, end } = readRange(req, AttendanceService.MAX_TIMESHEETS_DAYS);
+			const sheets = await AttendanceService.getTimesheets(scope, start, end);
+			return ApiResponse.success(res, sheets, 'Timesheets retrieved successfully');
+		} catch (error) {
+			return handleError(res, error, 'timesheets');
 		}
 	}
 

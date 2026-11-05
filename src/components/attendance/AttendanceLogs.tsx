@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { Search, RefreshCw, Pencil, Trash2, RotateCcw, Plus, BarChart3, List } from 'lucide-react';
+import { Search, RefreshCw, Pencil, Trash2, RotateCcw, Plus, BarChart3, List, Table2 } from 'lucide-react';
 import { DataTable, type ColumnDef } from '../ui/DataTable';
 import { SkeletonTable } from '../ui/Skeleton';
 import { type Branch } from '../partials/Header';
@@ -19,6 +19,7 @@ import { cn } from '../../lib/utils';
 import { EditPunchDialog, DeletePunchDialog, AddPunchDialog } from './PunchDialogs';
 import { AttendanceSummary } from './AttendanceSummary';
 import { TimesheetPanel } from './Timesheet';
+import { AttendanceTimesheets } from './AttendanceTimesheets';
 import {
   DeviceStatusCards,
   LiveBadge,
@@ -36,18 +37,21 @@ const FRESH_PUNCH_MS = 4500;
 interface AttendanceLogsProps {
   selectedBranch: Branch | null;
   dateRange: { start: string; end: string };
+  /** Sets the header's date range (the Timesheet tab's cutoff buttons). */
+  onDateRangeChange?: (range: { start: string; end: string }) => void;
 }
 
-type View = 'summary' | 'punches';
+type View = 'summary' | 'timesheet' | 'punches';
 
 /**
- * Two views of the header's date range: Summary (attendance computed from the punches, with
- * charts and per-person timesheets; docs/attendance.md) and Punches (the MB160's punches, newest
+ * Three views of the header's date range: Summary (attendance computed from the punches, with
+ * charts and per-person timesheets; docs/attendance.md), Timesheet (everyone's days in one grid,
+ * with exports) and Punches (the MB160's punches, newest
  * first). The device's raw punches are never changed: edits and deletes are corrections stored
  * separately (docs/zkteco-mb160.md), deletes can be undone, and forgotten punches are added as
  * manual punches.
  */
-export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, dateRange }) => {
+export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, dateRange, onDateRangeChange }) => {
   const { t } = useTranslation();
   const branchId = selectedBranch?.id ?? 'all';
   const isAllBranches = String(branchId) === 'all';
@@ -65,6 +69,8 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
   const [truncatedAt, setTruncatedAt] = useState<number | null>(null);
   const [devices, setDevices] = useState<ZkDevice[]>([]);
   const [loading, setLoading] = useState(true);
+  // The device cards stay up while a new date range loads (hiding them made the page jump).
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,6 +108,7 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
         setLogs(nextLogs.logs);
         setTruncatedAt(nextLogs.truncatedAt);
         setDevices(nextDevices);
+        setDevicesLoaded(true);
         setError(null);
       } catch (err) {
         if (!silent) setError(err instanceof Error ? err.message : String(err));
@@ -360,12 +367,13 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
         transition={{ duration: 0.5, ease: 'easeOut' }}
         className="space-y-8"
       >
-        {!loading && <DeviceStatusCards devices={devices} showBranch={isAllBranches} />}
+        {devicesLoaded && <DeviceStatusCards devices={devices} showBranch={isAllBranches} />}
 
         <div className="inline-flex bg-white rounded-xl shadow-sm p-1 gap-1" role="tablist">
           {(
             [
               ['summary', BarChart3, t('attendance.view_summary', 'Summary')],
+              ['timesheet', Table2, t('attendance.view_timesheet', 'Timesheet')],
               ['punches', List, t('attendance.view_punches', 'Punches')],
             ] as const
           ).map(([key, Icon, label]) => (
@@ -391,6 +399,14 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
             branchId={branchId}
             branchName={selectedBranch?.name ?? null}
             dateRange={dateRange}
+            onOpenTimesheet={(employee, date) => setTimesheetFor({ employee, date })}
+          />
+        ) : view === 'timesheet' ? (
+          <AttendanceTimesheets
+            branchId={branchId}
+            branchName={selectedBranch?.name ?? null}
+            dateRange={dateRange}
+            onDateRangeChange={onDateRangeChange}
             onOpenTimesheet={(employee, date) => setTimesheetFor({ employee, date })}
           />
         ) : (
