@@ -2821,12 +2821,10 @@
 		"print_which_cutoff": "Print which cutoff?",
 		"current_cutoff": "Current",
 		"preparing": "Preparing…",
-		"pdf_off_duty": "Off duty",
 		"pdf_printed": "Printed {{when}}",
 		"pdf_page": "Page {{page}} of {{pages}}",
 		"every_day": "Every day",
-		"pdf_days": "Days",
 		"shift_days_only": "{{days}} only",
-		"shift_days_only_hint": "{{name}} is only for {{days}}. Choose only those days to give it."
+		"no_shift_for_days": "No shift is set for all of the selected days."
 	}
 }

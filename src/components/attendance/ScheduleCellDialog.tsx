@@ -37,8 +37,8 @@ interface ScheduleCellDialogProps {
 /**
  * What to put in the selected schedule days: a shift (one click), a day off, leave or a recorded
  * absence (with an optional note), or clear them (not scheduled). A shift that isn't for every
- * selected weekday (Mid and Whole day are Fri–Sun only) is shown but can't be picked, so whatever is
- * picked lands on every selected day. (Custom times were removed 2026-11-06.)
+ * selected weekday (Mid and Whole day are Fri–Sun only) isn't listed, so whatever is picked lands on
+ * every selected day. (Custom times were removed 2026-11-06.)
  */
 export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, summary, shiftTypes, dates, current, anySet, onApply, onClose }) => {
   const { t } = useTranslation();
@@ -46,7 +46,10 @@ export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, 
   // Every shift chip gets the widest one's width, so the chips and the times after them line up.
   const shiftListRef = useRef<HTMLDivElement>(null);
   const [chipWidth, setChipWidth] = useState<number | null>(null);
-  const namesKey = shiftTypes.map((s) => s.name).join('\n');
+  // Only the shifts allowed on every selected weekday are listed.
+  const selectedWeekdays = [...new Set(dates.map(weekdayOf))];
+  const available = shiftTypes.filter((s) => selectedWeekdays.every((d) => s.weekdays.includes(d)));
+  const namesKey = available.map((s) => s.name).join('\n');
   useLayoutEffect(() => {
     if (!isOpen) return;
     setChipWidth(null); // measure at natural width first
@@ -85,8 +88,6 @@ export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, 
   };
 
   const isCurrentShift = (s: ShiftType) => current?.type === 'shift' && current.shiftTypeId === s.id;
-  const selectedWeekdays = [...new Set(dates.map(weekdayOf))];
-  const allowedOnAll = (s: ShiftType) => selectedWeekdays.every((d) => s.weekdays.includes(d));
 
   return (
     <Modal
@@ -123,34 +124,21 @@ export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, 
           <p className={sectionTitle}>{t('attendance.shift', 'Shift')}</p>
           {shiftTypes.length === 0 ? (
             <p className="text-sm text-brand-muted">{t('attendance.no_shift_types', 'No shifts yet. Add one to start scheduling.')}</p>
+          ) : available.length === 0 ? (
+            <p className="text-sm text-brand-muted">{t('attendance.no_shift_for_days', 'No shift is set for all of the selected days.')}</p>
           ) : (
             <div ref={shiftListRef} className="grid grid-cols-2 gap-2">
-              {shiftTypes.map((s) => {
-                const allowed = allowedOnAll(s);
+              {available.map((s) => {
                 const everyDay = s.weekdays.length >= 7;
                 const days = weekdaysLabel(t, s.weekdays);
                 return (
                   <button
                     key={s.id}
                     type="button"
-                    disabled={!allowed}
                     onClick={() => void apply({ type: 'shift', shift_type_id: s.id })}
-                    title={
-                      allowed
-                        ? undefined
-                        : t('attendance.shift_days_only_hint', {
-                            name: s.name,
-                            days,
-                            defaultValue: `${s.name} is only for ${days}. Choose only those days to give it.`,
-                          })
-                    }
                     className={cn(
-                      'flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition',
-                      !allowed
-                        ? 'border-gray-100 opacity-45 cursor-not-allowed'
-                        : isCurrentShift(s)
-                          ? 'border-brand-primary ring-2 ring-brand-primary/20 hover:shadow-sm'
-                          : 'border-gray-100 hover:border-gray-200 hover:shadow-sm',
+                      'flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition hover:shadow-sm',
+                      isCurrentShift(s) ? 'border-brand-primary ring-2 ring-brand-primary/20' : 'border-gray-100 hover:border-gray-200',
                     )}
                   >
                     <span
@@ -163,7 +151,7 @@ export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, 
                     <span className="flex flex-col min-w-0">
                       <span className="text-xs font-medium text-brand-text tabular-nums whitespace-nowrap">{scheduleHours(s.start, s.end)}</span>
                       {!everyDay && (
-                        <span className={cn('text-[11px] font-bold whitespace-nowrap', allowed ? 'text-brand-muted' : 'text-orange-600')}>
+                        <span className="text-[11px] font-bold whitespace-nowrap text-brand-muted">
                           {t('attendance.shift_days_only', { days, defaultValue: `${days} only` })}
                         </span>
                       )}

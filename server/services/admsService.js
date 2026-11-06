@@ -762,10 +762,15 @@ async function syncIfCountsDiffer(device) {
 	if (!differs(row.USER_COUNT, row.dbUsers) && !differs(row.FP_COUNT, row.dbFps)) {
 		return;
 	}
+	// Not while user adds/removals are still on their way: the counts differ only because of them,
+	// and a sync would report an added user before its confirmation, creating them without the Add
+	// employee details (saveUser applies those only to a new row). Seen 2026-11-06 with a batch add.
 	const [open] = await zkPool.execute(
 		`SELECT 1 FROM zk_device_commands
-		 WHERE DEVICE_ID = ? AND COMMAND = 'DATA QUERY USERINFO'
-		   AND (STATUS IN ('pending', 'sent') OR ENCODED_DT >= NOW() - INTERVAL ${COUNT_MISMATCH_SYNC_MINUTES} MINUTE)
+		 WHERE DEVICE_ID = ?
+		   AND ((COMMAND = 'DATA QUERY USERINFO'
+		         AND (STATUS IN ('pending', 'sent') OR ENCODED_DT >= NOW() - INTERVAL ${COUNT_MISMATCH_SYNC_MINUTES} MINUTE))
+		     OR ((COMMAND LIKE 'DATA UPDATE USERINFO %' OR COMMAND LIKE 'DATA DELETE USERINFO %') AND STATUS IN ('pending', 'sent')))
 		 LIMIT 1`,
 		[device.IDNo]
 	);

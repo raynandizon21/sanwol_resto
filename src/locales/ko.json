@@ -2819,12 +2819,10 @@
 		"print_which_cutoff": "인쇄할 마감 기간",
 		"current_cutoff": "이번",
 		"preparing": "준비 중…",
-		"pdf_off_duty": "휴무",
 		"pdf_printed": "인쇄: {{when}}",
 		"pdf_page": "{{page}} / {{pages}} 페이지",
 		"every_day": "매일",
-		"pdf_days": "요일",
 		"shift_days_only": "{{days}}만",
-		"shift_days_only_hint": "{{name}}은(는) {{days}}에만 가능합니다. 해당 요일만 선택해 주세요."
+		"no_shift_for_days": "선택한 모든 날짜에 맞는 근무가 없습니다."
 	}
 }

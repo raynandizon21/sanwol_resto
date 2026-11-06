@@ -2199,12 +2199,10 @@
 		"print_which_cutoff": "印刷する締め期間",
 		"current_cutoff": "今回",
 		"preparing": "準備中…",
-		"pdf_off_duty": "休み",
 		"pdf_printed": "印刷日時: {{when}}",
 		"pdf_page": "{{page}} / {{pages}} ページ",
 		"every_day": "毎日",
-		"pdf_days": "曜日",
 		"shift_days_only": "{{days}}のみ",
-		"shift_days_only_hint": "{{name}}は{{days}}のみです。その曜日だけを選んで設定してください。"
+		"no_shift_for_days": "選択したすべての日に使えるシフトはありません。"
 	}
 }

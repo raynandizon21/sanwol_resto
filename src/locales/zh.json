@@ -2200,12 +2200,10 @@
 		"print_which_cutoff": "打印哪一期？",
 		"current_cutoff": "本期",
 		"preparing": "准备中…",
-		"pdf_off_duty": "休息",
 		"pdf_printed": "打印于 {{when}}",
 		"pdf_page": "第 {{page}} 页，共 {{pages}} 页",
 		"every_day": "每天",
-		"pdf_days": "日期",
 		"shift_days_only": "仅限{{days}}",
-		"shift_days_only_hint": "{{name}}仅限{{days}}。请只选择这些日子来安排。"
+		"no_shift_for_days": "没有适用于所有所选日期的班次。"
 	}
 }
