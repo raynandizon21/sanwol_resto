@@ -58,15 +58,7 @@ const periodLabel = (start: string, end: string) => {
   return `${month} ${Number(start.slice(8))} - ${endMonth}${Number(end.slice(8))}, ${end.slice(0, 4)}`;
 };
 
-/** Builds the PDF (the page opens the print screen for it; it isn't downloaded). */
-export function buildSchedulePdf({
-  t,
-  branchName,
-  range,
-  filterLabel,
-  rows,
-  shiftTypes,
-}: {
+interface SchedulePdfInput {
   t: TFunction;
   branchName: string;
   range: { start: string; end: string };
@@ -75,7 +67,37 @@ export function buildSchedulePdf({
   /** Already in display order (grouped by position). */
   rows: SchedulePdfRow[];
   shiftTypes: ShiftType[];
-}): Blob {
+}
+
+/** Row heights and spacing (pt). The denser ones exist so a whole branch fits on one page. */
+interface Layout {
+  tableTop: number;
+  bottom: number;
+  headHeight: number;
+  rowHeight: number;
+  groupPadding: number;
+  footHeight: number;
+  legendGap: number;
+  legendRow: number;
+}
+const LAYOUTS: Layout[] = [
+  // Roomy: used when it fits on one page, and for a staff too big for one page in any layout.
+  { tableTop: 62, bottom: 36, headHeight: 24, rowHeight: 18, groupPadding: 3, footHeight: 16, legendGap: 14, legendRow: 17 },
+  { tableTop: 58, bottom: 30, headHeight: 22, rowHeight: 16, groupPadding: 2.5, footHeight: 14, legendGap: 10, legendRow: 15 },
+  // Dense: Sanwol's 22 people in 6 positions, plus the legend, on one A4 page (2026-11-06).
+  { tableTop: 56, bottom: 28, headHeight: 20, rowHeight: 14, groupPadding: 1.5, footHeight: 13, legendGap: 8, legendRow: 13 },
+];
+
+/**
+ * Builds the PDF (the page opens the print screen for it; it isn't downloaded) in the roomiest
+ * layout that fits everything on one page, or in the roomy one across pages when none does.
+ */
+export function buildSchedulePdf(input: SchedulePdfInput): Blob {
+  const doc = LAYOUTS.map((layout) => renderSheet(input, layout)).find((d) => d.getNumberOfPages() === 1) ?? renderSheet(input, LAYOUTS[0]);
+  return doc.output('blob');
+}
+
+function renderSheet({ t, branchName, range, filterLabel, rows, shiftTypes }: SchedulePdfInput, L: Layout): jsPDF {
   const doc = new jsPDF('l', 'pt', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -124,7 +146,7 @@ export function buildSchedulePdf({
         {
           content: `${(r.position || t('attendance.no_position', 'No position')).toUpperCase()}  (${count})`,
           colSpan: dates.length + 2,
-          styles: { fillColor: GROUP_FILL, textColor: GROUP_TEXT, fontStyle: 'bold', halign: 'left', fontSize: 7.5, cellPadding: { top: 3, bottom: 3, left: 6, right: 6 } },
+          styles: { fillColor: GROUP_FILL, textColor: GROUP_TEXT, fontStyle: 'bold', halign: 'left', fontSize: 7.5, minCellHeight: 0, cellPadding: { top: L.groupPadding, bottom: L.groupPadding, left: 6, right: 6 } },
         },
       ]);
     }
@@ -157,9 +179,9 @@ export function buildSchedulePdf({
   };
 
   autoTable(doc, {
-    startY: 62,
+    startY: L.tableTop,
     theme: 'grid',
-    margin: { top: 62, left: MARGIN, right: MARGIN, bottom: 36 },
+    margin: { top: L.tableTop, left: MARGIN, right: MARGIN, bottom: L.bottom },
     head: [
       [
         t('attendance.pdf_no', 'No.'),
@@ -181,10 +203,10 @@ export function buildSchedulePdf({
       overflow: 'linebreak',
       lineColor: [209, 213, 219],
       lineWidth: 0.5,
-      minCellHeight: 18,
+      minCellHeight: L.rowHeight,
     },
-    headStyles: { fillColor: INDIGO, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', minCellHeight: 24 },
-    footStyles: { fillColor: [249, 250, 251], textColor: [55, 65, 81], fontStyle: 'bold', fontSize: 8, minCellHeight: 16 },
+    headStyles: { fillColor: INDIGO, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', minCellHeight: L.headHeight },
+    footStyles: { fillColor: [249, 250, 251], textColor: [55, 65, 81], fontStyle: 'bold', fontSize: 8, minCellHeight: L.footHeight },
     columnStyles: {
       0: { cellWidth: noWidth, textColor: [107, 114, 128] },
       1: { cellWidth: nameWidth, halign: 'left', fontStyle: 'bold', cellPadding: { top: 2, bottom: 2, left: 5, right: 4 } },
@@ -222,20 +244,20 @@ export function buildSchedulePdf({
   // Legend under the grid, like the posted schedule's: Shift | Time in | Time out, one row per
   // shift (in its color).
   const legendShifts = shiftTypes.filter((s) => s.active);
-  const LEGEND_ROW = 17;
+  const LEGEND_ROW = L.legendRow;
   const legendHeight = (legendShifts.length + 1) * LEGEND_ROW;
-  let legendY = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 62) + 14;
-  if (legendShifts.length && legendY + legendHeight > pageHeight - 36) {
+  let legendY = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? L.tableTop) + L.legendGap;
+  if (legendShifts.length && legendY + legendHeight > pageHeight - L.bottom) {
     doc.addPage();
     drawHeading();
-    legendY = 70;
+    legendY = L.tableTop + 8;
   }
   type Hook = { section: string; row: { index: number }; column: { index: number }; cell: { styles: Record<string, unknown> } };
   const legendStyles = {
     theme: 'grid' as const,
     startY: legendY,
     pageBreak: 'avoid' as const,
-    styles: { fontSize: 8.5, cellPadding: 3, halign: 'center', valign: 'middle', lineColor: [209, 213, 219], lineWidth: 0.5, textColor: [31, 41, 55], minCellHeight: LEGEND_ROW },
+    styles: { fontSize: 8.5, cellPadding: { top: 1.5, bottom: 1.5, left: 3, right: 3 }, halign: 'center', valign: 'middle', lineColor: [209, 213, 219], lineWidth: 0.5, textColor: [31, 41, 55], minCellHeight: LEGEND_ROW },
     headStyles: { fillColor: INDIGO, textColor: [255, 255, 255], fontStyle: 'bold' },
   };
   if (legendShifts.length) {
@@ -275,5 +297,5 @@ export function buildSchedulePdf({
     );
   }
 
-  return doc.output('blob');
+  return doc;
 }
