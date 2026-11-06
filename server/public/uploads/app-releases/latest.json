@@ -1,7 +1,7 @@
 {
-  "versionCode": 10,
-  "versionName": "1.0.10",
-  "apkFileName": "restoApp-Sanwol-v1.0.10.apk",
+  "versionCode": 11,
+  "versionName": "1.0.11",
+  "apkFileName": "restoApp-Sanwol-v1.0.11.apk",
   "packageName": "com.sanwol.restoapp",
-  "releaseNotes": "Korean prints correctly on the SEWOO printers\nItem names print on one line: English / Korean"
+  "releaseNotes": "Call Waiter button on the menu tablet: the cashier gets a popup and a voice alert for that table\nSet meals split by themselves across printers (e.g. the meat on Meat Section, the cold noodle or stew on Hot & Cold), with Korean names\nMenu tablet: sticky top bar with the category buttons on the item list\nVoice alerts work like Bluemoon: clear English (\"New order for Table 1\"), normal speed, and use Google's speech engine when the tablet's own can't speak\nNo popup or voice alert for orders and additional orders placed by a cashier\nPrinter setup and print routing stay safe on the server when the app is reinstalled\nPrint order list button only shows when a Biller printer is set up\nRemoved the Android notification banner for orders (it came late or not at all); the app opens and alerts on its own instead"
 }

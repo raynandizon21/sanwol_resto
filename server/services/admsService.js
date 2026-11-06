@@ -710,6 +710,8 @@ async function getRequest(device, q) {
 		[RESENT_MARKER, device.IDNo]
 	);
 
+	await syncIfCountsDiffer(device);
+
 	if (config.resyncHours > 0) {
 		const [recent] = await zkPool.execute(
 			`SELECT 1 FROM zk_device_commands
@@ -735,6 +737,44 @@ async function getRequest(device, q) {
 		out += `C:${c.IDNo}:${c.COMMAND}\n`;
 	}
 	return [200, out];
+}
+
+// sanwol_resto-only (not in zkteco_test): an upload the server missed (e.g. it was down or crashing
+// when a user or finger was added at the device) is never re-sent by this firmware, so the app
+// would stay wrong until the next scheduled sync. The counts in INFO show it (the device sends INFO
+// only at boot and after commands/uploads, so the last stored counts are checked on every poll):
+// when the device's user or fingerprint counts differ from what is stored, ask for all users again.
+// Faces are left out: one face is 12 templates and FaceCount's unit isn't verified. At most
+// once per COUNT_MISMATCH_SYNC_MINUTES, and never while a full user query is still open, so a
+// count the DB can't match never turns into a query loop.
+const COUNT_MISMATCH_SYNC_MINUTES = 30;
+
+async function syncIfCountsDiffer(device) {
+	const [[row]] = await zkPool.execute(
+		`SELECT d.USER_COUNT, d.FP_COUNT,
+			(SELECT COUNT(*) FROM employee e WHERE e.ZK_DEVICE_ID = d.IDNo AND e.ZK_ON_DEVICE = 1) AS dbUsers,
+			(SELECT COUNT(*) FROM zk_biometric_templates t WHERE t.DEVICE_ID = d.IDNo AND t.TEMPLATE_KIND = 'FP') AS dbFps
+		 FROM zk_devices d WHERE d.IDNo = ?`,
+		[device.IDNo]
+	);
+	if (!row) return;
+	const differs = (deviceCount, dbCount) => deviceCount !== null && Number(deviceCount) !== Number(dbCount);
+	if (!differs(row.USER_COUNT, row.dbUsers) && !differs(row.FP_COUNT, row.dbFps)) {
+		return;
+	}
+	const [open] = await zkPool.execute(
+		`SELECT 1 FROM zk_device_commands
+		 WHERE DEVICE_ID = ? AND COMMAND = 'DATA QUERY USERINFO'
+		   AND (STATUS IN ('pending', 'sent') OR ENCODED_DT >= NOW() - INTERVAL ${COUNT_MISMATCH_SYNC_MINUTES} MINUTE)
+		 LIMIT 1`,
+		[device.IDNo]
+	);
+	if (open.length) return;
+	await queueCommand(device.IDNo, 'Count mismatch sync: users and biometrics', 'DATA QUERY USERINFO', null);
+	console.log(
+		`[ADMS] device ${device.IDNo}: it has ${row.USER_COUNT} users / ${row.FP_COUNT} fingerprints, ` +
+			`app has ${row.dbUsers} / ${row.dbFps}; queued a user sync`
+	);
 }
 
 // INFO=FirmwareVer,UserCount,FPCount,AttCount,IP,FPAlgVer,FaceAlgVer,FaceTmpNeeded,FaceCount,FuncFlags
