@@ -1,50 +1,34 @@
-// Periods for the Timesheet tab's buttons: the branch's cutoff (semi-monthly, monthly, weekly or
-// bi-weekly; set in Attendance rules), a week (Monday to Sunday) and a month. Pure; no timezone.
+// Periods for the Timesheet tab's buttons and the Schedules page's Print / PDF: the cutoff (fixed
+// since 2026-11-06: the 1st–15th and the 16th–end of the month), a week (Monday to Sunday) and a
+// month. Pure; no timezone.
 
-import type { CutoffRule } from '../../services/attendanceService';
-import { addDaysYmd, monthBounds, shiftMonth, weekdayOf } from './attendanceShared';
+import { addDaysYmd, monthBounds, weekdayOf } from './attendanceShared';
 
 export type Range = { start: string; end: string };
 
 export type PeriodKind = 'cutoff' | 'week' | 'month';
 
-export const DEFAULT_CUTOFF: CutoffRule = { type: 'semi_monthly', day1: 1, day2: 16, weekday: 1, anchor: null };
-
 const daysBetween = (a: string, b: string) =>
   Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
-/** "2026-11" + day -> "2026-11-05" */
-const onDay = (ymd: string, day: number) => `${ymd.slice(0, 8)}${String(day).padStart(2, '0')}`;
+/** The cutoff that contains `ymd`: the 1st–15th or the 16th–end of its month (not capped at today). */
+export const cutoffPeriodOf = (ymd: string): Range => {
+  const month = monthBounds(ymd);
+  return Number(ymd.slice(8)) <= 15
+    ? { start: month.start, end: `${ymd.slice(0, 8)}15` }
+    : { start: `${ymd.slice(0, 8)}16`, end: month.end };
+};
 
-/** The cutoff period that contains `ymd` (not capped at today). */
-export const cutoffPeriodOf = (cutoff: CutoffRule, ymd: string): Range => {
-  const day = Number(ymd.slice(8));
-  switch (cutoff.type) {
-    case 'weekly': {
-      const start = addDaysYmd(ymd, -((weekdayOf(ymd) - cutoff.weekday + 7) % 7));
-      return { start, end: addDaysYmd(start, 6) };
-    }
-    case 'biweekly': {
-      const anchor = cutoff.anchor || '2026-01-05';
-      const start = addDaysYmd(anchor, Math.floor(daysBetween(anchor, ymd) / 14) * 14);
-      return { start, end: addDaysYmd(start, 13) };
-    }
-    case 'monthly': {
-      const start = day >= cutoff.day1 ? onDay(ymd, cutoff.day1) : onDay(shiftMonth(ymd, -1), cutoff.day1);
-      return { start, end: addDaysYmd(onDay(shiftMonth(start, 1), cutoff.day1), -1) };
-    }
-    default: {
-      // Two a month: day1 → day2 - 1, then day2 → next month's day1 - 1.
-      if (day >= cutoff.day2) return { start: onDay(ymd, cutoff.day2), end: addDaysYmd(onDay(shiftMonth(ymd, 1), cutoff.day1), -1) };
-      if (day >= cutoff.day1) return { start: onDay(ymd, cutoff.day1), end: onDay(ymd, cutoff.day2 - 1) };
-      return { start: onDay(shiftMonth(ymd, -1), cutoff.day2), end: addDaysYmd(onDay(ymd, cutoff.day1), -1) };
-    }
-  }
+/** The cutoffs that overlap a range, in order (a month has two; a week one or two). */
+export const cutoffsIn = (range: Range): Range[] => {
+  const out: Range[] = [];
+  for (let p = cutoffPeriodOf(range.start); p.start <= range.end; p = cutoffPeriodOf(addDaysYmd(p.end, 1))) out.push(p);
+  return out;
 };
 
 /** The whole period of `kind` that contains `ymd` (not capped at today). */
-export const periodOf = (kind: PeriodKind, ymd: string, cutoff: CutoffRule = DEFAULT_CUTOFF): Range => {
-  if (kind === 'cutoff') return cutoffPeriodOf(cutoff, ymd);
+export const periodOf = (kind: PeriodKind, ymd: string): Range => {
+  if (kind === 'cutoff') return cutoffPeriodOf(ymd);
   if (kind === 'week') {
     const start = addDaysYmd(ymd, -((weekdayOf(ymd) + 6) % 7));
     return { start, end: addDaysYmd(start, 6) };
@@ -56,21 +40,21 @@ export const periodOf = (kind: PeriodKind, ymd: string, cutoff: CutoffRule = DEF
 export const capAtToday = (range: Range, today: string): Range => ({ start: range.start, end: range.end > today ? today : range.end });
 
 /** Which period the range is (one that is still running ends today), if any. Cutoff first. */
-export const kindOf = (range: Range, today: string, cutoff: CutoffRule = DEFAULT_CUTOFF): PeriodKind | null => {
+export const kindOf = (range: Range, today: string): PeriodKind | null => {
   for (const kind of ['cutoff', 'month', 'week'] as PeriodKind[]) {
-    const p = capAtToday(periodOf(kind, range.start, cutoff), today);
+    const p = capAtToday(periodOf(kind, range.start), today);
     if (p.start === range.start && p.end === range.end) return kind;
   }
   return null;
 };
 
 /** The period of the same kind just before (-1) or after (+1) the range. */
-export const stepPeriod = (kind: PeriodKind, range: Range, dir: -1 | 1, cutoff: CutoffRule = DEFAULT_CUTOFF): Range => {
-  const whole = periodOf(kind, range.start, cutoff);
-  return periodOf(kind, dir > 0 ? addDaysYmd(whole.end, 1) : addDaysYmd(whole.start, -1), cutoff);
+export const stepPeriod = (kind: PeriodKind, range: Range, dir: -1 | 1): Range => {
+  const whole = periodOf(kind, range.start);
+  return periodOf(kind, dir > 0 ? addDaysYmd(whole.end, 1) : addDaysYmd(whole.start, -1));
 };
 
-/** "1–15" / "16–end" style label of the cutoff kind, for the button: "Nov 1 – 15". */
+/** A short label for a period, for the buttons: "Nov 1 – 15", "Oct 27 – Nov 2". */
 export const shortRangeLabel = (range: Range) => {
   const fmt = (ymd: string, withMonth: boolean) =>
     new Date(`${ymd}T00:00:00Z`).toLocaleDateString('en-US', withMonth ? { month: 'short', day: 'numeric', timeZone: 'UTC' } : { day: 'numeric', timeZone: 'UTC' });

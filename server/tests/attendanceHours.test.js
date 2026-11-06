@@ -4,7 +4,7 @@
 // engine's hours per day must equal the hours of the sessions themselves.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { computeAttendance, DEFAULT_RULES } = require('../services/attendanceEngine');
+const { computeAttendance } = require('../services/attendanceEngine');
 
 const IN_KEYS = [0, 3, 4]; // Time-in, Break-in, OT-in
 const OUT_KEYS = [1, 2, 5]; // Time-out, Break-out, OT-out
@@ -79,7 +79,6 @@ const shuffle = (list, rand) => {
 function run(punches) {
 	return computeAttendance({
 		punches,
-		rules: DEFAULT_RULES,
 		startYmd: ymd(START),
 		endYmd: ymd(START + (DAYS + 1) * 86400e3),
 		now: '2027-01-01 00:00:00',
@@ -103,8 +102,9 @@ test('random complete sessions: hours per day equal the sessions (200 runs)', ()
 		for (const d of days) {
 			const want = expected.get(d.date) || 0;
 			assert.equal(d.workedMinutes, want, `seed ${seed} ${d.date}`);
-			assert.equal(d.regularMinutes, Math.min(want, 480), `seed ${seed} ${d.date} regular`);
-			assert.equal(d.overMinutes, Math.max(0, want - 480), `seed ${seed} ${d.date} over`);
+			// No shifts scheduled: every hour is regular.
+			assert.equal(d.regularMinutes, want, `seed ${seed} ${d.date} regular`);
+			assert.equal(d.overMinutes, 0, `seed ${seed} ${d.date} over`);
 			assert.deepEqual(d.flags, [], `seed ${seed} ${d.date} flags`);
 		}
 		const total = [...expected.values()].reduce((a, b) => a + b, 0);
@@ -143,10 +143,9 @@ test('random sessions with one forgotten punch: only that shift is left out, and
 });
 
 // Hand-worked cases, the kind staff will actually produce.
-const day = (punches, rules = {}) =>
+const day = (punches) =>
 	computeAttendance({
 		punches: punches.map(([dt, status]) => ({ dt, status })),
-		rules: { ...DEFAULT_RULES, ...rules },
 		startYmd: '2026-10-05',
 		endYmd: '2026-10-06',
 		now: '2026-10-27 12:00:00',
@@ -160,7 +159,7 @@ test('hand-worked: seconds are exact and each shift rounds down', () => {
 });
 
 test('hand-worked: a typical restaurant day with a split shift', () => {
-	// 10:00–14:30 (4h 30m), then 17:00–23:15 (6h 15m) = 10h 45m: 8h regular, 2h 45m over.
+	// 10:00–14:30 (4h 30m), then 17:00–23:15 (6h 15m) = 10h 45m, all regular (no shift that day).
 	const [d] = day([
 		['2026-10-05 09:58:12', 0],
 		['2026-10-05 14:30:40', 1],
@@ -168,8 +167,8 @@ test('hand-worked: a typical restaurant day with a split shift', () => {
 		['2026-10-05 23:15:00', 1],
 	]);
 	assert.equal(d.workedMinutes, 272 + 375); // 4h 32m 28s + 6h 15m 55s
-	assert.equal(d.regularMinutes, 480);
-	assert.equal(d.overMinutes, 167);
+	assert.equal(d.regularMinutes, 647);
+	assert.equal(d.overMinutes, 0);
 });
 
 test('hand-worked: closing shift past midnight counts on the starting day', () => {

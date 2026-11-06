@@ -1,5 +1,5 @@
 // Computed attendance (time tracking from MB160 punches), per-day schedules (Schedules page), shift
-// types, holidays, per-branch rules, and employee profiles.
+// types, and employee profiles.
 // Server: routes/attendanceRoutes.js. Rules: docs/attendance.md.
 
 import {
@@ -13,29 +13,6 @@ import {
 } from './zktecoService';
 
 // ---- Types ----
-
-/**
- * When payroll periods start: twice a month (on day1 and day2), monthly (day1), weekly (on
- * `weekday`, 0 = Sunday) or every two weeks (from `anchor`, the first day of one period).
- */
-export interface CutoffRule {
-  type: 'semi_monthly' | 'monthly' | 'weekly' | 'biweekly';
-  day1: number;
-  day2: number;
-  weekday: number;
-  anchor: string | null;
-}
-
-/** Per-branch rules (server/models/attendanceSettingsModel.js). */
-export interface AttendanceRules {
-  /** Hours a day counted as regular; more is shown as "over". */
-  standardHours: number;
-  /** A time-in with no time-out within this many hours is a forgotten time-out. */
-  maxShiftHours: number;
-  /** Minutes after a shift's start before a time-in is late. */
-  graceMinutes: number;
-  cutoff: CutoffRule;
-}
 
 /** Off-duty days set on the Schedules page. */
 export type OffDutyType = 'day_off' | 'leave' | 'absent';
@@ -53,9 +30,9 @@ export interface DayShift {
 /**
  * worked = complete; incomplete = needs fixing; off = no punches and not scheduled; upcoming =
  * future (or today, not in yet); absent = a past shift with no punches, or recorded absent;
- * rest_day = a day off; holiday = a branch holiday with no shift; excused = on leave.
+ * rest_day = a day off; excused = on leave.
  */
-export type DayStatus = 'worked' | 'incomplete' | 'on_shift' | 'off' | 'upcoming' | 'absent' | 'rest_day' | 'holiday' | 'excused';
+export type DayStatus = 'worked' | 'incomplete' | 'on_shift' | 'off' | 'upcoming' | 'absent' | 'rest_day' | 'excused';
 
 /** Problems that keep a shift from being counted (fix the punches), then notes. */
 export type DayFlag = 'missing_in' | 'missing_out' | 'long_shift' | 'inferred' | 'marked_absent';
@@ -123,8 +100,6 @@ export interface WorkDay {
   offDuty: { type: OffDutyType; note: string | null } | null;
   lateMinutes: number;
   undertimeMinutes: number;
-  /** Branch holiday name. */
-  holiday: string | null;
   flags: DayFlag[];
   shifts: WorkShift[];
 }
@@ -160,7 +135,6 @@ export interface AttendanceSummary {
 
 export interface Timesheet {
   employee: Omit<SummaryEmployee, 'totals' | 'employeeId'> & { employeeId: number };
-  rules: AttendanceRules;
   now: string;
   days: (WorkDay & { punches: TimesheetPunch[] })[];
   totals: AttendanceTotals;
@@ -168,8 +142,6 @@ export interface Timesheet {
 
 /** One person's row of the Timesheet tab. */
 export interface TimesheetsEmployee extends Omit<SummaryEmployee, 'totals'> {
-  /** The standard day of the person's branch (hours counted as regular). */
-  standardHours: number;
   days: WorkDay[];
   totals: AttendanceTotals;
 }
@@ -178,8 +150,6 @@ export interface TimesheetsEmployee extends Omit<SummaryEmployee, 'totals'> {
 export interface Timesheets {
   range: { start: string; end: string };
   now: string;
-  /** The scope's cutoff (`mixed`: its branches differ, so this is the default). */
-  cutoff: CutoffRule & { mixed: boolean };
   employees: TimesheetsEmployee[];
   totals: AttendanceTotals;
 }
@@ -212,12 +182,6 @@ export interface EmployeeProfileChanges {
   exclude_from_attendance?: boolean;
 }
 
-export interface Holiday {
-  id: number;
-  date: string;
-  name: string;
-}
-
 /** A branch's named shift (Opening 10:00–19:00, ...). */
 export interface ShiftType {
   id: number;
@@ -236,7 +200,6 @@ export type ScheduleEntry =
 
 export interface ScheduleEmployee {
   employeeId: number;
-  pin: string;
   name: string | null;
   position: string | null;
   /** false = removed from the device (listed only when they have days in the range). */
@@ -256,7 +219,6 @@ export interface ScheduleData {
   days: ({ employeeId: number; date: string } & ScheduleEntry)[];
   /** Active and removed (removed ones only to show names). */
   shiftTypes: ShiftType[];
-  holidays: { date: string; name: string }[];
   permissions: { setDays: boolean; add: boolean; edit: boolean; remove: boolean };
 }
 
@@ -303,22 +265,6 @@ export const getTimesheets = async (branchId: Branch, startDate: string, endDate
   return handleResponse<Timesheets>(response);
 };
 
-export const getAttendanceRules = async (branchId: Branch): Promise<{ rules: AttendanceRules; canEdit: boolean }> => {
-  const response = await fetch(buildUrl('/attendance/settings', { branch_id: branchParam(branchId) }), {
-    headers: authHeaders(),
-  });
-  return handleResponse<{ rules: AttendanceRules; canEdit: boolean }>(response);
-};
-
-export const saveAttendanceRules = async (branchId: Branch, rules: AttendanceRules): Promise<void> => {
-  const response = await fetch(buildUrl('/attendance/settings', { branch_id: branchParam(branchId) }), {
-    method: 'PUT',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(rules),
-  });
-  await handleResponse<unknown>(response);
-};
-
 export const updateEmployeeProfile = async (
   branchId: Branch,
   employeeId: number,
@@ -332,35 +278,6 @@ export const updateEmployeeProfile = async (
   const row = await handleResponse<EmployeeProfileApiRecord & { DEVICE_RENAME: string | null }>(response);
   // DEVICE_RENAME: the new name queued for the device when the profile name changed.
   return { profile: mapEmployeeProfile(row), deviceRename: row.DEVICE_RENAME ?? null };
-};
-
-type HolidayRow = { IDNo: number; HOLIDAY_DATE: string; NAME: string };
-const mapHolidays = (rows: HolidayRow[] | undefined): Holiday[] =>
-  (rows || []).map((r) => ({ id: r.IDNo, date: r.HOLIDAY_DATE, name: r.NAME }));
-
-/** One branch's holidays, newest first, and whether the caller may add / remove them. */
-export const getHolidays = async (branchId: Branch): Promise<{ holidays: Holiday[]; canAdd: boolean; canRemove: boolean }> => {
-  const response = await fetch(buildUrl('/attendance/holidays', { branch_id: branchParam(branchId) }), { headers: authHeaders() });
-  const data = await handleResponse<{ holidays: HolidayRow[]; canAdd: boolean; canRemove: boolean }>(response);
-  return { holidays: mapHolidays(data.holidays), canAdd: data.canAdd, canRemove: data.canRemove };
-};
-
-/** Adds a branch holiday (a date that has one is renamed). Returns the new list. */
-export const saveHoliday = async (branchId: Branch, date: string, name: string): Promise<Holiday[]> => {
-  const response = await fetch(buildUrl('/attendance/holidays', { branch_id: branchParam(branchId) }), {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date, name }),
-  });
-  return mapHolidays((await handleResponse<{ holidays: HolidayRow[] }>(response)).holidays);
-};
-
-export const removeHoliday = async (branchId: Branch, id: number): Promise<Holiday[]> => {
-  const response = await fetch(buildUrl(`/attendance/holidays/${id}`, { branch_id: branchParam(branchId) }), {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  return mapHolidays((await handleResponse<{ holidays: HolidayRow[] }>(response)).holidays);
 };
 
 // ---- Schedules page ----
@@ -385,22 +302,6 @@ export const setScheduleDays = async (
     body: JSON.stringify({ cells: cells.map((c) => ({ employee_id: c.employeeId, date: c.date })), value }),
   });
   return handleResponse<{ changed: number }>(response);
-};
-
-/** Copies 7 days from `fromStart` onto the 7 days from `toStart` (only empty days unless `overwrite`). */
-export const copyScheduleWeek = async (
-  branchId: Branch,
-  fromStart: string,
-  toStart: string,
-  overwrite: boolean,
-  employeeIds?: number[],
-): Promise<{ written: number }> => {
-  const response = await fetch(buildUrl('/attendance/schedule/copy-week', { branch_id: branchParam(branchId) }), {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from_start: fromStart, to_start: toStart, overwrite, employee_ids: employeeIds }),
-  });
-  return handleResponse<{ written: number }>(response);
 };
 
 export type ShiftTypeInput = { name: string; start: string; end: string; color: string };

@@ -1,7 +1,7 @@
 // Run: cd server && npm test
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { computeAttendance, DEFAULT_RULES } = require('../services/attendanceEngine');
+const { computeAttendance } = require('../services/attendanceEngine');
 
 const IN = 0;
 const OUT = 1;
@@ -19,8 +19,8 @@ const TODAY = '2026-10-27';
 const punch = (time, status, date = DAY) => ({ dt: `${date} ${time}:00`, status });
 
 /** One day's result. */
-function day(punches, { rules = {}, date = DAY, now = NOW } = {}) {
-	return computeAttendance({ punches, rules: { ...DEFAULT_RULES, ...rules }, startYmd: date, endYmd: date, now }).days[0];
+function day(punches, { date = DAY, now = NOW } = {}) {
+	return computeAttendance({ punches, startYmd: date, endYmd: date, now }).days[0];
 }
 
 test('a normal day: time between time-in and time-out', () => {
@@ -33,17 +33,11 @@ test('a normal day: time between time-in and time-out', () => {
 	assert.equal(d.shifts[0].minutes, 480);
 });
 
-test('time past the standard day is shown as over, nothing is lost', () => {
-	const d = day([punch('09:00', IN), punch('19:30', OUT)]);
-	assert.equal(d.workedMinutes, 630);
-	assert.equal(d.regularMinutes, 480);
-	assert.equal(d.overMinutes, 150);
-});
-
-test('the standard day follows the branch rule', () => {
-	const d = day([punch('09:00', IN), punch('19:00', OUT)], { rules: { standardHours: 9.5 } });
-	assert.equal(d.regularMinutes, 570);
-	assert.equal(d.overMinutes, 30);
+test('a day without a shift is all regular: no standard day', () => {
+	const d = day([punch('09:00', IN), punch('21:30', OUT)]);
+	assert.equal(d.workedMinutes, 750);
+	assert.equal(d.regularMinutes, 750);
+	assert.equal(d.overMinutes, 0);
 });
 
 test('no automatic break: clocking out for lunch is simply not counted', () => {
@@ -108,7 +102,6 @@ test('a shift still running today is "on shift", not missing a time-out', () => 
 test('a night shift past midnight counts on the day it started', () => {
 	const result = computeAttendance({
 		punches: [punch('18:00', IN), punch('03:00', OUT, NEXT)],
-		rules: DEFAULT_RULES,
 		startYmd: DAY,
 		endYmd: NEXT,
 		now: NOW,
@@ -116,7 +109,7 @@ test('a night shift past midnight counts on the day it started', () => {
 	const [first, second] = result.days;
 	assert.equal(first.status, 'worked');
 	assert.equal(first.workedMinutes, 540);
-	assert.equal(first.overMinutes, 60);
+	assert.equal(first.overMinutes, 0);
 	assert.equal(second.status, 'off');
 });
 
@@ -127,16 +120,26 @@ test('a forgotten time-out joined to the next day: flagged, not counted', () => 
 	assert.equal(d.workedMinutes, 0);
 });
 
-test('no time-out within the longest shift: the time-in is left without one', () => {
+test('a time-out a day and more later still closes the shift, flagged as too long', () => {
 	const result = computeAttendance({
 		punches: [punch('08:00', IN), punch('17:00', OUT, NEXT)],
-		rules: DEFAULT_RULES,
 		startYmd: DAY,
 		endYmd: NEXT,
 		now: NOW,
 	});
-	assert.ok(result.days[0].flags.includes('missing_out'));
-	assert.ok(result.days[1].flags.includes('missing_in'));
+	assert.ok(result.days[0].flags.includes('long_shift'));
+	assert.equal(result.days[0].status, 'incomplete');
+	assert.equal(result.days[0].workedMinutes, 0);
+	assert.equal(result.days[1].status, 'off');
+});
+
+test('a time-in with no time-out is on shift for at most 16 hours', () => {
+	const now = `${NEXT} 01:00:00`;
+	const running = computeAttendance({ punches: [punch('10:00', IN)], startYmd: DAY, endYmd: NEXT, now }).days[0];
+	assert.equal(running.status, 'on_shift');
+	const forgotten = computeAttendance({ punches: [punch('08:00', IN)], startYmd: DAY, endYmd: NEXT, now: `${NEXT} 00:30:00` }).days[0];
+	assert.equal(forgotten.status, 'incomplete');
+	assert.ok(forgotten.flags.includes('missing_out'));
 });
 
 test('punches with no state (older device setting) alternate in / out, flagged', () => {
@@ -161,7 +164,6 @@ test('totals: days worked, hours, average over days with hours', () => {
 			punch('15:00', OUT, NEXT),
 			punch('09:00', IN, '2026-10-07'),
 		],
-		rules: DEFAULT_RULES,
 		startYmd: DAY,
 		endYmd: '2026-10-08',
 		now: NOW,
@@ -169,8 +171,8 @@ test('totals: days worked, hours, average over days with hours', () => {
 	assert.equal(totals.daysWorked, 3);
 	assert.equal(totals.daysWithHours, 2);
 	assert.equal(totals.workedMinutes, 600 + 360);
-	assert.equal(totals.regularMinutes, 480 + 360);
-	assert.equal(totals.overMinutes, 120);
+	assert.equal(totals.regularMinutes, 600 + 360);
+	assert.equal(totals.overMinutes, 0);
 	assert.equal(totals.incompleteDays, 1);
 	assert.equal(totals.averageMinutes, 480);
 });

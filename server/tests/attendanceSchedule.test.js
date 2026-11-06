@@ -1,16 +1,15 @@
-// Late, undertime, absences, days off, leave, recorded absences and holidays against a per-day
+// Late, undertime, absences, days off, leave and recorded absences against a per-day
 // schedule (attendanceEngine with a roster, as set on the Schedules page).
 // Run: cd server && npm test
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { computeAttendance, DEFAULT_RULES, shiftLength } = require('../services/attendanceEngine');
+const { computeAttendance, shiftLength } = require('../services/attendanceEngine');
 
 const IN = 0;
 const OUT = 1;
 // 2026-10-05 is a Monday.
 const MON = '2026-10-05';
 const NOW = '2026-10-27 12:00:00';
-const RULES = { ...DEFAULT_RULES, graceMinutes: 15 };
 
 const punch = (time, status, date = MON) => ({ dt: `${date} ${time}:00`, status });
 const OPENING = { type: 'shift', shiftTypeId: 1, name: 'Opening', color: '#FCD34D', start: '10:00', end: '19:00' };
@@ -18,15 +17,23 @@ const rosterOf = (entry, date = MON) => new Map(entry ? [[date, entry]] : []);
 
 /** One day's result. */
 function day(punches, { date = MON, now = NOW, entry = OPENING, ...extra } = {}) {
-	return computeAttendance({ punches, rules: RULES, startYmd: date, endYmd: date, now, roster: rosterOf(entry, date), ...extra }).days[0];
+	return computeAttendance({ punches, startYmd: date, endYmd: date, now, roster: rosterOf(entry, date), ...extra }).days[0];
 }
 
-test('on time and within the grace period: not late', () => {
+test('on time (or within the first minute): not late', () => {
 	assert.equal(day([punch('09:40', IN), punch('19:00', OUT)]).lateMinutes, 0);
-	assert.equal(day([punch('10:15', IN), punch('19:00', OUT)]).lateMinutes, 0);
+	assert.equal(day([punch('10:00', IN), punch('19:00', OUT)]).lateMinutes, 0);
+	assert.equal(computeAttendance({
+		punches: [{ dt: `${MON} 10:00:59`, status: IN }, punch('19:00', OUT)],
+		startYmd: MON,
+		endYmd: MON,
+		now: NOW,
+		roster: rosterOf(OPENING),
+	}).days[0].lateMinutes, 0);
 });
 
-test('past the grace period, late counts from the start', () => {
+test('no grace period: late counts from the start, from the first minute', () => {
+	assert.equal(day([punch('10:01', IN), punch('19:00', OUT)]).lateMinutes, 1);
 	const d = day([punch('10:20', IN), punch('19:00', OUT)]);
 	assert.equal(d.lateMinutes, 20);
 	assert.equal(d.status, 'worked');
@@ -41,7 +48,6 @@ test('each day uses its own shift', () => {
 	]);
 	const { days } = computeAttendance({
 		punches: [punch('10:20', IN), punch('19:00', OUT), punch('14:20', IN, '2026-10-06'), punch('22:30', OUT, '2026-10-06')],
-		rules: RULES,
 		startYmd: MON,
 		endYmd: '2026-10-06',
 		now: NOW,
@@ -71,7 +77,7 @@ test('custom times count like a shift type', () => {
 test('a night shift ends the next day', () => {
 	const entry = { type: 'shift', start: '18:00', end: '02:00' };
 	const d = day([punch('18:05', IN), punch('01:30', OUT, '2026-10-06')], { entry });
-	assert.equal(d.lateMinutes, 0);
+	assert.equal(d.lateMinutes, 5);
 	assert.equal(d.undertimeMinutes, 30);
 	assert.equal(shiftLength('18:00', '02:00'), 480);
 });
@@ -88,10 +94,10 @@ test('regular hours go up to the shift length', () => {
 	// The 12 h Whole day shift.
 	const whole = day([punch('11:00', IN), punch('23:00', OUT)], { entry: { type: 'shift', start: '11:00', end: '23:00' } });
 	assert.equal(whole.regularMinutes, 720);
-	// Not scheduled: the standard day (8 h).
-	const free = day([punch('10:00', IN), punch('19:00', OUT)], { entry: null });
-	assert.equal(free.regularMinutes, 480);
-	assert.equal(free.overMinutes, 60);
+	// Not scheduled: all regular.
+	const free = day([punch('10:00', IN), punch('22:00', OUT)], { entry: null });
+	assert.equal(free.regularMinutes, 720);
+	assert.equal(free.overMinutes, 0);
 });
 
 test('a day to fix has no undertime yet', () => {
@@ -141,14 +147,6 @@ test('a recorded absence counts as absent; punches win when they came in', () =>
 	assert.equal(worked.workedMinutes, 540);
 });
 
-test('holidays: only people with a shift are expected', () => {
-	const holidays = new Map([[MON, 'All Saints']]);
-	assert.equal(day([], { entry: null, holidays }).status, 'holiday');
-	const scheduled = day([], { holidays });
-	assert.equal(scheduled.status, 'absent');
-	assert.equal(scheduled.holiday, 'All Saints');
-});
-
 test('shifts before the hire date or after the last day are not expected', () => {
 	assert.equal(day([], { hired: '2026-10-06' }).status, 'off');
 	assert.equal(day([], { separated: '2026-10-04' }).status, 'off');
@@ -165,7 +163,6 @@ test('totals: absences, leave, late, undertime and scheduled days', () => {
 	]);
 	const { totals } = computeAttendance({
 		punches: [punch('10:30', IN), punch('19:00', OUT), punch('10:00', IN, '2026-10-09'), punch('18:00', OUT, '2026-10-09')],
-		rules: RULES,
 		startYmd: '2026-10-05',
 		endYmd: '2026-10-09',
 		now: NOW,

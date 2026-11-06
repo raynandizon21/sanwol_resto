@@ -32,7 +32,7 @@ export const RemoveDeviceUserDialog: React.FC<RemoveDeviceUserDialogProps> = ({
   useEffect(() => setError(null), [user]);
 
   if (!user) return null;
-  const who = user.name || `${t('attendance.pin', 'User ID')} ${user.pin}`;
+  const who = user.name || '—';
 
   const remove = async () => {
     setBusy(true);
@@ -56,7 +56,7 @@ export const RemoveDeviceUserDialog: React.FC<RemoveDeviceUserDialogProps> = ({
       title={t('attendance.remove_user_title', 'Remove from device')}
       subtitle={
         <span className="text-sm text-brand-muted">
-          {who} · {t('attendance.pin', 'User ID')} {user.pin}
+          {who}
         </span>
       }
       maxWidth="md"

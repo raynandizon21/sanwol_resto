@@ -32,6 +32,6 @@ module.exports = [
     require('./userManagementRoutes'),    // User management routes
     require('./userProfileRoutes'),       // User profile routes
     require('./zktecoRoutes'),            // ZKTeco MB160 attendance device
-    require('./attendanceRoutes')         // Computed attendance, attendance rules, employee profiles
+    require('./attendanceRoutes')         // Computed attendance, schedules, employee profiles
 ];
   

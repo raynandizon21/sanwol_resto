@@ -32,8 +32,8 @@ const splitDt = (dt: string) => ({ date: dt.slice(0, 10), time: dt.slice(11, 19)
 /** <input type="time" step="1"> drops ":00" seconds in some browsers. */
 const joinDt = (date: string, time: string) => `${date} ${time.length === 5 ? `${time}:00` : time}`;
 
-const who = (log: AttendanceLog, t: TFunction) =>
-  `${log.name || t('attendance.unknown_user', 'Not on device')} · ${t('attendance.pin', 'User ID')} ${log.pin}`;
+// The User ID only for someone not on the device: nothing else tells them apart.
+const who = (log: AttendanceLog, t: TFunction) => log.name || `${t('attendance.unknown_user', 'Not on device')} (${log.pin})`;
 
 /** A timesheet punch in the shape the edit/delete dialogs take. */
 export const timesheetPunchToLog = (p: TimesheetPunch, name: string | null): AttendanceLog => ({
@@ -408,7 +408,7 @@ export const AddPunchDialog: React.FC<AddPunchDialogProps> = ({
             .filter((u) => u.active)
             .map((u) => ({
               value: u.id,
-              label: `${u.profile?.fullName || u.name || '—'} · ${t('attendance.pin', 'User ID')} ${u.pin}`,
+              label: u.profile?.fullName || u.name || '—',
             })),
         );
       })
@@ -464,7 +464,7 @@ export const AddPunchDialog: React.FC<AddPunchDialogProps> = ({
       subtitle={
         employee ? (
           <span className="text-sm text-brand-muted">
-            {employee.name || '—'} · {t('attendance.pin', 'User ID')} {employee.pin}
+            {employee.name || '—'}
           </span>
         ) : undefined
       }

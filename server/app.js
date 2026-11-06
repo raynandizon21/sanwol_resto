@@ -33,7 +33,7 @@ const {
 } = require('./utils/ensureSchema');
 const ZktecoModel = require('./models/zktecoModel');
 const EmployeeModel = require('./models/employeeModel');
-const AttendanceSettingsModel = require('./models/attendanceSettingsModel');
+const ScheduleModel = require('./models/scheduleModel');
 const { startAdmsServer } = require('./services/admsServer');
 const app = express();
 app.use(compression());
@@ -267,10 +267,11 @@ app.use((err, req, res, next) => {
 	} catch (e) {
 		console.error('[Schema] ensure zkteco schema failed:', e?.message || e);
 	}
-	// Employee profiles and attendance rules (sanwol_resto) behind the Employees / Attendance pages.
+	// Employee profiles and schedules (sanwol_resto) behind the Employees / Schedules / Attendance
+	// pages. The schedule step also drops the tables of removed features (rules, holidays).
 	try {
 		await EmployeeModel.ensureSchema();
-		await AttendanceSettingsModel.ensureSchema();
+		await ScheduleModel.ensureSchema();
 	} catch (e) {
 		console.error('[Schema] ensure employee/attendance schema failed:', e?.message || e);
 	}

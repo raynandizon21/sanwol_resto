@@ -1,6 +1,6 @@
 import React from 'react';
 import type { TFunction } from 'i18next';
-import { AlertTriangle, CalendarOff, CheckCircle2, Clock, Flag, Moon, UserX } from 'lucide-react';
+import { AlertTriangle, CalendarOff, CheckCircle2, Clock, Moon, UserX } from 'lucide-react';
 import type { DayFlag, DayShift, DayStatus, OffDutyType } from '../../services/attendanceService';
 import { cn } from '../../lib/utils';
 
@@ -46,7 +46,6 @@ const DAY_STATUS_META: Record<DayStatus, StatusMeta> = {
   upcoming: { key: 'attendance.day_upcoming', label: 'Upcoming', chip: 'bg-gray-50 text-brand-muted', cell: 'bg-white text-gray-300', icon: null },
   absent: { key: 'attendance.day_absent', label: 'Absent', chip: 'bg-red-50 text-red-700', cell: 'bg-red-100 text-red-800', icon: UserX },
   rest_day: { key: 'attendance.day_rest', label: 'Day off', chip: 'bg-gray-100 text-gray-600', cell: 'bg-gray-100 text-gray-500', icon: Moon },
-  holiday: { key: 'attendance.day_holiday', label: 'Holiday', chip: 'bg-sky-50 text-sky-700', cell: 'bg-sky-100 text-sky-800', icon: Flag },
   excused: { key: 'attendance.day_excused', label: 'Leave', chip: 'bg-violet-50 text-violet-700', cell: 'bg-violet-100 text-violet-800', icon: CalendarOff },
 };
 
@@ -63,12 +62,8 @@ export const offDutyLabel = (t: TFunction, type: OffDutyType) => {
   return entry ? t(entry[0], entry[1]) : type;
 };
 
-/**
- * The short word for a day without punches, for grid cells: "Absent", "Day off", "Leave" or the
- * holiday's name. Null for other days.
- */
-export const dayMarkLabel = (t: TFunction, day: { status: DayStatus; holiday: string | null }) => {
-  if (day.status === 'holiday') return day.holiday || dayStatusLabel(t, 'holiday');
+/** The short word for a day without punches, for grid cells: "Absent", "Day off" or "Leave". Null for other days. */
+export const dayMarkLabel = (t: TFunction, day: { status: DayStatus }) => {
   if (day.status === 'absent' || day.status === 'rest_day' || day.status === 'excused') return dayStatusLabel(t, day.status);
   return null;
 };

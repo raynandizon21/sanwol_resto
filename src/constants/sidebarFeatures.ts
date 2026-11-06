@@ -181,8 +181,8 @@ export const SIDEBAR_FEATURES: SidebarFeatureConfig[] = [
     icon: 'IdCard',
   },
   {
-    // Per-employee, per-day work schedules (shift types, days off, leave), holidays and the
-    // attendance rules. Shift types and rules are per branch.
+    // Per-employee, per-day work schedules (shift types, days off, leave). Shift types are per
+    // branch.
     key: 'schedules',
     section: 'staff',
     kind: 'item',

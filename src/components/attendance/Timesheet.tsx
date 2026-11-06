@@ -90,13 +90,12 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
   // With no day picked: days with punches, absences and marked days, newest first.
   const listed = selected
     ? days.filter((d) => d.date === selected)
-    : [...days].reverse().filter((d) => d.shifts.length > 0 || ['absent', 'holiday', 'excused'].includes(d.status));
+    : [...days].reverse().filter((d) => d.shifts.length > 0 || ['absent', 'excused'].includes(d.status));
 
   const name = sheet?.employee.name ?? null;
   const monthLabel = new Date(`${month}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
   const leading = weekdayOf(month);
   const totals = sheet?.totals;
-  const standardHours = sheet?.rules.standardHours;
 
   const openEdit = (p: TimesheetPunch) => setEditLog(timesheetPunchToLog(p, name));
   const openDelete = (p: TimesheetPunch) => setDeleteLog(timesheetPunchToLog(p, name));
@@ -114,16 +113,13 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
             <ChevronRight size={18} />
           </button>
         </div>
-        {standardHours != null && (
-          <div className="text-xs text-brand-muted font-medium text-right space-y-0.5">
-            <p>
-              {t('attendance.scheduled_days_label', {
-                count: totals?.scheduledDays ?? 0,
-                defaultValue: `Shifts this month: ${totals?.scheduledDays ?? 0}`,
-              })}
-            </p>
-            <p>{t('attendance.standard_day_unscheduled', { hours: standardHours, defaultValue: `Unscheduled days: ${standardHours} h standard` })}</p>
-          </div>
+        {totals && (
+          <p className="text-xs text-brand-muted font-medium text-right">
+            {t('attendance.scheduled_days_label', {
+              count: totals.scheduledDays,
+              defaultValue: `Shifts this month: ${totals.scheduledDays}`,
+            })}
+          </p>
         )}
       </div>
 
@@ -136,7 +132,7 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
           [t('attendance.hours_worked', 'Hours worked'), totals ? formatMinutes(totals.workedMinutes) : '—'],
           [t('attendance.average_per_day', 'Average per day'), totals?.daysWithHours ? formatMinutes(totals.averageMinutes) : '—'],
           [t('attendance.regular_hours', 'Regular hours'), totals ? formatMinutes(totals.regularMinutes) : '—'],
-          [t('attendance.over_standard', 'Over the standard day'), totals ? formatMinutes(totals.overMinutes) : '—'],
+          [t('attendance.over_shift', 'Over the shift'), totals ? formatMinutes(totals.overMinutes) : '—'],
           [t('attendance.needs_fixing', 'Needs fixing'), totals ? String(totals.incompleteDays) : '—'],
           [t('attendance.absent', 'Absent'), totals ? String(totals.absentDays) : '—'],
           [t('attendance.late', 'Late'), totals ? (totals.lateDays ? `${totals.lateDays} · ${formatMinutes(totals.lateMinutes)}` : '0') : '—'],
@@ -181,7 +177,6 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
                     ? [
                         `${formatYmdDisplay(ymd)} · ${dayStatusLabel(t, day.status)}${worked ? ` · ${formatMinutes(worked)}` : ''}`,
                         day.shift ? shiftText(day.shift) : null,
-                        day.holiday,
                         day.offDuty ? [offDutyLabel(t, day.offDuty.type), day.offDuty.note].filter(Boolean).join(': ') : null,
                         day.lateMinutes ? `${t('attendance.late', 'Late')} ${formatMinutes(day.lateMinutes)}` : null,
                         day.undertimeMinutes ? `${t('attendance.undertime', 'Undertime')} ${formatMinutes(day.undertimeMinutes)}` : null,
@@ -218,7 +213,7 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
         </div>
         {/* Legend: color is never the only cue (each cell also has an icon and a tooltip). */}
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {(['worked', 'incomplete', 'on_shift', 'absent', 'rest_day', 'holiday', 'excused'] as const).map((s) => (
+          {(['worked', 'incomplete', 'on_shift', 'absent', 'rest_day', 'excused'] as const).map((s) => (
             <DayStatusChip key={s} status={s} t={t} />
           ))}
         </div>
@@ -355,11 +350,6 @@ const DayCard: React.FC<{
           {t('attendance.absent_hint', 'They had a shift and no punches. If they were off or on leave, change the day on the Schedules page.')}
         </p>
       )}
-      {day.holiday && (
-        <p className="text-xs text-sky-700 font-medium">
-          {t('attendance.branch_holiday', 'Branch holiday')}: {day.holiday}
-        </p>
-      )}
 
       {issues.length > 0 && (
         <div className="bg-orange-50 rounded-xl px-3 py-2 space-y-1">
@@ -440,10 +430,9 @@ export const TimesheetPanel: React.FC<TimesheetPanelProps> = ({ employee, onClos
       onClose={onClose}
       title={
         employee
-          ? t('attendance.timesheet_title', {
+          ? t('attendance.timesheet_title_name', {
               name: employee.name || '—',
-              pin: employee.pin,
-              defaultValue: `Timesheet · ${employee.name || '—'} (User ID ${employee.pin})`,
+              defaultValue: `Timesheet · ${employee.name || '—'}`,
             })
           : ''
       }

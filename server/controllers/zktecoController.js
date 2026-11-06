@@ -259,7 +259,7 @@ class ZktecoController {
 			}
 			// On the device, or its add command still on the way.
 			if (!(await ZktecoModel.isPinTaken(device.IDNo, pin))) {
-				return ApiResponse.error(res, `User ID ${pin} is not on this device`, 404);
+				return ApiResponse.error(res, 'This person is no longer on this device', 404);
 			}
 			// The device rejects re-scanning an enrolled finger as a duplicate (Return=4), even
 			// for the same user, so it has to be removed first (DELETE .../fingerprints/:finger).
@@ -376,7 +376,7 @@ class ZktecoController {
 			if (!/^\d{1,32}$/.test(pin)) return ApiResponse.badRequest(res, 'Invalid User ID');
 
 			const user = await ZktecoModel.getActiveDeviceUser(device.IDNo, pin);
-			if (!user) return ApiResponse.error(res, `User ID ${pin} is not on this device`, 404);
+			if (!user) return ApiResponse.error(res, 'This person is no longer on this device', 404);
 			if (await ZktecoModel.getPendingUserChange(device.IDNo, pin)) {
 				return ApiResponse.error(res, 'This user has a change or removal waiting for the device. Wait for it, or cancel it, first.', 409);
 			}

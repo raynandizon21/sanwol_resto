@@ -1,6 +1,7 @@
 // Printable schedule (Schedules page → Print / PDF), laid out like Sanwol's posted FOH schedule:
 // No. | Employee name | Position | one column per date, shift names in their colors, and a legend
-// of the shifts with their times in and out. A week fits A4 landscape; a month uses A3.
+// of the shifts with their times in and out. One cutoff (1–15 or 16–end, up to 16 days) per PDF,
+// on A4 landscape.
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -34,7 +35,6 @@ export function exportSchedulePdf({
   title,
   subtitle,
   dates,
-  holidays,
   rows,
   shiftTypes,
   filename,
@@ -43,12 +43,11 @@ export function exportSchedulePdf({
   title: string;
   subtitle: string;
   dates: string[];
-  holidays: Map<string, string>;
   rows: SchedulePdfRow[];
   shiftTypes: ShiftType[];
   filename: string;
 }) {
-  const doc = new jsPDF('l', 'pt', dates.length > 10 ? 'a3' : 'a4');
+  const doc = new jsPDF('l', 'pt', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 30;
 
@@ -65,9 +64,10 @@ export function exportSchedulePdf({
     return offDutyLabel(t, e.type).toUpperCase();
   };
 
-  const month = dates.length > 10;
-  const nameWidth = month ? 120 : 150;
-  const positionWidth = month ? 90 : 130;
+  // More than a week of columns (a cutoff): narrower name columns and smaller text.
+  const compact = dates.length > 7;
+  const nameWidth = compact ? 110 : 150;
+  const positionWidth = compact ? 80 : 130;
   const dayWidth = (pageWidth - margin * 2 - 24 - nameWidth - positionWidth) / dates.length;
 
   autoTable(doc, {
@@ -83,8 +83,8 @@ export function exportSchedulePdf({
       ],
     ],
     body: rows.map((r, i) => [String(i + 1), r.name, r.position, ...r.entries.map(cellText)]),
-    styles: { fontSize: month ? 6 : 7.5, cellPadding: 3, valign: 'middle', halign: 'center', overflow: 'linebreak' },
-    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontSize: month ? 6.5 : 8, fontStyle: 'bold' },
+    styles: { fontSize: compact ? 6 : 7.5, cellPadding: compact ? 2 : 3, valign: 'middle', halign: 'center', overflow: 'linebreak' },
+    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontSize: compact ? 6.5 : 8, fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 24 },
       1: { cellWidth: nameWidth, halign: 'left', fontStyle: 'bold' },
@@ -93,10 +93,7 @@ export function exportSchedulePdf({
     },
     didParseCell: (hook) => {
       const col = hook.column.index - 3;
-      if (col < 0) return;
-      // Holiday columns get a light blue heading.
-      if (hook.section === 'head' && holidays.has(dates[col])) hook.cell.styles.fillColor = [3, 105, 161];
-      if (hook.section !== 'body') return;
+      if (col < 0 || hook.section !== 'body') return;
       const entry = rows[hook.row.index]?.entries[col];
       if (!entry) return;
       if (entry.type === 'shift') {
@@ -111,7 +108,7 @@ export function exportSchedulePdf({
     },
   });
 
-  // Legend: the shifts with their times (like the posted schedule), then off-duty and holidays.
+  // Legend: the shifts with their times (like the posted schedule).
   const lastY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 60;
   const active = shiftTypes.filter((s) => s.active);
   autoTable(doc, {
@@ -131,13 +128,5 @@ export function exportSchedulePdf({
       hook.cell.styles.fontStyle = 'bold';
     },
   });
-  const holidayList = dates.filter((d) => holidays.has(d)).map((d) => `${d.slice(5, 7)}/${d.slice(8)} ${holidays.get(d)}`);
-  if (holidayList.length) {
-    const y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? lastY) + 16;
-    doc.setFontSize(8);
-    doc.setTextColor(60, 60, 60);
-    doc.text(`${t('attendance.rules_holidays', 'Holidays')}: ${holidayList.join(' · ')}`, margin, y);
-  }
-
   doc.save(filename);
 }

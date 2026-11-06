@@ -79,11 +79,7 @@ export const EmployeePanel: React.FC<EmployeePanelProps> = ({
     <SidePanel
       isOpen={Boolean(user)}
       onClose={onClose}
-      title={t('attendance.employee_title', {
-        name: displayName,
-        pin: user.pin,
-        defaultValue: `${displayName} · User ID ${user.pin}`,
-      })}
+      title={displayName}
       width="lg"
     >
       <div className="inline-flex bg-gray-100 rounded-xl p-1 gap-1 mb-5" role="tablist">

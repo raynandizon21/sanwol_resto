@@ -136,7 +136,7 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
 
   const hoursSeries = [
     { key: 'regular', label: t('attendance.regular_hours', 'Regular hours'), color: SERIES.main, format: (v: number) => `${v} h` },
-    { key: 'over', label: t('attendance.over_standard', 'Over the standard day'), color: SERIES.accent, format: (v: number) => `${v} h` },
+    { key: 'over', label: t('attendance.over_shift', 'Over the shift'), color: SERIES.accent, format: (v: number) => `${v} h` },
   ];
   const peopleSeries = [
     { key: 'people', label: t('attendance.people_complete', 'Worked'), color: SERIES.main, format: String },
@@ -185,12 +185,10 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
       render: (e) => (
         <div className="flex flex-col">
           <span className={cn('text-sm font-bold', e.name ? 'text-brand-text' : 'text-brand-muted italic')}>
-            {e.name || t('attendance.unknown_user', 'Not on device')}
+            {/* The User ID only for someone not on the device: nothing else tells them apart. */}
+            {e.name || `${t('attendance.unknown_user', 'Not on device')} (${e.pin})`}
           </span>
-          <span className="text-xs text-brand-muted font-medium">
-            {t('attendance.pin', 'User ID')} {e.pin}
-            {e.position ? ` · ${e.position}` : ''}
-          </span>
+          {e.position && <span className="text-xs text-brand-muted font-medium">{e.position}</span>}
         </div>
       ),
     },
@@ -218,7 +216,7 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
     { header: t('attendance.hours_worked', 'Hours worked'), render: (e) => num(formatMinutes(e.totals.workedMinutes)) },
     { header: t('attendance.regular_hours', 'Regular hours'), render: (e) => num(formatMinutes(e.totals.regularMinutes)) },
     {
-      header: t('attendance.over_standard', 'Over the standard day'),
+      header: t('attendance.over_shift', 'Over the shift'),
       render: (e) => num(e.totals.overMinutes ? formatMinutes(e.totals.overMinutes) : '—'),
     },
     {
@@ -269,7 +267,7 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
   return (
     <div className={cn('space-y-6 transition-opacity', loading && 'opacity-60')}>
       {/* Today (live) */}
-      {/* Attendance rules, shifts and holidays are set on the Schedules page. */}
+      {/* Shifts, days off and leave are set on the Schedules page. */}
       <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-brand-text">
           {t('attendance.today', 'Today')} · {formatYmdDisplay(today.date)}
@@ -282,7 +280,7 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
               {today.onShift.map((p) => (
                 <li key={p.employeeId} className="text-xs text-brand-text font-medium flex justify-between gap-2">
                   <button type="button" className="truncate hover:underline text-left" onClick={() => open(p)}>
-                    {p.name || p.pin}
+                    {p.name || '—'}
                   </button>
                   <span className="text-brand-muted tabular-nums shrink-0">
                     {t('attendance.since', 'since')} {formatClock(p.since)}

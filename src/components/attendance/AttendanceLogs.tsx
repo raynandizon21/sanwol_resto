@@ -123,16 +123,19 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
   useEffect(() => {
     void load();
   }, [load]);
+  // A punch's person: their name, or for someone not on the device "Not on device (7)" (the User ID
+  // is shown only then, since nothing else tells those people apart).
+  const logName = (log: AttendanceLog) => log.name || `${t('attendance.unknown_user', 'Not on device')} (${log.pin})`;
+
   // New punches (and corrections made elsewhere) appear as soon as they are saved.
   const live = useZkLiveReload(branchId, ['attendance', 'device'], () => void load(true, true));
 
   const filteredLogs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return logs;
-    return logs.filter((log) =>
-      [log.pin, log.currentPin ?? '', log.name ?? ''].some((v) => v.toLowerCase().includes(q)),
-    );
-  }, [logs, searchQuery]);
+    return logs.filter((log) => logName(log).toLowerCase().includes(q));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logs, searchQuery, t]);
 
   // Deleted punches are only listed (with "Show deleted"); they never count.
   const countedLogs = logs.filter((log) => !log.isDeleted);
@@ -225,29 +228,6 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
       },
     },
     {
-      header: t('attendance.pin', 'User ID'),
-      accessorKey: 'pin',
-      sortable: true,
-      // The User ID the device recorded; if the person was added again under another one, that
-      // is shown below (the old ID may belong to someone else by now).
-      render: (log) => (
-        <div className={cn('flex flex-col', dim(log))}>
-          <span className="text-sm font-medium tabular-nums">{log.pin}</span>
-          {log.currentPin && (
-            <span
-              className="text-xs text-brand-muted tabular-nums"
-              title={t('attendance.now_pin_hint', {
-                pin: log.currentPin,
-                defaultValue: `Added to the device again as User ID ${log.currentPin}. The device recorded this punch under the old ID.`,
-              })}
-            >
-              {t('attendance.now_pin', { pin: log.currentPin, defaultValue: `now ${log.currentPin}` })}
-            </span>
-          )}
-        </div>
-      ),
-    },
-    {
       header: t('attendance.name', 'Name'),
       accessorKey: 'name',
       sortable: true,
@@ -256,7 +236,7 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
           {log.name ? (
             <span className="text-sm font-bold text-brand-text">{log.name}</span>
           ) : (
-            <span className="text-sm text-brand-muted italic">{t('attendance.unknown_user', 'Not on device')}</span>
+            <span className="text-sm text-brand-muted italic">{logName(log)}</span>
           )}
           {log.userActive === false && (
             <StateTag
@@ -415,7 +395,7 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" />
             <input
               type="text"
-              placeholder={t('attendance.search_placeholder', 'Search by user ID or name')}
+              placeholder={t('attendance.search_name_placeholder', 'Search by name')}
               className="bg-white border-none rounded-xl pl-10 pr-4 py-2.5 text-base w-80 shadow-sm focus:ring-2 focus:ring-brand-primary/20 outline-none"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}

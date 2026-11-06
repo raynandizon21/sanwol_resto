@@ -2,8 +2,8 @@
 // ATTENDANCE CONTROLLER
 // ============================================
 // File: controllers/attendanceController.js
-// Description: Computed attendance (summary, timesheet), the Schedules page (per-day schedules,
-// shift types, holidays, attendance rules), and the employee profiles behind the Employees page.
+// Description: Computed attendance (summary, timesheet), the Schedules page (per-day schedules
+// and shift types), and the employee profiles behind the Employees page.
 // Punches come from the MB160 (zk_attendance_logs); the people are employee rows with ZK_ device
 // columns. See docs/attendance.md.
 // ============================================
@@ -11,8 +11,6 @@
 const ApiResponse = require('../utils/apiResponse');
 const EmployeeModel = require('../models/employeeModel');
 const ZktecoModel = require('../models/zktecoModel');
-const AttendanceSettingsModel = require('../models/attendanceSettingsModel');
-const AttendanceCalendarModel = require('../models/attendanceCalendarModel');
 const ScheduleModel = require('../models/scheduleModel');
 const AttendanceService = require('../services/attendanceService');
 const { emitZkChange } = require('../services/zktecoEvents');
@@ -29,24 +27,20 @@ const { syncDeviceName } = require('../services/deviceNameSync');
 
 // Profile edits are part of managing people on the Employees page (CRUD module device_users).
 const canEditProfile = (req) => hasCrudPermission(req, 'device_users', ['update']);
-// The Schedules page (CRUD module schedules, 2026-11-06). Add or Edit: set people's days (and copy
-// a week). Edit: the attendance rules and editing shift types. Add / Delete: add / remove shift
-// types and holidays.
+// The Schedules page (CRUD module schedules, 2026-11-06). Add or Edit: set people's days. Add /
+// Edit / Delete: add / edit / remove shift types.
 const canSetDays = (req) => hasCrudPermission(req, 'schedules', ['create', 'update']);
-const canEditRules = (req) => hasCrudPermission(req, 'schedules', ['update']);
+const canEditShiftTypes = (req) => hasCrudPermission(req, 'schedules', ['update']);
 const canAddScheduleItems = (req) => hasCrudPermission(req, 'schedules', ['create']);
 const canRemoveScheduleItems = (req) => hasCrudPermission(req, 'schedules', ['delete']);
 
-// The Schedules page shows at most this many days (a month, or a two-week cutoff, fits).
+// The Schedules page shows at most this many days (a month fits).
 const MAX_SCHEDULE_DAYS = 62;
 // Cells set in one request (a month for about 150 people).
 const MAX_CELLS = 5000;
 
 /** Device-local today ("YYYY-MM-DD"): edits to a shift type apply from here on. */
 const deviceToday = async () => String(await ZktecoModel.deviceNow()).slice(0, 10);
-
-/** Single-spaced, trimmed, cut to `max` characters; null when empty. */
-const cleanText = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max) || null;
 
 /** start_date / end_date query params, both required. */
 function readRange(req, maxDays) {
@@ -57,7 +51,7 @@ function readRange(req, maxDays) {
 	return { start, end };
 }
 
-/** A single branch from ?branch_id= (rules are per branch, so "All branches" doesn't apply). */
+/** A single branch from ?branch_id= (schedules are per branch, so "All branches" doesn't apply). */
 function requireOneBranch(req) {
 	const scope = resolveBranchScope(req);
 	if (!scope || scope.length !== 1) throw new HttpError(400, 'Choose a branch');
@@ -110,33 +104,6 @@ class AttendanceController {
 		}
 	}
 
-	// GET /attendance/settings?branch_id=X
-	static async getSettings(req, res) {
-		try {
-			const branchId = requireOneBranch(req);
-			const rules = await AttendanceSettingsModel.getRules(branchId);
-			return ApiResponse.success(res, { branchId, rules, canEdit: await canEditRules(req) }, 'Attendance rules retrieved successfully');
-		} catch (error) {
-			return handleError(res, error, 'attendance rules');
-		}
-	}
-
-	// PUT /attendance/settings?branch_id=X  { standardHours, maxShiftHours }
-	static async updateSettings(req, res) {
-		try {
-			if (!(await canEditRules(req))) return ApiResponse.forbidden(res, 'You are not allowed to change attendance rules');
-			const branchId = requireOneBranch(req);
-			const { rules, error } = AttendanceSettingsModel.validate(req.body || {});
-			if (error) return ApiResponse.badRequest(res, error);
-			await AttendanceSettingsModel.saveRules(branchId, rules, req.user?.user_id ?? null);
-			// Open summaries recompute with the new rules.
-			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
-			return ApiResponse.success(res, { branchId, rules }, 'Attendance rules saved');
-		} catch (error) {
-			return handleError(res, error, 'attendance rules');
-		}
-	}
-
 	// GET /attendance/employees/:id?branch_id=
 	static async getEmployee(req, res) {
 		try {
@@ -183,54 +150,11 @@ class AttendanceController {
 		}
 	}
 
-	// GET /attendance/holidays?branch_id=X  (one branch's holidays, newest first)
-	static async getHolidays(req, res) {
-		try {
-			const branchId = requireOneBranch(req);
-			const rows = await AttendanceCalendarModel.listHolidays(branchId);
-			const [canAdd, canRemove] = await Promise.all([canAddScheduleItems(req), canRemoveScheduleItems(req)]);
-			return ApiResponse.success(res, { holidays: rows, canAdd, canRemove, canEdit: canAdd || canRemove }, 'Holidays retrieved successfully');
-		} catch (error) {
-			return handleError(res, error, 'holidays');
-		}
-	}
-
-	// POST /attendance/holidays?branch_id=X  { date, name }  (a date that has one is renamed)
-	static async saveHoliday(req, res) {
-		try {
-			if (!(await canAddScheduleItems(req))) return ApiResponse.forbidden(res, 'You are not allowed to add holidays');
-			const branchId = requireOneBranch(req);
-			const { date } = req.body || {};
-			const name = cleanText(req.body?.name, 100);
-			if (!isValidYmd(date)) return ApiResponse.badRequest(res, 'date must be YYYY-MM-DD');
-			if (!name) return ApiResponse.badRequest(res, 'Name the holiday');
-			await AttendanceCalendarModel.saveHoliday(branchId, date, name, req.user?.user_id ?? null);
-			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
-			return ApiResponse.success(res, { holidays: await AttendanceCalendarModel.listHolidays(branchId) }, 'Holiday saved');
-		} catch (error) {
-			return handleError(res, error, 'holiday');
-		}
-	}
-
-	// DELETE /attendance/holidays/:id?branch_id=X
-	static async removeHoliday(req, res) {
-		try {
-			if (!(await canRemoveScheduleItems(req))) return ApiResponse.forbidden(res, 'You are not allowed to remove holidays');
-			const branchId = requireOneBranch(req);
-			const removed = await AttendanceCalendarModel.removeHoliday(branchId, parseInt(req.params.id, 10), req.user?.user_id ?? null);
-			if (!removed) return ApiResponse.error(res, 'Holiday not found', 404);
-			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
-			return ApiResponse.success(res, { holidays: await AttendanceCalendarModel.listHolidays(branchId) }, 'Holiday removed');
-		} catch (error) {
-			return handleError(res, error, 'holiday');
-		}
-	}
-
 	// ---- Schedules page ----
 
 	// GET /attendance/schedule?branch_id=X&start_date=&end_date=  (at most 62 days)
 	// Everyone on the branch's device (and people removed from it who have days in the range), their
-	// days, the branch's shift types and holidays, and what the caller may change.
+	// days, the branch's shift types, and what the caller may change.
 	static async getSchedule(req, res) {
 		try {
 			const branchId = requireOneBranch(req);
@@ -245,7 +169,6 @@ class AttendanceController {
 				if (person.excludeFromAttendance || (!person.active && !map?.size)) continue;
 				employees.push({
 					employeeId: person.employeeId,
-					pin: person.pin,
 					name: person.name,
 					position: person.position,
 					active: person.active,
@@ -254,16 +177,14 @@ class AttendanceController {
 				});
 				map?.forEach((entry, date) => days.push({ employeeId: person.employeeId, date, ...entry }));
 			}
-			const [shiftTypes, holidayMaps, today, canSet, canAdd, canEdit, canRemove] = await Promise.all([
+			const [shiftTypes, today, canSet, canAdd, canEdit, canRemove] = await Promise.all([
 				ScheduleModel.listShiftTypes(branchId, { includeInactive: true }),
-				AttendanceCalendarModel.getHolidayMaps([branchId], start, end),
 				deviceToday(),
 				canSetDays(req),
 				canAddScheduleItems(req),
-				canEditRules(req),
+				canEditShiftTypes(req),
 				canRemoveScheduleItems(req),
 			]);
-			const holidays = [...(holidayMaps.get(Number(branchId)) || new Map())].map(([date, name]) => ({ date, name }));
 			return ApiResponse.success(
 				res,
 				{
@@ -273,7 +194,6 @@ class AttendanceController {
 					employees,
 					days,
 					shiftTypes,
-					holidays,
 					permissions: { setDays: canSet, add: canAdd, edit: canEdit, remove: canRemove },
 				},
 				'Schedule retrieved successfully'
@@ -324,31 +244,6 @@ class AttendanceController {
 		}
 	}
 
-	// POST /attendance/schedule/copy-week?branch_id=X  { from_start, to_start, overwrite, employee_ids? }
-	// Copies 7 days onto another 7 days (everyone in the branch unless employee_ids is given).
-	static async copyScheduleWeek(req, res) {
-		try {
-			if (!(await canSetDays(req))) return ApiResponse.forbidden(res, 'You are not allowed to change schedules');
-			const branchId = requireOneBranch(req);
-			const { from_start: fromStart, to_start: toStart } = req.body || {};
-			if (!isValidYmd(fromStart) || !isValidYmd(toStart)) return ApiResponse.badRequest(res, 'from_start and to_start must be YYYY-MM-DD');
-			// The weeks can't overlap (with "replace", the target is cleared before copying).
-			const apart = Math.abs(Date.parse(`${toStart}T00:00:00Z`) - Date.parse(`${fromStart}T00:00:00Z`)) / 86400000;
-			if (apart < 7) return ApiResponse.badRequest(res, 'The weeks must not overlap: choose a week at least 7 days away');
-			const people = await AttendanceService.loadPeople([branchId]);
-			let ids = [...people.values()].filter((p) => p.active && !p.excludeFromAttendance).map((p) => p.employeeId);
-			if (Array.isArray(req.body?.employee_ids)) {
-				const wanted = new Set(req.body.employee_ids.map(Number));
-				ids = ids.filter((id) => wanted.has(id));
-			}
-			const written = await ScheduleModel.copyWeek(ids, fromStart, toStart, Boolean(req.body?.overwrite), req.user?.user_id ?? null);
-			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
-			return ApiResponse.success(res, { written }, 'Week copied');
-		} catch (error) {
-			return handleError(res, error, 'schedule');
-		}
-	}
-
 	// GET /attendance/shift-types?branch_id=X  (active ones; seeded with Sanwol's the first time)
 	static async getShiftTypes(req, res) {
 		try {
@@ -380,7 +275,7 @@ class AttendanceController {
 	// New times apply to days given this shift from today on; earlier days keep theirs.
 	static async updateShiftType(req, res) {
 		try {
-			if (!(await canEditRules(req))) return ApiResponse.forbidden(res, 'You are not allowed to edit shifts');
+			if (!(await canEditShiftTypes(req))) return ApiResponse.forbidden(res, 'You are not allowed to edit shifts');
 			const branchId = requireOneBranch(req);
 			const id = parseInt(req.params.id, 10);
 			const current = await ScheduleModel.getShiftType(branchId, id);

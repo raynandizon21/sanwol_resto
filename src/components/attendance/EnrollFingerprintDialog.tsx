@@ -154,7 +154,7 @@ export const EnrollFingerprintDialog: React.FC<EnrollFingerprintDialogProps> = (
 
   const selectedEnrolled = finger != null && enrolled.has(finger);
   const selectedLabel = finger != null ? fingerLabel(t, finger) : '';
-  const who = target.name || `${t('attendance.pin', 'User ID')} ${target.pin}`;
+  const who = target.name || '—';
 
   const run = async (kind: 'enroll' | 'remove') => {
     if (finger == null) return;
@@ -455,7 +455,7 @@ export const EnrollFingerprintDialog: React.FC<EnrollFingerprintDialogProps> = (
       title={t('attendance.enroll_title', 'Enroll fingerprint')}
       subtitle={
         <span className="text-sm text-brand-muted">
-          {who} · {t('attendance.pin', 'User ID')} {target.pin}
+          {who}
         </span>
       }
       maxWidth="lg"

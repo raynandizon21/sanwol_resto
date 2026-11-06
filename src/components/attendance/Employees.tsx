@@ -213,7 +213,7 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
     const digits = q.replace(/\D/g, '');
     return rows.filter(
       (u) =>
-        [u.pin, u.name ?? '', u.profile?.fullName ?? '', u.position ?? '', u.contactNo ?? ''].some((v) =>
+        [u.name ?? '', u.profile?.fullName ?? '', u.position ?? '', u.contactNo ?? ''].some((v) =>
           v.toLowerCase().includes(q),
         ) ||
         (digits.length >= 3 && (u.contactNo ?? '').replace(/\D/g, '').includes(digits)),
@@ -255,12 +255,6 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
   };
 
   const columns: ColumnDef<EmployeeRow>[] = [
-    {
-      header: t('attendance.pin', 'User ID'),
-      accessorKey: 'pin',
-      sortable: true,
-      render: (u) => <span className={cn('text-sm font-medium tabular-nums', dim(u))}>{u.pin}</span>,
-    },
     {
       header: t('attendance.name', 'Name'),
       accessorKey: 'name',
@@ -499,7 +493,7 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" />
             <input
               type="text"
-              placeholder={t('attendance.employees_search_placeholder', 'Search name, User ID, position or contact no.')}
+              placeholder={t('attendance.employees_search_placeholder_v2', 'Search name, position or contact no.')}
               className="bg-white border-none rounded-xl pl-10 pr-4 py-2.5 text-base w-96 shadow-sm focus:ring-2 focus:ring-brand-primary/20 outline-none"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -549,7 +543,6 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
                       :{' '}
                     </span>
                     <span className="font-bold text-brand-text">{p.name || '—'}</span>
-                    <span className="text-brand-muted tabular-nums"> · {t('attendance.pin', 'User ID')} {p.pin}</span>
                     {devices.length > 1 && <span className="text-brand-muted"> · {p.deviceName}</span>}
                   </span>
                   <div className="flex items-center gap-2">

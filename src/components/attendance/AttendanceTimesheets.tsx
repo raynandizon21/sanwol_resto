@@ -31,7 +31,6 @@ import {
   weekdayShort,
 } from './attendanceShared';
 import {
-  DEFAULT_CUTOFF,
   capAtToday,
   cutoffPeriodOf,
   datesOf,
@@ -58,6 +57,7 @@ const shiftText = (shift: WorkShift, now: string, clock: (v: string | null) => s
 /** Decimal hours for spreadsheets: 510 -> "8.50". */
 const decimalHours = (minutes: number) => (minutes / 60).toFixed(2);
 
+// The User ID is shown only for punches of someone not on the device (nothing else tells them apart).
 const personLabel = (t: TFunction, e: TimesheetsEmployee) => e.name || `${t('attendance.unknown_user', 'Not on device')} (${e.pin})`;
 
 /** What the Schedules page says for a day: "Opening (10:00 AM – 7:00 PM)", "Leave: Sick", or "". */
@@ -130,7 +130,7 @@ interface AttendanceTimesheetsProps {
 /**
  * Everyone's timesheet for the header's date range: one row per person, one column per day with
  * the shifts (time-in – time-out), hours, late and undertime, or why nobody punched (absent, rest
- * day, holiday, leave); plus totals. The period buttons follow the branch's cutoff. Clicking a day
+ * day, leave); plus totals. The cutoff buttons use the 1st–15th and 16th–end. Clicking a day
  * opens the person's timesheet there. Exports to CSV (one row per day) and PDF (grid, totals).
  */
 export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
@@ -181,15 +181,14 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
   const current = data;
   const stale = Boolean(data && (data.range.start !== dateRange.start || data.range.end !== dateRange.end));
   const dates = useMemo(() => (current ? datesOf(current.range) : []), [current]);
-  const cutoff = current?.cutoff ?? { ...DEFAULT_CUTOFF, mixed: false };
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (current?.employees ?? [])
       .filter((e) => !hideEmpty || e.days.some((d) => d.shifts.length > 0))
-      .filter((e) => !q || [e.name ?? '', e.pin, e.position ?? ''].some((v) => v.toLowerCase().includes(q)))
+      .filter((e) => !q || [personLabel(t, e), e.position ?? ''].some((v) => v.toLowerCase().includes(q)))
       .sort((a, b) => (a.name ?? '￿').localeCompare(b.name ?? '￿', undefined, { sensitivity: 'base' }) || a.pin.localeCompare(b.pin, undefined, { numeric: true }));
-  }, [current, search, hideEmpty]);
+  }, [current, search, hideEmpty, t]);
 
   /** Per date, over the rows shown: hours worked, how many people worked, how many were absent. */
   const dayTotals = useMemo(
@@ -224,7 +223,6 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
     if (!current || stale) return;
     const headers = [
       t('attendance.name', 'Name'),
-      t('attendance.pin', 'User ID'),
       t('attendance.position', 'Position'),
       t('attendance.date', 'Date'),
       t('attendance.day', 'Day'),
@@ -245,16 +243,15 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
     const lines = [headers.map(csvCell).join(',')];
     for (const e of rows) {
       for (const d of e.days) {
-        // Days with punches, absences, leave and holidays; days off and blank days have nothing to record.
-        if (!d.shifts.length && !['absent', 'holiday', 'excused'].includes(d.status)) continue;
+        // Days with punches, absences and leave; days off and blank days have nothing to record.
+        if (!d.shifts.length && !['absent', 'excused'].includes(d.status)) continue;
         const firstIn = d.shifts.find((s) => s.in)?.in ?? null;
         const last = d.shifts[d.shifts.length - 1];
         // The day's last shift; blank when it has no time-out (the Problems column says so).
         const lastOut = last && !last.open ? last.out : null;
-        const note = [d.offDuty?.note, d.holiday].filter(Boolean).join('; ');
+        const note = d.offDuty?.note ?? '';
         const cells: (string | number)[] = [
           personLabel(t, e),
-          e.pin,
           e.position ?? '',
           d.date,
           weekdayShort(t, weekdayOf(d.date)),
@@ -315,7 +312,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
         startY: 58,
         head: [[t('attendance.name', 'Name'), ...chunk.map((d) => `${weekdayShort(t, weekdayOf(d))} ${Number(d.slice(8))}`)]],
         body: [
-          ...rows.map((e) => [`${personLabel(t, e)}\n${t('attendance.pin', 'User ID')} ${e.pin}`, ...chunk.map((_, j) => pdfCell(e.days[i + j]))]),
+          ...rows.map((e) => [personLabel(t, e), ...chunk.map((_, j) => pdfCell(e.days[i + j]))]),
           [t('attendance.total', 'Total'), ...chunk.map((_, j) => formatMinutes(dayTotals[i + j]?.minutes ?? 0))],
         ],
         styles: { fontSize: 7, cellPadding: 3, valign: 'middle' },
@@ -331,9 +328,8 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
 
     // Totals per person.
     doc.addPage();
-    const totalsRow = (label: string, pin: string, position: string, x: AttendanceTotals) => [
+    const totalsRow = (label: string, position: string, x: AttendanceTotals) => [
       label,
-      pin,
       position,
       String(x.daysWorked),
       x.absentDays ? String(x.absentDays) : '-',
@@ -349,7 +345,6 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
       startY: 58,
       head: [[
         t('attendance.name', 'Name'),
-        t('attendance.pin', 'User ID'),
         t('attendance.position', 'Position'),
         t('attendance.days_worked', 'Days worked'),
         t('attendance.absent', 'Absent'),
@@ -357,12 +352,12 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
         t('attendance.undertime', 'Undertime'),
         t('attendance.hours_worked', 'Hours worked'),
         t('attendance.regular_hours', 'Regular hours'),
-        t('attendance.over_standard', 'Over the standard day'),
+        t('attendance.over_shift', 'Over the shift'),
         t('attendance.needs_fixing', 'Needs fixing'),
       ]],
       body: [
-        ...rows.map((e) => totalsRow(personLabel(t, e), e.pin, e.position ?? '', e.totals)),
-        totalsRow(t('attendance.total', 'Total'), '', '', shownTotals),
+        ...rows.map((e) => totalsRow(personLabel(t, e), e.position ?? '', e.totals)),
+        totalsRow(t('attendance.total', 'Total'), '', shownTotals),
       ],
       styles: { fontSize: 8, cellPadding: 4 },
       headStyles: { ...headStyles, fontSize: 8, halign: 'left' },
@@ -374,21 +369,21 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
   };
 
   // ---- Period bar ----
-  const kind = kindOf(dateRange, today, cutoff);
+  const kind = kindOf(dateRange, today);
   const applyPeriod = (range: Range) => {
     if (!onDateRangeChange || range.start > today) return;
     onDateRangeChange(capAtToday(range, today));
   };
-  const thisCutoff = cutoffPeriodOf(cutoff, today);
-  const lastCutoff = stepPeriod('cutoff', thisCutoff, -1, cutoff);
+  const thisCutoff = cutoffPeriodOf(today);
+  const lastCutoff = stepPeriod('cutoff', thisCutoff, -1);
   const presets: { key: string; label: string; title: string; range: Range }[] = [
     { key: 'this_cutoff', label: t('attendance.period_this_cutoff', 'This cutoff'), title: shortRangeLabel(thisCutoff), range: thisCutoff },
     { key: 'last_cutoff', label: t('attendance.period_last_cutoff', 'Last cutoff'), title: shortRangeLabel(lastCutoff), range: lastCutoff },
     { key: 'week', label: t('attendance.period_this_week', 'This week'), title: shortRangeLabel(periodOf('week', today)), range: periodOf('week', today) },
     { key: 'month', label: t('attendance.period_month', 'Whole month'), title: shortRangeLabel(periodOf('month', dateRange.start)), range: periodOf('month', dateRange.start) },
   ];
-  const prev = kind ? stepPeriod(kind, dateRange, -1, cutoff) : null;
-  const next = kind ? stepPeriod(kind, dateRange, 1, cutoff) : null;
+  const prev = kind ? stepPeriod(kind, dateRange, -1) : null;
+  const next = kind ? stepPeriod(kind, dateRange, 1) : null;
   const navButton =
     'p-2 rounded-lg text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-brand-muted';
   const stepTitle =
@@ -471,7 +466,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
     t('attendance.undertime', 'Undertime'),
     t('attendance.hours_worked', 'Hours worked'),
     t('attendance.regular_hours', 'Regular hours'),
-    t('attendance.over_standard', 'Over the standard day'),
+    t('attendance.over_shift', 'Over the shift'),
     t('attendance.needs_fixing', 'Needs fixing'),
   ];
 
@@ -483,7 +478,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" />
             <input
               type="text"
-              placeholder={t('attendance.search_people_placeholder', 'Search by name, user ID or position')}
+              placeholder={t('attendance.search_name_position_placeholder', 'Search by name or position')}
               className="bg-white border-none rounded-xl pl-10 pr-4 py-2.5 text-base w-80 shadow-sm focus:ring-2 focus:ring-brand-primary/20 outline-none"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -504,12 +499,6 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
           {exportButtons}
         </div>
       </div>
-
-      {cutoff.mixed && (
-        <p className="text-xs font-medium text-orange-700">
-          {t('attendance.cutoff_mixed', 'These branches have different cutoffs, so 1–15 / 16–end is used. Choose a branch to use its cutoff.')}
-        </p>
-      )}
 
       {tooLong ? (
         <div className="bg-orange-50 border border-orange-100 text-orange-700 p-4 rounded-xl text-sm font-medium">
@@ -579,10 +568,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                           <span className={cn('block text-sm font-bold', e.name ? 'text-brand-text hover:underline' : 'text-brand-muted italic')}>
                             {personLabel(t, e)}
                           </span>
-                          <span className="block text-xs text-brand-muted font-medium">
-                            {t('attendance.pin', 'User ID')} {e.pin}
-                            {e.position ? ` · ${e.position}` : ''}
-                          </span>
+                          {e.position && <span className="block text-xs text-brand-muted font-medium">{e.position}</span>}
                           <span className="block text-xs text-brand-text font-bold tabular-nums mt-0.5">
                             {formatMinutes(e.totals.workedMinutes)}
                             {e.employeeId != null && e.totals.scheduledDays === 0 && (
@@ -600,7 +586,6 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                           day={e.days[i]?.date === date ? e.days[i] : undefined}
                           isSunday={weekdayOf(date) === 0}
                           isToday={date === today}
-                          standardHours={e.standardHours}
                           nowLabel={nowLabel}
                           clickable={e.employeeId != null}
                           onClick={() => openCell(e, date)}
@@ -701,16 +686,15 @@ const DayCell: React.FC<{
   day: WorkDay | undefined;
   isSunday: boolean;
   isToday: boolean;
-  standardHours: number;
   nowLabel: string;
   clickable: boolean;
   onClick: () => void;
-}> = ({ day, isSunday, isToday, standardHours, nowLabel, clickable, onClick }) => {
+}> = ({ day, isSunday, isToday, nowLabel, clickable, onClick }) => {
   const { t } = useTranslation();
   const base = cn('border-b border-gray-100 px-1.5 py-1.5 align-middle text-center', isSunday && 'bg-gray-50/70', isToday && 'bg-brand-primary/5');
   if (!day) return <td className={base} />;
 
-  // No punches: absent, day off, leave or holiday show as a labelled cell; a shift still to come
+  // No punches: absent, day off or leave show as a labelled cell; a shift still to come
   // shows its name faintly; other days a dash.
   if (!day.shifts.length) {
     const mark = dayMarkLabel(t, day);
@@ -731,7 +715,6 @@ const DayCell: React.FC<{
     const Icon = meta.icon;
     const title = [
       `${formatYmdDisplay(day.date)} · ${dayStatusLabel(t, day.status)}`,
-      day.holiday,
       plannedText(t, day) || null,
     ]
       .filter(Boolean)
@@ -762,7 +745,7 @@ const DayCell: React.FC<{
       : day.status === 'on_shift'
         ? 'bg-brand-primary/10 text-brand-primary hover:bg-brand-primary/15'
         : 'bg-green-50 text-green-900 hover:bg-green-100';
-  const mark = day.offDuty ? offDutyLabel(t, day.offDuty.type) : day.holiday;
+  const mark = day.offDuty ? offDutyLabel(t, day.offDuty.type) : null;
   const title = [
     `${formatYmdDisplay(day.date)} · ${dayStatusLabel(t, day.status)}${mark ? ` · ${mark}` : ''}`,
     day.shift ? `${t('attendance.shift', 'Shift')}: ${plannedShiftText(day.shift)}` : t('attendance.not_scheduled', 'Not scheduled'),
@@ -776,7 +759,6 @@ const DayCell: React.FC<{
       : null,
     ...notes,
     ...issues.map((f) => flagLabel(t, f)),
-    day.shift ? null : t('attendance.standard_day_label', { hours: standardHours, defaultValue: `Standard day: ${standardHours} h` }),
   ]
     .filter(Boolean)
     .join('\n');

@@ -2,7 +2,7 @@
 // ATTENDANCE SERVICE
 // ============================================
 // File: services/attendanceService.js
-// Description: Loads punches (zk_attendance_logs), people (employee rows on a device), rules and
+// Description: Loads punches (zk_attendance_logs), people (employee rows on a device) and
 // schedules (one entry per person per day, from the Schedules page), runs attendanceEngine per
 // person, and shapes the results for the Attendance Logs summary, the Timesheet tab (everyone's
 // days), one person's timesheet and the Schedules page. See docs/attendance.md.
@@ -10,8 +10,6 @@
 
 const ZktecoModel = require('../models/zktecoModel');
 const EmployeeModel = require('../models/employeeModel');
-const AttendanceSettingsModel = require('../models/attendanceSettingsModel');
-const AttendanceCalendarModel = require('../models/attendanceCalendarModel');
 const ScheduleModel = require('../models/scheduleModel');
 const { computeAttendance, addDays, ymdOf, ISSUE_FLAGS, toMin, emptyTotals } = require('./attendanceEngine');
 
@@ -82,44 +80,22 @@ const loadRange = (branchIds, startYmd, endYmd) =>
 const publicDay = ({ presence, punches, ...day }) => day;
 
 /**
- * The cutoff for a scope: the branch's, or the one all branches in it share. Branches with
- * different cutoffs: the default, with `mixed`.
- */
-async function cutoffFor(branchIds, people) {
-	const ids = Array.isArray(branchIds) && branchIds.length ? branchIds : [...people.values()].map((p) => p.branchId);
-	const rules = [...(await AttendanceSettingsModel.getRulesForBranches(ids)).values()];
-	const keys = new Set(rules.map((r) => JSON.stringify(r.cutoff)));
-	if (keys.size === 1) return { ...rules[0].cutoff, mixed: false };
-	return { ...AttendanceSettingsModel.DEFAULT_CUTOFF, mixed: keys.size > 1 };
-}
-
-/**
  * Attendance for everyone in scope over the range: everyone on the device, people removed from it
  * who punched in the range, and punches of User IDs that aren't on the device (so they aren't
  * silently lost). `rangePunches` comes from loadRange.
  */
 async function computeEveryone(people, rangePunches, startYmd, endYmd, now) {
-	const ruleBranchIds = [...people.values()].map((p) => p.branchId);
 	const rangeGroups = groupPunches(rangePunches);
-	rangeGroups.unknown.forEach((u) => ruleBranchIds.push(u.branchId));
-	const rulesByBranch = await AttendanceSettingsModel.getRulesForBranches(ruleBranchIds);
-	const rulesFor = (branchId) => rulesByBranch.get(Number(branchId)) || rulesByBranch.values().next().value;
-
-	const [holidayMaps, rosterMaps] = await Promise.all([
-		AttendanceCalendarModel.getHolidayMaps(ruleBranchIds, startYmd, endYmd),
-		ScheduleModel.getDayMaps([...people.keys()], startYmd, endYmd),
-	]);
+	const rosterMaps = await ScheduleModel.getDayMaps([...people.keys()], startYmd, endYmd);
 
 	const inRange = (entries) => entries.some((e) => e.dt >= `${startYmd} 00:00:00` && e.dt < `${addDays(endYmd, 1)} 00:00:00`);
-	const compute = (punches, branchId, person = null) =>
+	const compute = (punches, person = null) =>
 		computeAttendance({
 			punches,
-			rules: rulesFor(branchId),
 			startYmd,
 			endYmd,
 			now,
 			roster: (person && rosterMaps.get(person.employeeId)) || new Map(),
-			holidays: holidayMaps.get(Number(branchId)) || new Map(),
 			hired: person?.profile?.DATE_STARTED || null,
 			separated: person?.profile?.DATE_SEPARATED || null,
 		});
@@ -131,16 +107,16 @@ async function computeEveryone(people, rangePunches, startYmd, endYmd, now) {
 		const punches = rangeGroups.byEmployee.get(person.employeeId) || [];
 		// Everyone on the device is listed; people removed from it only when they worked in the range.
 		if (!person.active && !inRange(punches)) continue;
-		results.push({ person, ...compute(punches, person.branchId, person) });
+		results.push({ person, ...compute(punches, person) });
 	}
 	for (const u of rangeGroups.unknown.values()) {
 		if (!inRange(u.punches)) continue;
 		results.push({
 			person: { employeeId: null, deviceId: u.deviceId, pin: u.pin, name: null, active: false, branchId: u.branchId },
-			...compute(u.punches, u.branchId),
+			...compute(u.punches),
 		});
 	}
-	return { results, rulesFor };
+	return results;
 }
 
 /** The person fields the summary and the timesheets send (each day carries its own shift). */
@@ -174,7 +150,7 @@ async function getSummary(branchIds, startYmd, endYmd) {
 		loadRange(branchIds, startYmd, endYmd),
 		loadRange(branchIds, addDays(today, -1), today),
 	]);
-	const { results, rulesFor } = await computeEveryone(people, rangePunches, startYmd, endYmd, now);
+	const results = await computeEveryone(people, rangePunches, startYmd, endYmd, now);
 
 	// Daily series: hours (regular / over) and people at work (complete / needs fixing).
 	const daily = [];
@@ -241,7 +217,7 @@ async function getSummary(branchIds, startYmd, endYmd) {
 	return {
 		range: { start: startYmd, end: endYmd },
 		now,
-		today: summarizeToday(people, todayPunches, rulesFor, now),
+		today: summarizeToday(people, todayPunches, now),
 		employees,
 		daily,
 		hourly,
@@ -251,7 +227,7 @@ async function getSummary(branchIds, startYmd, endYmd) {
 }
 
 /** Live block: who is on shift right now, who came in today, and today's days to fix. */
-function summarizeToday(people, punches, rulesFor, now) {
+function summarizeToday(people, punches, now) {
 	const today = now.slice(0, 10);
 	const yesterday = addDays(today, -1);
 	const { byEmployee } = groupPunches(punches);
@@ -261,7 +237,6 @@ function summarizeToday(people, punches, rulesFor, now) {
 		if (!person.active || person.excludeFromAttendance) continue;
 		const { days } = computeAttendance({
 			punches: byEmployee.get(person.employeeId) || [],
-			rules: rulesFor(person.branchId),
 			startYmd: yesterday,
 			endYmd: today,
 			now,
@@ -288,17 +263,15 @@ async function getTimesheets(branchIds, startYmd, endYmd) {
 	const now = String(await ZktecoModel.deviceNow());
 	const people = await loadPeople(branchIds);
 	const rangePunches = await loadRange(branchIds, startYmd, endYmd);
-	const { results, rulesFor } = await computeEveryone(people, rangePunches, startYmd, endYmd, now);
+	const results = await computeEveryone(people, rangePunches, startYmd, endYmd, now);
 	const employees = results.map(({ person, days, totals }) => ({
 		...publicPerson(person),
-		standardHours: rulesFor(person.branchId).standardHours,
 		days: days.map(publicDay),
 		totals,
 	}));
 	return {
 		range: { start: startYmd, end: endYmd },
 		now,
-		cutoff: await cutoffFor(branchIds, people),
 		employees,
 		totals: sumTotals(employees.map((e) => e.totals)),
 	};
@@ -311,19 +284,13 @@ async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 	if (!person) return null;
 	const now = String(await ZktecoModel.deviceNow());
 	const punches = (await loadRange(branchIds, startYmd, endYmd)).filter((p) => Number(p.EMPLOYEE_ID) === person.employeeId);
-	const rules = await AttendanceSettingsModel.getRules(person.branchId);
-	const [holidayMaps, rosterMaps] = await Promise.all([
-		AttendanceCalendarModel.getHolidayMaps([person.branchId], startYmd, endYmd),
-		ScheduleModel.getDayMaps([person.employeeId], startYmd, endYmd),
-	]);
+	const rosterMaps = await ScheduleModel.getDayMaps([person.employeeId], startYmd, endYmd);
 	const { days, totals } = computeAttendance({
 		punches: punches.map((p) => ({ dt: p.PUNCH_DT, status: p.PUNCH_STATUS, ref: `${p.SOURCE}:${p.IDNo}` })),
-		rules,
 		startYmd,
 		endYmd,
 		now,
 		roster: rosterMaps.get(person.employeeId) || new Map(),
-		holidays: holidayMaps.get(Number(person.branchId)) || new Map(),
 		hired: person.profile?.DATE_STARTED || null,
 		separated: person.profile?.DATE_SEPARATED || null,
 	});
@@ -347,7 +314,6 @@ async function getTimesheet(branchIds, employeeId, startYmd, endYmd) {
 	);
 	return {
 		employee: publicPerson(person),
-		rules,
 		now,
 		days: days.map((d) => ({ ...publicDay(d), punches: d.punches.map((ref) => details.get(ref)).filter(Boolean) })),
 		totals,

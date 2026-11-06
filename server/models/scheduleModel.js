@@ -8,6 +8,8 @@
 //   times), a day off, leave, or a recorded absence. No entry = not scheduled (not checked).
 // A shift day keeps its own copy of the times, so editing a shift type changes today's and later
 // days only; past days keep the times they were worked under. See docs/attendance.md.
+// The per-branch attendance rules (attendance_settings) and holidays (attendance_holidays) were
+// removed 2026-11-06 and their tables are dropped here (dropRemovedTables).
 // ============================================
 
 const pool = require('../config/db');
@@ -20,6 +22,10 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const NAME_MAX = 40;
 const NOTE_MAX = 255;
+
+// Tables of removed features, dropped on start: the attendance rules (standard day, longest
+// shift, grace period, cutoff) and branch holidays, both removed 2026-11-06 (they held test data).
+const REMOVED_TABLES = ['attendance_settings', 'attendance_holidays'];
 
 // Sanwol's shifts (FOH schedule, November 2026), seeded for a branch that has none yet.
 const SEED_SHIFT_TYPES = [
@@ -144,6 +150,7 @@ class ScheduleModel {
 				COMMENT='Each employee''s schedule per day (Schedules page); no row = not scheduled'
 			`);
 			await ScheduleModel.migrateExcusedDays();
+			await ScheduleModel.dropRemovedTables();
 			if (Number(fresh.FRESH)) await ScheduleModel.grantFromAttendanceLogs();
 			ScheduleModel._schemaReady = true;
 			ScheduleModel._schemaPromise = null;
@@ -152,6 +159,19 @@ class ScheduleModel {
 			throw error;
 		});
 		return ScheduleModel._schemaPromise;
+	}
+
+	/** Drops the tables of removed features (REMOVED_TABLES) if they're still there. */
+	static async dropRemovedTables() {
+		const [rows] = await pool.query(
+			`SELECT TABLE_NAME FROM information_schema.TABLES
+			 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (${REMOVED_TABLES.map(() => '?').join(',')})`,
+			REMOVED_TABLES
+		);
+		for (const { TABLE_NAME: name } of rows) {
+			await pool.query(`DROP TABLE IF EXISTS \`${name}\``);
+			console.log(`[Schema] ${name} dropped (feature removed 2026-11-06)`);
+		}
 	}
 
 	/**
@@ -176,7 +196,7 @@ class ScheduleModel {
 	}
 
 	/**
-	 * The Schedules permission (CRUD module `schedules`, 2026-11-06) took over the attendance rules
+	 * The Schedules permission (CRUD module `schedules`, 2026-11-06) took over the (since removed) attendance rules
 	 * from Attendance Logs → Edit. Roles get the same Add / Edit / Delete as on Attendance Logs,
 	 * once: only when the schedule tables are first created. (A role with no Schedules rights has no
 	 * row at all, so "no rows yet" can't tell a new install from an admin revoking them.)
@@ -395,48 +415,6 @@ class ScheduleModel {
 		}
 	}
 
-	/**
-	 * Copies the 7 days from `fromStart` onto the 7 days from `toStart`, for the given people.
-	 * Without `overwrite`, only empty days are filled. Returns how many days were written.
-	 */
-	static async copyWeek(employeeIds, fromStart, toStart, overwrite, userId) {
-		await ScheduleModel.ensureSchema();
-		const ids = [...new Set(employeeIds.map(Number))];
-		if (!ids.length) return 0;
-		const conn = await pool.getConnection();
-		try {
-			await conn.beginTransaction();
-			const inList = ids.map(() => '?').join(',');
-			if (overwrite) {
-				// Days of the target week that the source week leaves empty are cleared too, so the
-				// week ends up the same.
-				await conn.query(
-					`DELETE FROM attendance_schedule_days
-					 WHERE EMPLOYEE_ID IN (${inList}) AND WORK_DATE BETWEEN ? AND DATE_ADD(?, INTERVAL 6 DAY)`,
-					[...ids, toStart, toStart]
-				);
-			}
-			const [result] = await conn.query(
-				`INSERT IGNORE INTO attendance_schedule_days (EMPLOYEE_ID, WORK_DATE, DAY_TYPE, SHIFT_TYPE_ID, START_TIME, END_TIME, NOTE, ENCODED_BY)
-				 SELECT d.EMPLOYEE_ID, DATE_ADD(d.WORK_DATE, INTERVAL DATEDIFF(?, ?) DAY), d.DAY_TYPE, d.SHIFT_TYPE_ID,
-					-- A shift type's current times (it may have changed since); custom times as they were.
-					IF(s.IDNo IS NOT NULL AND s.ACTIVE = 1, s.START_TIME, d.START_TIME),
-					IF(s.IDNo IS NOT NULL AND s.ACTIVE = 1, s.END_TIME, d.END_TIME),
-					d.NOTE, ?
-				 FROM attendance_schedule_days d
-				 LEFT JOIN attendance_shift_types s ON s.IDNo = d.SHIFT_TYPE_ID
-				 WHERE d.EMPLOYEE_ID IN (${inList}) AND d.WORK_DATE BETWEEN ? AND DATE_ADD(?, INTERVAL 6 DAY)`,
-				[toStart, fromStart, userId, ...ids, fromStart, fromStart]
-			);
-			await conn.commit();
-			return result.affectedRows;
-		} catch (error) {
-			await conn.rollback();
-			throw error;
-		} finally {
-			conn.release();
-		}
-	}
 }
 
 ScheduleModel.DAY_TYPES = DAY_TYPES;

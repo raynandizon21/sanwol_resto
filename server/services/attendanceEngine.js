@@ -3,24 +3,17 @@
 // ============================================
 // File: services/attendanceEngine.js
 // Description: Pairs one person's punches into time-in → time-out shifts and adds up the hours per
-// day, split into regular (up to the day's scheduled shift, or the standard day) and "over". Their
-// schedule (one entry per date, set on the Schedules page) adds late arrivals, undertime and
-// absences; days off and leave aren't absences, and an unscheduled day isn't checked.
-// Pure (no DB), so every page computes the same thing. No overtime rules. Rules: docs/attendance.md.
+// day, split into regular (up to the day's scheduled shift) and "over"; a day without a shift is
+// all regular. Their schedule (one entry per date, set on the Schedules page) adds late arrivals,
+// undertime and absences; days off and leave aren't absences, and an unscheduled day isn't checked.
+// Pure (no DB), so every page computes the same thing. No settings (the per-branch attendance
+// rules were removed 2026-11-06; Sanwol sorts out what's logged) and no overtime rules.
+// Rules: docs/attendance.md.
 //
 // Times are device-local wall-clock text ("YYYY-MM-DD HH:mm[:ss]"). They are turned into
 // minute counts with Date.UTC so no timezone ever applies. Seconds are kept (as a fraction of
 // a minute) so a shift's length is exact; each shift is then rounded down to whole minutes.
 // ============================================
-
-const DEFAULT_RULES = Object.freeze({
-	// Hours a day counted as regular; time past it is shown as "over".
-	standardHours: 8,
-	// A time-in with no time-out within this many hours is a forgotten time-out.
-	maxShiftHours: 20,
-	// Minutes after a shift's start before a time-in counts as late.
-	graceMinutes: 0,
-});
 
 // MB160 punch states. Whatever key is pressed, it's either arriving or leaving:
 // Time-in (0), Break-in (3) and OT-in (4) start time at work; Time-out (1), Break-out (2) and
@@ -31,7 +24,8 @@ const OUT_STATUSES = new Set([1, 2, 5]);
 // The same kind of punch again within this many minutes is a double tap: the first time-in
 // counts, and the last time-out.
 const REPEAT_MINUTES = 5;
-// A shift longer than this is almost certainly a forgotten time-out joined to a later one.
+// A shift longer than this is almost certainly a forgotten time-out joined to a later one, so it
+// needs fixing instead of counting. A time-in still without a time-out is "on shift" this long.
 const LONG_SHIFT_MINUTES = 16 * 60;
 
 /** Flags that mean a shift can't be counted until someone fixes a punch. */
@@ -52,17 +46,16 @@ const addDays = (ymd, n) => ymdOf(toMin(`${ymd} 00:00`) + n * 1440);
 
 /**
  * Pairs punches (oldest first) into shifts { in, out, punches }. A time-in opens a shift and the
- * next time-out closes it, if it comes within maxShiftHours. A time-out with no open shift is a
- * shift with no time-in; a time-in while one is still open leaves the open one without a time-out.
+ * next time-out closes it, however much later (one over LONG_SHIFT_MINUTES needs fixing). A
+ * time-out with no open shift is a shift with no time-in; a time-in while one is still open leaves
+ * the open one without a time-out.
  */
-function buildShifts(punches, rules) {
-	const span = rules.maxShiftHours * 60;
+function buildShifts(punches) {
 	const shifts = [];
 	let open = null; // has a time-in, no time-out yet
 	let lastClosed = null; // for a double-tapped time-out
 
 	for (const p of punches) {
-		if (open && p.min - open.in.min > span) open = null; // stays without a time-out
 		let kind = IN_STATUSES.has(p.status) ? 'in' : OUT_STATUSES.has(p.status) ? 'out' : null;
 		if (kind === null) {
 			// No state (older punches): alternate in / out.
@@ -97,13 +90,13 @@ function buildShifts(punches, rules) {
 }
 
 /** One shift's minutes and flags. `minutes` is null when it can't be counted. */
-function evaluateShift(s, rules, nowMin) {
+function evaluateShift(s, nowMin) {
 	const flags = new Set();
 	const isOpen =
 		Boolean(s.in && !s.out && !s.superseded) &&
 		nowMin != null &&
 		nowMin >= s.in.min &&
-		nowMin - s.in.min < rules.maxShiftHours * 60;
+		nowMin - s.in.min < LONG_SHIFT_MINUTES;
 	if (!s.in) flags.add('missing_in');
 	else if (!s.out && !isOpen) flags.add('missing_out');
 	let minutes = null;
@@ -131,10 +124,9 @@ const shiftLength = (start, end) => {
 /**
  * What the schedule says about one date: a shift (expected to work), off duty (day off, leave, a
  * recorded absence) or nothing (not scheduled: not checked). A shift only counts between the hire
- * date and the last day of work. A branch holiday is only a label: whoever has a shift is expected.
+ * date and the last day of work.
  */
 function expectationFor(ymd, ctx) {
-	const holiday = ctx.holidays.get(ymd) ?? null;
 	const entry = ctx.roster.get(ymd) ?? null;
 	const employed = (!ctx.hired || ymd >= ctx.hired) && (!ctx.separated || ymd <= ctx.separated);
 	const shift =
@@ -142,22 +134,22 @@ function expectationFor(ymd, ctx) {
 			? { shiftTypeId: entry.shiftTypeId ?? null, name: entry.name ?? null, color: entry.color ?? null, start: entry.start, end: entry.end }
 			: null;
 	const offDuty = entry && entry.type !== 'shift' ? { type: entry.type, note: entry.note ?? null } : null;
-	return { holiday, shift, offDuty, employed, scheduled: Boolean(shift) };
+	return { shift, offDuty, employed, scheduled: Boolean(shift) };
 }
 
 /** Totals for one date from the shifts that started on it. */
-function computeDay(ymd, shifts, rules, ctx) {
-	const evaluated = shifts.map((s) => evaluateShift(s, rules, ctx.nowMin));
+function computeDay(ymd, shifts, ctx) {
+	const evaluated = shifts.map((s) => evaluateShift(s, ctx.nowMin));
 	const flags = new Set();
 	evaluated.forEach((e) => e.flags.forEach((f) => flags.add(f)));
 
 	const expect = expectationFor(ymd, ctx);
 	const { shift } = expect;
 
-	// Regular hours go up to the day's shift (9 h for a 10:00–19:00 shift), else the standard day.
+	// Regular hours go up to the day's shift (9 h for a 10:00–19:00 shift); without a shift, all of
+	// the day's hours are regular.
 	const workedMinutes = evaluated.reduce((sum, e) => sum + (e.minutes ?? 0), 0);
-	const regularCap = shift ? shiftLength(shift.start, shift.end) : Math.round(rules.standardHours * 60);
-	const regularMinutes = Math.min(workedMinutes, regularCap);
+	const regularMinutes = shift ? Math.min(workedMinutes, shiftLength(shift.start, shift.end)) : workedMinutes;
 	const isOpen = evaluated.some((e) => e.isOpen);
 
 	let status;
@@ -166,8 +158,6 @@ function computeDay(ymd, shifts, rules, ctx) {
 		if (expect.offDuty?.type === 'leave') status = 'excused';
 		else if (expect.offDuty?.type === 'day_off') status = 'rest_day';
 		else if (expect.offDuty?.type === 'absent') status = 'absent';
-		// A holiday with no shift for them: not expected.
-		else if (expect.holiday && !shift) status = 'holiday';
 		else if (ymd > ctx.today) status = 'upcoming';
 		// Absent: a past day with a shift and no punches at all. Today isn't over yet.
 		else if (shift && ymd < ctx.today) status = 'absent';
@@ -180,13 +170,12 @@ function computeDay(ymd, shifts, rules, ctx) {
 	// Recorded as absent but they punched: the punches count, and the day says so.
 	if (shifts.length && expect.offDuty?.type === 'absent') flags.add('marked_absent');
 
-	// Late: the day's first time-in after the shift start plus the grace period. Past the grace
-	// period it counts from the start (10:00 start, 15 min grace, in at 10:20 = 20 min late).
+	// Late: the day's first time-in after the shift start, in whole minutes, with no grace period
+	// (10:00 start: in at 10:00:59 isn't late, at 10:01 is 1 min late).
 	let lateMinutes = 0;
 	const firstIn = evaluated.find((e) => e.shift.in)?.shift.in;
 	if (shift && firstIn) {
-		const late = Math.floor(firstIn.min - toMin(`${ymd} ${shift.start}`) + 1e-9);
-		if (late > (rules.graceMinutes ?? 0)) lateMinutes = late;
+		lateMinutes = Math.max(0, Math.floor(firstIn.min - toMin(`${ymd} ${shift.start}`) + 1e-9));
 	}
 	// Undertime: the day's last time-out before the shift's end, on a complete day only (a day to
 	// fix or still running can't tell yet). An end at or before the start is the next day's.
@@ -214,7 +203,6 @@ function computeDay(ymd, shifts, rules, ctx) {
 		offDuty: expect.offDuty,
 		lateMinutes,
 		undertimeMinutes,
-		holiday: expect.holiday,
 		flags: [...flags],
 		shifts: evaluated.map((e) => ({
 			in: e.shift.in ? dtOf(e.shift.in.min) : null,
@@ -241,29 +229,26 @@ function computeDay(ymd, shifts, rules, ctx) {
  * punches: [{ dt: "YYYY-MM-DD HH:mm:ss", status, ref }] for that person, any order; include a
  *   day before startYmd and after endYmd so shifts crossing the range edges are complete. `ref`
  *   is passed through to day.punches (e.g. the punch's id) for the timesheet.
- * rules: DEFAULT_RULES shape (standardHours, maxShiftHours, graceMinutes). now: device-local
- *   "YYYY-MM-DD HH:mm:ss" (decides "on shift").
+ * now: device-local "YYYY-MM-DD HH:mm:ss" (decides "on shift").
  * roster: Map "YYYY-MM-DD" -> their schedule that day: { type: 'shift', start: "HH:MM",
  *   end: "HH:MM", name, color, shiftTypeId } or { type: 'day_off' | 'leave' | 'absent', note }.
  *   A date not in it isn't scheduled (never late, absent or undertime).
- * holidays: Map "YYYY-MM-DD" -> name (the branch's). hired / separated: "YYYY-MM-DD" or null
- *   (shifts before the hire date or after the last day of work aren't expected).
+ * hired / separated: "YYYY-MM-DD" or null (shifts before the hire date or after the last day of
+ *   work aren't expected).
  */
 function computeAttendance({
 	punches,
-	rules = DEFAULT_RULES,
 	startYmd,
 	endYmd,
 	now,
 	roster = new Map(),
-	holidays = new Map(),
 	hired = null,
 	separated = null,
 }) {
 	const sorted = punches
 		.map((p, i) => ({ min: toMin(p.dt), status: p.status == null ? 255 : Number(p.status), ref: p.ref ?? null, i }))
 		.sort((a, b) => a.min - b.min || a.i - b.i);
-	const shifts = buildShifts(sorted, rules);
+	const shifts = buildShifts(sorted);
 
 	const byDate = new Map();
 	for (const s of shifts) {
@@ -276,13 +261,12 @@ function computeAttendance({
 		nowMin: now ? toMin(now) : null,
 		today: now ? String(now).slice(0, 10) : '9999-12-31',
 		roster,
-		holidays,
 		hired,
 		separated,
 	};
 	const days = [];
 	for (let ymd = startYmd; ymd <= endYmd; ymd = addDays(ymd, 1)) {
-		days.push(computeDay(ymd, byDate.get(ymd) || [], rules, ctx));
+		days.push(computeDay(ymd, byDate.get(ymd) || [], ctx));
 	}
 	return { days, totals: summarize(days) };
 }
@@ -332,8 +316,8 @@ function summarize(days) {
 }
 
 module.exports = {
-	DEFAULT_RULES,
 	ISSUE_FLAGS,
+	LONG_SHIFT_MINUTES,
 	computeAttendance,
 	summarize,
 	emptyTotals,
