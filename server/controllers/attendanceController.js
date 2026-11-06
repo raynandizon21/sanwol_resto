@@ -27,12 +27,9 @@ const { syncDeviceName } = require('../services/deviceNameSync');
 
 // Profile edits are part of managing people on the Employees page (CRUD module device_users).
 const canEditProfile = (req) => hasCrudPermission(req, 'device_users', ['update']);
-// The Schedules page (CRUD module schedules, 2026-11-06). Add or Edit: set people's days. Add /
-// Edit / Delete: add / edit / remove shift types.
+// The Schedules page (CRUD module schedules, 2026-11-06). Add or Edit: set people's days. The
+// shifts themselves are fixed (models/scheduleModel.js FIXED_SHIFTS), so nothing else to allow.
 const canSetDays = (req) => hasCrudPermission(req, 'schedules', ['create', 'update']);
-const canEditShiftTypes = (req) => hasCrudPermission(req, 'schedules', ['update']);
-const canAddScheduleItems = (req) => hasCrudPermission(req, 'schedules', ['create']);
-const canRemoveScheduleItems = (req) => hasCrudPermission(req, 'schedules', ['delete']);
 
 // The Schedules page shows at most this many days (a month fits).
 const MAX_SCHEDULE_DAYS = 62;
@@ -177,13 +174,10 @@ class AttendanceController {
 				});
 				map?.forEach((entry, date) => days.push({ employeeId: person.employeeId, date, ...entry }));
 			}
-			const [shiftTypes, today, canSet, canAdd, canEdit, canRemove] = await Promise.all([
+			const [shiftTypes, today, canSet] = await Promise.all([
 				ScheduleModel.listShiftTypes(branchId, { includeInactive: true }),
 				deviceToday(),
 				canSetDays(req),
-				canAddScheduleItems(req),
-				canEditShiftTypes(req),
-				canRemoveScheduleItems(req),
 			]);
 			return ApiResponse.success(
 				res,
@@ -194,7 +188,7 @@ class AttendanceController {
 					employees,
 					days,
 					shiftTypes,
-					permissions: { setDays: canSet, add: canAdd, edit: canEdit, remove: canRemove },
+					permissions: { setDays: canSet },
 				},
 				'Schedule retrieved successfully'
 			);
@@ -204,8 +198,8 @@ class AttendanceController {
 	}
 
 	// PUT /attendance/schedule?branch_id=X  { cells: [{ employee_id, date }], value }
-	// value: { type: 'shift', shift_type_id } | { type: 'shift', start, end } (custom times)
-	//      | { type: 'day_off' } | { type: 'leave' | 'absent', note } | { type: 'clear' }
+	// value: { type: 'shift', shift_type_id } | { type: 'day_off' } | { type: 'leave' | 'absent', note }
+	//      | { type: 'clear' }. A shift only on the weekdays it's for (Mid and Whole day: Fri–Sun).
 	static async setScheduleDays(req, res) {
 		try {
 			if (!(await canSetDays(req))) return ApiResponse.forbidden(res, 'You are not allowed to change schedules');
@@ -231,9 +225,17 @@ class AttendanceController {
 				cells.push({ employeeId, date: c.date });
 			}
 			let shiftType = null;
-			if (value.type === 'shift' && value.shiftTypeId) {
+			if (value.type === 'shift') {
 				shiftType = await ScheduleModel.getShiftType(branchId, value.shiftTypeId);
 				if (!shiftType || !shiftType.active) return ApiResponse.error(res, 'That shift no longer exists', 404);
+				const allowed = new Set(shiftType.weekdays);
+				const wrong = cells.filter((c) => !allowed.has(ScheduleModel.weekdayOfYmd(c.date)));
+				if (wrong.length) {
+					return ApiResponse.badRequest(
+						res,
+						`${shiftType.name} is only for ${ScheduleModel.weekdaysLabel(shiftType.weekdays)}; ${wrong.length} of the chosen days ${wrong.length === 1 ? 'is' : 'are'} not`
+					);
+				}
 			}
 			const changed = await ScheduleModel.setDays(cells, value, req.user?.user_id ?? null, shiftType);
 			// Open schedules and attendance pages reload.
@@ -244,66 +246,13 @@ class AttendanceController {
 		}
 	}
 
-	// GET /attendance/shift-types?branch_id=X  (active ones; seeded with Sanwol's the first time)
+	// GET /attendance/shift-types?branch_id=X  (the fixed shifts, with the weekdays each is for)
 	static async getShiftTypes(req, res) {
 		try {
 			const branchId = requireOneBranch(req);
 			return ApiResponse.success(res, await ScheduleModel.listShiftTypes(branchId), 'Shift types retrieved successfully');
 		} catch (error) {
 			return handleError(res, error, 'shift types');
-		}
-	}
-
-	// POST /attendance/shift-types?branch_id=X  { name, start, end, color }
-	static async createShiftType(req, res) {
-		try {
-			if (!(await canAddScheduleItems(req))) return ApiResponse.forbidden(res, 'You are not allowed to add shifts');
-			const branchId = requireOneBranch(req);
-			const { value, error } = ScheduleModel.validateShiftType(req.body);
-			if (error) return ApiResponse.badRequest(res, error);
-			await ScheduleModel.listShiftTypes(branchId); // seeds first, so the seeded names count
-			if (await ScheduleModel.nameTaken(branchId, value.name)) return ApiResponse.error(res, 'A shift with this name already exists', 409);
-			const id = await ScheduleModel.createShiftType(branchId, value, req.user?.user_id ?? null);
-			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
-			return ApiResponse.created(res, { id, shiftTypes: await ScheduleModel.listShiftTypes(branchId) }, 'Shift added');
-		} catch (error) {
-			return handleError(res, error, 'shift type');
-		}
-	}
-
-	// PUT /attendance/shift-types/:id?branch_id=X  { name, start, end, color }
-	// New times apply to days given this shift from today on; earlier days keep theirs.
-	static async updateShiftType(req, res) {
-		try {
-			if (!(await canEditShiftTypes(req))) return ApiResponse.forbidden(res, 'You are not allowed to edit shifts');
-			const branchId = requireOneBranch(req);
-			const id = parseInt(req.params.id, 10);
-			const current = await ScheduleModel.getShiftType(branchId, id);
-			if (!current || !current.active) return ApiResponse.error(res, 'Shift not found', 404);
-			const { value, error } = ScheduleModel.validateShiftType(req.body);
-			if (error) return ApiResponse.badRequest(res, error);
-			if (await ScheduleModel.nameTaken(branchId, value.name, id)) return ApiResponse.error(res, 'A shift with this name already exists', 409);
-			const updatedDays = await ScheduleModel.updateShiftType(branchId, id, value, await deviceToday(), req.user?.user_id ?? null);
-			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
-			return ApiResponse.success(res, { updatedDays, shiftTypes: await ScheduleModel.listShiftTypes(branchId) }, 'Shift saved');
-		} catch (error) {
-			return handleError(res, error, 'shift type');
-		}
-	}
-
-	// DELETE /attendance/shift-types/:id?branch_id=X  (days already given it keep it)
-	static async removeShiftType(req, res) {
-		try {
-			if (!(await canRemoveScheduleItems(req))) return ApiResponse.forbidden(res, 'You are not allowed to remove shifts');
-			const branchId = requireOneBranch(req);
-			const id = parseInt(req.params.id, 10);
-			const current = await ScheduleModel.getShiftType(branchId, id);
-			if (!current || !current.active) return ApiResponse.error(res, 'Shift not found', 404);
-			const upcomingDays = await ScheduleModel.removeShiftType(branchId, id, await deviceToday(), req.user?.user_id ?? null);
-			emitZkChange('attendance', { IDNo: null, BRANCH_ID: branchId });
-			return ApiResponse.success(res, { upcomingDays, shiftTypes: await ScheduleModel.listShiftTypes(branchId) }, 'Shift removed');
-		} catch (error) {
-			return handleError(res, error, 'shift type');
 		}
 	}
 

@@ -36,7 +36,7 @@ router.get('/attendance/employees/:id', authenticate, getUserBranches, Attendanc
 // GET - The Schedules page: people, their days, shift types (?branch_id=X&start_date=&end_date=, at most 62 days)
 router.get('/attendance/schedule', authenticate, getUserBranches, AttendanceController.getSchedule);
 
-// GET - One branch's shift types (?branch_id=X)
+// GET - One branch's shift types (fixed; ?branch_id=X)
 router.get('/attendance/shift-types', authenticate, getUserBranches, AttendanceController.getShiftTypes);
 
 // ============================================
@@ -46,15 +46,8 @@ router.get('/attendance/shift-types', authenticate, getUserBranches, AttendanceC
 // POST - Link a device user to a former employee's profile. Body: { device_user_id, employee_id }
 router.post('/attendance/employees/link', authenticate, getUserBranches, AttendanceController.linkEmployee);
 
-// PUT - Set people's days (?branch_id=X). Body: { cells: [{ employee_id, date }], value: { type, shift_type_id | start, end | note } }
+// PUT - Set people's days (?branch_id=X). Body: { cells: [{ employee_id, date }], value: { type, shift_type_id | note } }
 router.put('/attendance/schedule', authenticate, getUserBranches, AttendanceController.setScheduleDays);
-
-// POST / PUT - Add / edit a shift type (?branch_id=X). Body: { name, start, end, color }
-router.post('/attendance/shift-types', authenticate, getUserBranches, AttendanceController.createShiftType);
-router.put('/attendance/shift-types/:id', authenticate, getUserBranches, AttendanceController.updateShiftType);
-
-// DELETE - A shift type (?branch_id=X); days already given it keep it
-router.delete('/attendance/shift-types/:id', authenticate, getUserBranches, AttendanceController.removeShiftType);
 
 // PATCH - Edit an employee profile (only the fields sent). Body: snake_case fields, see the controller.
 router.patch('/attendance/employees/:id', authenticate, getUserBranches, AttendanceController.updateEmployee);

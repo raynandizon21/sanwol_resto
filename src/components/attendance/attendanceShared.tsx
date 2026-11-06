@@ -30,6 +30,27 @@ export const formatClock = (value: string | null | undefined): string => {
 export const weekdayShort = (t: TFunction, day: number): string =>
   t(`attendance.weekday_short_${day}`, ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][day]);
 
+/** Weekdays in the order weeks run here (Monday to Sunday). */
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+/**
+ * The weekdays a shift is for: "Every day", "Fri–Sun" (three or more in a row), or "Mon, Wed".
+ * `sep` joins a run ("-" for jsPDF, whose fonts have no en dash).
+ */
+export const weekdaysLabel = (t: TFunction, weekdays: number[], sep = '–'): string => {
+  const set = new Set(weekdays);
+  if (set.size >= 7) return t('attendance.every_day', 'Every day');
+  const runs: number[][] = [];
+  for (const d of WEEK_ORDER.filter((x) => set.has(x))) {
+    const last = runs[runs.length - 1];
+    if (last && WEEK_ORDER.indexOf(d) === WEEK_ORDER.indexOf(last[last.length - 1]) + 1) last.push(d);
+    else runs.push([d]);
+  }
+  return runs
+    .map((r) => (r.length > 2 ? `${weekdayShort(t, r[0])}${sep}${weekdayShort(t, r[r.length - 1])}` : r.map((d) => weekdayShort(t, d)).join(', ')))
+    .join(', ');
+};
+
 // Status colors are reserved for state and always shown with a label or icon, never color alone.
 export const STATUS_COLORS = {
   good: '#0ca30c',

@@ -182,14 +182,16 @@ export interface EmployeeProfileChanges {
   exclude_from_attendance?: boolean;
 }
 
-/** A branch's named shift (Opening 10:00–19:00, ...). */
+/** One of the branch's fixed shifts (Opening 10:00–19:00, ...; set in the server, not editable). */
 export interface ShiftType {
   id: number;
   name: string;
   start: string;
   end: string;
   color: string;
-  /** false = removed from the list (days already given it keep it). */
+  /** Weekdays it can be given (0 = Sunday): Mid and Whole day are Fri–Sun only. */
+  weekdays: number[];
+  /** false = no longer one of the shifts (days already given it keep it). */
   active: boolean;
 }
 
@@ -219,13 +221,12 @@ export interface ScheduleData {
   days: ({ employeeId: number; date: string } & ScheduleEntry)[];
   /** Active and removed (removed ones only to show names). */
   shiftTypes: ShiftType[];
-  permissions: { setDays: boolean; add: boolean; edit: boolean; remove: boolean };
+  permissions: { setDays: boolean };
 }
 
 /** What to put in schedule cells. */
 export type ScheduleValue =
   | { type: 'shift'; shift_type_id: number }
-  | { type: 'shift'; start: string; end: string }
   | { type: OffDutyType; note?: string }
   | { type: 'clear' };
 
@@ -302,40 +303,6 @@ export const setScheduleDays = async (
     body: JSON.stringify({ cells: cells.map((c) => ({ employee_id: c.employeeId, date: c.date })), value }),
   });
   return handleResponse<{ changed: number }>(response);
-};
-
-export type ShiftTypeInput = { name: string; start: string; end: string; color: string };
-
-export const createShiftType = async (branchId: Branch, input: ShiftTypeInput): Promise<ShiftType[]> => {
-  const response = await fetch(buildUrl('/attendance/shift-types', { branch_id: branchParam(branchId) }), {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  return (await handleResponse<{ shiftTypes: ShiftType[] }>(response)).shiftTypes;
-};
-
-/** Saves a shift type. New times apply to days from today on (`updatedDays` of them). */
-export const updateShiftType = async (
-  branchId: Branch,
-  id: number,
-  input: ShiftTypeInput,
-): Promise<{ shiftTypes: ShiftType[]; updatedDays: number }> => {
-  const response = await fetch(buildUrl(`/attendance/shift-types/${id}`, { branch_id: branchParam(branchId) }), {
-    method: 'PUT',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  return handleResponse<{ shiftTypes: ShiftType[]; updatedDays: number }>(response);
-};
-
-/** Removes a shift type from the list (days already given it keep it). */
-export const removeShiftType = async (branchId: Branch, id: number): Promise<ShiftType[]> => {
-  const response = await fetch(buildUrl(`/attendance/shift-types/${id}`, { branch_id: branchParam(branchId) }), {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  return (await handleResponse<{ shiftTypes: ShiftType[] }>(response)).shiftTypes;
 };
 
 export const getFormerEmployees = async (branchId: Branch): Promise<FormerEmployee[]> => {

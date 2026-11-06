@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronLeft, ChevronRight, Filter, Info, Printer, Shapes } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Filter, Info, Printer } from 'lucide-react';
 import { SkeletonTable } from '../ui/Skeleton';
 import { type Branch } from '../partials/Header';
 import { cn } from '../../lib/utils';
@@ -25,10 +25,10 @@ import {
   shortClock,
   textOn,
   weekdayOf,
+  weekdaysLabel,
   weekdayShort,
 } from './attendanceShared';
 import { positionRank } from './profileFields';
-import { ShiftTypesDialog } from './ShiftTypesDialog';
 import { OFF_DUTY_STYLES, ScheduleCellDialog } from './ScheduleCellDialog';
 import { exportSchedulePdf } from './schedulePdf';
 import { cutoffsIn, shortRangeLabel, type Range } from './timesheetPeriods';
@@ -123,7 +123,6 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dialogCells, setDialogCells] = useState<Cell[] | null>(null);
-  const [shiftTypesOpen, setShiftTypesOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
   const dragging = useRef(false);
@@ -311,6 +310,7 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
     const total = dialogCells.length > 1 ? ` (${t('attendance.n_days_selected', { count: dialogCells.length, defaultValue: `${dialogCells.length} days` })})` : '';
     return {
       summary: `${who} · ${when}${total}`,
+      dates: days,
       current: list.every((e) => sameEntry(e, list[0])) ? list[0] : null,
       anySet: list.some(Boolean),
     };
@@ -411,7 +411,7 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
       `${e.name || '—'} · ${weekdayShort(t, weekdayOf(date))}, ${formatYmdDisplay(date)}`,
       entry
         ? entry.type === 'shift'
-          ? `${entry.name ?? t('attendance.custom_times', 'Custom times')}: ${scheduleHours(entry.start, entry.end)}`
+          ? `${entry.name ?? t('attendance.shift', 'Shift')}: ${scheduleHours(entry.start, entry.end)}`
           : [offDutyLabel(t, entry.type), entry.note].filter(Boolean).join(': ')
         : t('attendance.not_scheduled', 'Not scheduled'),
       (e.hired && date < e.hired) || (e.separated && date > e.separated) ? t('attendance.not_employed_day', 'Not employed on this date') : null,
@@ -523,10 +523,6 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
                 </div>
               )}
             </div>
-            <button type="button" onClick={() => setShiftTypesOpen(true)} disabled={!data} className={toolbarButton}>
-              <Shapes size={16} />
-              {t('attendance.shift_types_title', 'Shift types')}
-            </button>
           </div>
         </div>
 
@@ -666,7 +662,10 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
                 <span className="px-2 py-1 rounded-lg font-bold whitespace-nowrap" style={{ backgroundColor: s.color, color: textOn(s.color) }}>
                   {s.name}
                 </span>
-                <span className="font-medium text-brand-text tabular-nums whitespace-nowrap">{scheduleHours(s.start, s.end)}</span>
+                <span className="font-medium text-brand-text tabular-nums whitespace-nowrap">
+                  {scheduleHours(s.start, s.end)}
+                  {s.weekdays.length < 7 && <span className="text-brand-muted"> · {weekdaysLabel(t, s.weekdays)}</span>}
+                </span>
               </span>
             ))}
             {(['day_off', 'leave', 'absent'] as const).map((type) => (
@@ -694,22 +693,12 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
         isOpen={Boolean(dialogCells?.length)}
         summary={dialogInfo?.summary ?? ''}
         shiftTypes={activeShiftTypes}
+        dates={dialogInfo?.dates ?? []}
         current={dialogInfo?.current ?? null}
         anySet={Boolean(dialogInfo?.anySet)}
         onApply={applyValue}
         onClose={closeDialog}
       />
-
-      {data && (
-        <ShiftTypesDialog
-          isOpen={shiftTypesOpen}
-          branchId={branchId}
-          shiftTypes={data.shiftTypes}
-          permissions={{ add: data.permissions.add, edit: data.permissions.edit, remove: data.permissions.remove }}
-          onClose={() => setShiftTypesOpen(false)}
-          onChanged={() => void load(true)}
-        />
-      )}
 
     </div>
   );

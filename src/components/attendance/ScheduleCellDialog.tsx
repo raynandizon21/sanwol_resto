@@ -4,7 +4,7 @@ import { CalendarOff, Eraser, Moon, UserX } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { cn } from '../../lib/utils';
 import type { OffDutyType, ScheduleEntry, ScheduleValue, ShiftType } from '../../services/attendanceService';
-import { formatMinutes, offDutyLabel, scheduleHours, textOn } from './attendanceShared';
+import { offDutyLabel, scheduleHours, textOn, weekdayOf, weekdaysLabel } from './attendanceShared';
 
 const inputClass =
   'w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-brand-primary/20 outline-none tabular-nums';
@@ -18,18 +18,14 @@ export const OFF_DUTY_STYLES: Record<OffDutyType, string> = {
   absent: 'bg-red-100 text-red-800',
 };
 
-const lengthOf = (start: string, end: string) => {
-  const toM = (v: string) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5));
-  const diff = toM(end) - toM(start);
-  return diff > 0 ? diff : diff + 1440;
-};
-
 interface ScheduleCellDialogProps {
   isOpen: boolean;
   /** e.g. "Juan Dela Cruz · Nov 6" or "4 people · Nov 6 – Nov 8 (12 days)". */
   summary: string;
-  /** Active shift types to pick from. */
+  /** The shifts to pick from (each allowed on certain weekdays). */
   shiftTypes: ShiftType[];
+  /** The selected dates ("YYYY-MM-DD"): a shift can be picked only when it's allowed on all of them. */
+  dates: string[];
   /** The selected days' entry when they all have the same one (to show what's set now). */
   current: ScheduleEntry | null;
   /** Some selected day has an entry (so Clear does something). */
@@ -39,10 +35,12 @@ interface ScheduleCellDialogProps {
 }
 
 /**
- * What to put in the selected schedule days: a shift type (one click), custom times, a day off,
- * leave or a recorded absence (with an optional note), or clear them (not scheduled).
+ * What to put in the selected schedule days: a shift (one click), a day off, leave or a recorded
+ * absence (with an optional note), or clear them (not scheduled). A shift that isn't for every
+ * selected weekday (Mid and Whole day are Fri–Sun only) is shown but can't be picked, so whatever is
+ * picked lands on every selected day. (Custom times were removed 2026-11-06.)
  */
-export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, summary, shiftTypes, current, anySet, onApply, onClose }) => {
+export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, summary, shiftTypes, dates, current, anySet, onApply, onClose }) => {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   // Every shift chip gets the widest one's width, so the chips and the times after them line up.
@@ -59,17 +57,14 @@ export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, 
     // offsetWidth ignores the dialog's opening scale animation (getBoundingClientRect wouldn't).
     if (chips.length) setChipWidth(Math.max(...Array.from(chips, (c) => c.offsetWidth)));
   }, [chipWidth, isOpen, namesKey]);
-  const [custom, setCustom] = useState({ start: '', end: '' });
   const [noteFor, setNoteFor] = useState<'leave' | 'absent' | null>(null);
   const [note, setNote] = useState('');
 
-  // Fresh inputs when the dialog opens (not when the page's data refreshes while it's open, which
-  // would wipe a note or times being typed).
+  // A fresh note when the dialog opens (not when the page's data refreshes while it's open, which
+  // would wipe a note being typed).
   useEffect(() => {
     if (!isOpen) return;
     setBusy(false);
-    // Custom times start from the current ones (custom or a shift type's).
-    setCustom(current?.type === 'shift' ? { start: current.start, end: current.end } : { start: '', end: '' });
     setNoteFor(null);
     setNote('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -89,8 +84,9 @@ export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, 
     setNote(current && current.type === type ? current.note ?? '' : '');
   };
 
-  const customValid = /^\d{2}:\d{2}$/.test(custom.start) && /^\d{2}:\d{2}$/.test(custom.end) && custom.start !== custom.end;
   const isCurrentShift = (s: ShiftType) => current?.type === 'shift' && current.shiftTypeId === s.id;
+  const selectedWeekdays = [...new Set(dates.map(weekdayOf))];
+  const allowedOnAll = (s: ShiftType) => selectedWeekdays.every((d) => s.weekdays.includes(d));
 
   return (
     <Modal
@@ -129,63 +125,53 @@ export const ScheduleCellDialog: React.FC<ScheduleCellDialogProps> = ({ isOpen, 
             <p className="text-sm text-brand-muted">{t('attendance.no_shift_types', 'No shifts yet. Add one to start scheduling.')}</p>
           ) : (
             <div ref={shiftListRef} className="grid grid-cols-2 gap-2">
-              {shiftTypes.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => void apply({ type: 'shift', shift_type_id: s.id })}
-                  className={cn(
-                    'flex items-center gap-2 rounded-xl border px-3 py-2 text-left hover:shadow-sm transition',
-                    isCurrentShift(s) ? 'border-brand-primary ring-2 ring-brand-primary/20' : 'border-gray-100 hover:border-gray-200',
-                  )}
-                >
-                  <span
-                    data-shift-chip
-                    className="px-2 py-1 rounded-md text-xs font-bold min-w-[72px] text-center whitespace-nowrap shrink-0"
-                    style={{ backgroundColor: s.color, color: textOn(s.color), width: chipWidth ?? undefined }}
+              {shiftTypes.map((s) => {
+                const allowed = allowedOnAll(s);
+                const everyDay = s.weekdays.length >= 7;
+                const days = weekdaysLabel(t, s.weekdays);
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    disabled={!allowed}
+                    onClick={() => void apply({ type: 'shift', shift_type_id: s.id })}
+                    title={
+                      allowed
+                        ? undefined
+                        : t('attendance.shift_days_only_hint', {
+                            name: s.name,
+                            days,
+                            defaultValue: `${s.name} is only for ${days}. Choose only those days to give it.`,
+                          })
+                    }
+                    className={cn(
+                      'flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition',
+                      !allowed
+                        ? 'border-gray-100 opacity-45 cursor-not-allowed'
+                        : isCurrentShift(s)
+                          ? 'border-brand-primary ring-2 ring-brand-primary/20 hover:shadow-sm'
+                          : 'border-gray-100 hover:border-gray-200 hover:shadow-sm',
+                    )}
                   >
-                    {s.name}
-                  </span>
-                  <span className="text-xs font-medium text-brand-text tabular-nums whitespace-nowrap">{scheduleHours(s.start, s.end)}</span>
-                </button>
-              ))}
+                    <span
+                      data-shift-chip
+                      className="px-2 py-1 rounded-md text-xs font-bold min-w-[72px] text-center whitespace-nowrap shrink-0"
+                      style={{ backgroundColor: s.color, color: textOn(s.color), width: chipWidth ?? undefined }}
+                    >
+                      {s.name}
+                    </span>
+                    <span className="flex flex-col min-w-0">
+                      <span className="text-xs font-medium text-brand-text tabular-nums whitespace-nowrap">{scheduleHours(s.start, s.end)}</span>
+                      {!everyDay && (
+                        <span className={cn('text-[11px] font-bold whitespace-nowrap', allowed ? 'text-brand-muted' : 'text-orange-600')}>
+                          {t('attendance.shift_days_only', { days, defaultValue: `${days} only` })}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          )}
-        </div>
-
-        {/* Custom times (e.g. a one-off 11 AM – 11 PM). */}
-        <div className="space-y-2">
-          <p className={sectionTitle}>{t('attendance.custom_times', 'Custom times')}</p>
-          <div className="flex items-center gap-2">
-            <input
-              type="time"
-              aria-label={t('attendance.time_in', 'Time in')}
-              value={custom.start}
-              onChange={(e) => setCustom((c) => ({ ...c, start: e.target.value }))}
-              className={inputClass}
-            />
-            <span className="text-brand-muted">–</span>
-            <input
-              type="time"
-              aria-label={t('attendance.time_out', 'Time out')}
-              value={custom.end}
-              onChange={(e) => setCustom((c) => ({ ...c, end: e.target.value }))}
-              className={inputClass}
-            />
-            <button
-              type="button"
-              disabled={!customValid}
-              onClick={() => void apply({ type: 'shift', start: custom.start, end: custom.end })}
-              className="px-4 py-2 rounded-xl bg-brand-primary text-white text-sm font-bold hover:bg-brand-primary/90 disabled:opacity-50 shrink-0"
-            >
-              {t('attendance.apply', 'Apply')}
-            </button>
-          </div>
-          {customValid && (
-            <p className="text-xs text-brand-muted">
-              {formatMinutes(lengthOf(custom.start, custom.end))}
-              {custom.end < custom.start ? ` · ${t('attendance.ends_next_day', 'ends the next day')}` : ''}
-            </p>
           )}
         </div>
 

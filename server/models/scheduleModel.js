@@ -3,11 +3,13 @@
 // ============================================
 // File: models/scheduleModel.js
 // Description: Work schedules, set per employee per day on the Schedules page (since 2026-11-06):
-// - attendance_shift_types: a branch's named shifts (Opening 10:00–19:00, ...), editable.
-// - attendance_schedule_days: one entry per person and date: a shift (a shift type, or custom
-//   times), a day off, leave, or a recorded absence. No entry = not scheduled (not checked).
-// A shift day keeps its own copy of the times, so editing a shift type changes today's and later
-// days only; past days keep the times they were worked under. See docs/attendance.md.
+// - attendance_shift_types: a branch's shifts. Fixed since 2026-11-06 (FIXED_SHIFTS: Opening, Mid,
+//   Closing, Whole day, each allowed on certain weekdays), kept in the table so days can point to
+//   them; there's no editing them in the app.
+// - attendance_schedule_days: one entry per person and date: a shift (one of those, on a weekday
+//   it's allowed), a day off, leave, or a recorded absence. No entry = not scheduled (not checked).
+// A shift day keeps its own copy of the times. Custom times were removed 2026-11-06. See
+// docs/attendance.md.
 // The per-branch attendance rules (attendance_settings) and holidays (attendance_holidays) were
 // removed 2026-11-06 and their tables are dropped here (dropRemovedTables).
 // ============================================
@@ -18,8 +20,6 @@ const pool = require('../config/db');
 const DAY_TYPES = ['shift', 'day_off', 'leave', 'absent'];
 const OFF_DUTY_TYPES = ['day_off', 'leave', 'absent'];
 
-const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const NAME_MAX = 40;
 const NOTE_MAX = 255;
 
@@ -27,16 +27,27 @@ const NOTE_MAX = 255;
 // shift, grace period, cutoff) and branch holidays, both removed 2026-11-06 (they held test data).
 const REMOVED_TABLES = ['attendance_settings', 'attendance_holidays'];
 
-// Sanwol's shifts (FOH schedule, November 2026), seeded for a branch that has none yet.
-const SEED_SHIFT_TYPES = [
-	{ name: 'Opening', start: '10:00', end: '19:00', color: '#FCD34D' },
-	{ name: 'Mid', start: '12:00', end: '21:00', color: '#78350F' },
-	{ name: 'Closing', start: '14:00', end: '23:00', color: '#15803D' },
-	{ name: 'Whole day', start: '11:00', end: '23:00', color: '#C2410C' },
+// Sanwol's shifts (FOH schedule, November 2026), the only ones (fixed 2026-11-06, senior's
+// request). Weekdays: 0 = Sunday. Mon–Thu have Opening and Closing; Fri–Sun also Mid and Whole day.
+// In this order on the page, in the dialog and in the printed legend. Every branch's table rows are
+// kept in line with this list on start (syncFixedShifts).
+const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
+const FRI_TO_SUN = [5, 6, 0];
+const FIXED_SHIFTS = [
+	{ name: 'Opening', start: '10:00', end: '19:00', color: '#FCD34D', weekdays: EVERY_DAY },
+	{ name: 'Mid', start: '12:00', end: '21:00', color: '#78350F', weekdays: FRI_TO_SUN },
+	{ name: 'Closing', start: '14:00', end: '23:00', color: '#15803D', weekdays: EVERY_DAY },
+	{ name: 'Whole day', start: '11:00', end: '23:00', color: '#C2410C', weekdays: FRI_TO_SUN },
+];
+
+// Columns added 2026-11-06 to existing tables.
+const SHIFT_TYPE_COLUMNS = [
+	{ name: 'WEEKDAYS', ddl: "ADD COLUMN WEEKDAYS VARCHAR(13) NOT NULL DEFAULT '0,1,2,3,4,5,6' COMMENT 'Weekdays it can be given (0=Sun), comma-separated' AFTER COLOR" },
+	{ name: 'SORT_ORDER', ddl: "ADD COLUMN SORT_ORDER TINYINT NOT NULL DEFAULT 0 COMMENT 'Order on the page and the printed legend' AFTER WEEKDAYS" },
 ];
 
 const SHIFT_TYPE_SELECT = `IDNo, BRANCH_ID, NAME, TIME_FORMAT(START_TIME, '%H:%i') AS START_TIME,
-	TIME_FORMAT(END_TIME, '%H:%i') AS END_TIME, COLOR, ACTIVE`;
+	TIME_FORMAT(END_TIME, '%H:%i') AS END_TIME, COLOR, WEEKDAYS, ACTIVE`;
 
 const mapShiftType = (r) => ({
 	id: Number(r.IDNo),
@@ -45,8 +56,29 @@ const mapShiftType = (r) => ({
 	start: r.START_TIME,
 	end: r.END_TIME,
 	color: r.COLOR,
+	// Weekdays it can be given (0 = Sunday).
+	weekdays: String(r.WEEKDAYS ?? '').split(',').filter((d) => d !== '').map(Number),
 	active: Boolean(Number(r.ACTIVE)),
 });
+
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** "every day", "Fri–Sun", "Mon, Wed": the weekdays a shift is for (weeks run Monday to Sunday). */
+function weekdaysLabel(weekdays) {
+	const set = new Set(weekdays);
+	if (set.size === 7) return 'every day';
+	const order = [1, 2, 3, 4, 5, 6, 0].filter((d) => set.has(d));
+	const runs = [];
+	for (const d of order) {
+		const last = runs[runs.length - 1];
+		if (last && [1, 2, 3, 4, 5, 6, 0].indexOf(d) === [1, 2, 3, 4, 5, 6, 0].indexOf(last[last.length - 1]) + 1) last.push(d);
+		else runs.push([d]);
+	}
+	return runs.map((r) => (r.length > 2 ? `${WEEKDAY_SHORT[r[0]]}–${WEEKDAY_SHORT[r[r.length - 1]]}` : r.map((d) => WEEKDAY_SHORT[d]).join(', '))).join(', ');
+}
+
+/** Weekday of a "YYYY-MM-DD" (0 = Sunday). */
+const weekdayOfYmd = (ymd) => new Date(`${ymd}T00:00:00Z`).getUTCDay();
 
 /** Minutes a shift lasts (an end at or before the start is the next day's). */
 const shiftMinutes = (start, end) => {
@@ -55,24 +87,10 @@ const shiftMinutes = (start, end) => {
 	return diff > 0 ? diff : diff + 1440;
 };
 
-/** Checks a shift type payload { name, start, end, color }. Returns { value } or { error }. */
-function validateShiftType(input) {
-	const name = String(input?.name ?? '').replace(/\s+/g, ' ').trim();
-	if (!name) return { error: 'Name the shift' };
-	if (name.length > NAME_MAX) return { error: `The name can be up to ${NAME_MAX} characters` };
-	const start = String(input?.start ?? '');
-	const end = String(input?.end ?? '');
-	if (!HHMM.test(start) || !HHMM.test(end)) return { error: 'Set the start and end times (HH:MM)' };
-	if (start === end) return { error: 'The end time must differ from the start time' };
-	const color = String(input?.color ?? '');
-	if (!HEX_COLOR.test(color)) return { error: 'Choose a color' };
-	return { value: { name, start, end, color: color.toUpperCase() } };
-}
-
 /**
  * Checks what to put in schedule cells. Returns { value } or { error }:
- * { type: 'clear' } | { type: 'shift', shiftTypeId } | { type: 'shift', start, end } (custom times)
- * | { type: 'day_off' | 'leave' | 'absent', note }.
+ * { type: 'clear' } | { type: 'shift', shiftTypeId } | { type: 'day_off' | 'leave' | 'absent', note }.
+ * (Custom times were removed 2026-11-06.)
  */
 function validateDayValue(input) {
 	const type = input?.type;
@@ -81,11 +99,7 @@ function validateDayValue(input) {
 	if (type === 'shift') {
 		const shiftTypeId = Number(input.shift_type_id ?? input.shiftTypeId);
 		if (Number.isInteger(shiftTypeId) && shiftTypeId > 0) return { value: { type, shiftTypeId } };
-		const start = String(input.start ?? '');
-		const end = String(input.end ?? '');
-		if (!HHMM.test(start) || !HHMM.test(end)) return { error: 'Choose a shift, or set custom start and end times (HH:MM)' };
-		if (start === end) return { error: 'The end time must differ from the start time' };
-		return { value: { type, start, end } };
+		return { error: 'Choose a shift' };
 	}
 	const note = String(input.note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX) || null;
 	return { value: { type, note: type === 'day_off' ? null : note } };
@@ -114,7 +128,9 @@ class ScheduleModel {
 					START_TIME TIME NOT NULL,
 					END_TIME TIME NOT NULL COMMENT 'At or before START_TIME = the next day',
 					COLOR CHAR(7) NOT NULL COMMENT 'Hex color shown on the Schedules page',
-					ACTIVE TINYINT(1) NOT NULL DEFAULT 1 COMMENT '0 = removed (days already given it keep their copy)',
+					WEEKDAYS VARCHAR(13) NOT NULL DEFAULT '0,1,2,3,4,5,6' COMMENT 'Weekdays it can be given (0=Sun), comma-separated',
+					SORT_ORDER TINYINT NOT NULL DEFAULT 0 COMMENT 'Order on the page and the printed legend',
+					ACTIVE TINYINT(1) NOT NULL DEFAULT 1 COMMENT '0 = not one of the fixed shifts (days already given it keep their copy)',
 					ENCODED_BY INT NULL DEFAULT NULL,
 					ENCODED_DT DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 					EDITED_BY INT NULL DEFAULT NULL,
@@ -124,13 +140,23 @@ class ScheduleModel {
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
 				COMMENT='Named shifts of a branch (Opening, Mid, Closing, ...) for the Schedules page'
 			`);
+			const [shiftCols] = await pool.query(
+				`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_shift_types'`
+			);
+			const haveShiftCols = new Set(shiftCols.map((c) => c.COLUMN_NAME));
+			for (const col of SHIFT_TYPE_COLUMNS) {
+				if (!haveShiftCols.has(col.name)) {
+					await pool.query(`ALTER TABLE attendance_shift_types ${col.ddl}`);
+					console.log(`[Schema] attendance_shift_types.${col.name} created`);
+				}
+			}
 			await pool.query(`
 				CREATE TABLE IF NOT EXISTS attendance_schedule_days (
 					IDNo INT NOT NULL AUTO_INCREMENT,
 					EMPLOYEE_ID INT NOT NULL COMMENT 'employee.IDNo',
 					WORK_DATE DATE NOT NULL,
 					DAY_TYPE VARCHAR(10) NOT NULL COMMENT 'shift, day_off, leave or absent',
-					SHIFT_TYPE_ID INT NULL DEFAULT NULL COMMENT 'attendance_shift_types.IDNo; NULL on a shift = custom times',
+					SHIFT_TYPE_ID INT NULL DEFAULT NULL COMMENT 'attendance_shift_types.IDNo (set on every shift day)',
 					START_TIME TIME NULL DEFAULT NULL COMMENT 'Shift start (a copy, so editing the shift type leaves past days alone)',
 					END_TIME TIME NULL DEFAULT NULL COMMENT 'Shift end; at or before START_TIME = the next day',
 					NOTE VARCHAR(${NOTE_MAX}) NULL DEFAULT NULL COMMENT 'Leave / absent note',
@@ -151,6 +177,8 @@ class ScheduleModel {
 			`);
 			await ScheduleModel.migrateExcusedDays();
 			await ScheduleModel.dropRemovedTables();
+			await ScheduleModel.syncFixedShifts();
+			await ScheduleModel.clearDisallowedDays();
 			if (Number(fresh.FRESH)) await ScheduleModel.grantFromAttendanceLogs();
 			ScheduleModel._schemaReady = true;
 			ScheduleModel._schemaPromise = null;
@@ -159,6 +187,64 @@ class ScheduleModel {
 			throw error;
 		});
 		return ScheduleModel._schemaPromise;
+	}
+
+	/**
+	 * Keeps every branch's shift types in line with FIXED_SHIFTS (names, times, colors, weekdays,
+	 * order); shifts not in the list are deactivated (days already given one keep it). Branches
+	 * with no shift types yet get them on first use (listShiftTypes).
+	 */
+	static async syncFixedShifts() {
+		const [branches] = await pool.query('SELECT DISTINCT BRANCH_ID FROM attendance_shift_types');
+		for (const { BRANCH_ID: branchId } of branches) await ScheduleModel.applyFixedShifts(pool, branchId);
+	}
+
+	/** Puts FIXED_SHIFTS into one branch's rows (by name), adding missing ones. `db`: pool or connection. */
+	static async applyFixedShifts(db, branchId) {
+		const [rows] = await db.query('SELECT IDNo, NAME FROM attendance_shift_types WHERE BRANCH_ID = ?', [branchId]);
+		const byName = new Map(rows.map((r) => [String(r.NAME).toLowerCase(), Number(r.IDNo)]));
+		const keep = [];
+		for (const [i, s] of FIXED_SHIFTS.entries()) {
+			const id = byName.get(s.name.toLowerCase());
+			const values = [s.name, s.start, s.end, s.color, s.weekdays.join(','), i + 1];
+			if (id) {
+				await db.query(
+					`UPDATE attendance_shift_types SET NAME = ?, START_TIME = ?, END_TIME = ?, COLOR = ?, WEEKDAYS = ?, SORT_ORDER = ?, ACTIVE = 1
+					 WHERE IDNo = ? AND (NAME <> ? OR START_TIME <> ? OR END_TIME <> ? OR COLOR <> ? OR WEEKDAYS <> ? OR SORT_ORDER <> ? OR ACTIVE <> 1)`,
+					[...values, id, ...values]
+				);
+				keep.push(id);
+			} else {
+				const [result] = await db.query(
+					'INSERT INTO attendance_shift_types (BRANCH_ID, NAME, START_TIME, END_TIME, COLOR, WEEKDAYS, SORT_ORDER) VALUES (?, ?, ?, ?, ?, ?, ?)',
+					[branchId, ...values]
+				);
+				keep.push(result.insertId);
+			}
+		}
+		await db.query(
+			`UPDATE attendance_shift_types SET ACTIVE = 0 WHERE BRANCH_ID = ? AND ACTIVE = 1 AND IDNo NOT IN (${keep.map(() => '?').join(',')})`,
+			[branchId, ...keep]
+		);
+	}
+
+	/**
+	 * Deletes schedule days the fixed shifts don't allow (2026-11-06): a shift on a weekday it isn't
+	 * for (Mid or Whole day on Mon–Thu), and custom-time shifts (no shift type). The app can't set
+	 * them any more, so this only finds days from before the rule.
+	 */
+	static async clearDisallowedDays() {
+		const [wrongDay] = await pool.query(
+			`DELETE d FROM attendance_schedule_days d
+			 JOIN attendance_shift_types s ON s.IDNo = d.SHIFT_TYPE_ID
+			 WHERE d.DAY_TYPE = 'shift' AND s.ACTIVE = 1 AND FIND_IN_SET(DAYOFWEEK(d.WORK_DATE) - 1, s.WEEKDAYS) = 0`
+		);
+		const [custom] = await pool.query(`DELETE FROM attendance_schedule_days WHERE DAY_TYPE = 'shift' AND SHIFT_TYPE_ID IS NULL`);
+		if (wrongDay.affectedRows || custom.affectedRows) {
+			console.log(
+				`[Schema] attendance_schedule_days: cleared ${wrongDay.affectedRows} shift(s) on a weekday they aren't for and ${custom.affectedRows} custom-time shift(s)`
+			);
+		}
 	}
 
 	/** Drops the tables of removed features (REMOVED_TABLES) if they're still there. */
@@ -219,7 +305,7 @@ class ScheduleModel {
 
 	// ---- Shift types ----
 
-	/** A branch's shift types (seeded with Sanwol's the first time), earliest start first. */
+	/** A branch's shift types (the fixed ones, added the first time), in FIXED_SHIFTS order. */
 	static async listShiftTypes(branchId, { includeInactive = false } = {}) {
 		await ScheduleModel.ensureSchema();
 		const countFor = async (db) =>
@@ -232,14 +318,7 @@ class ScheduleModel {
 				const [[{ GOT }]] = await conn.query('SELECT GET_LOCK(?, 10) AS GOT', [lockName]);
 				if (Number(GOT) === 1) {
 					try {
-						if (!(await countFor(conn))) {
-							for (const s of SEED_SHIFT_TYPES) {
-								await conn.query(
-									'INSERT INTO attendance_shift_types (BRANCH_ID, NAME, START_TIME, END_TIME, COLOR) VALUES (?, ?, ?, ?, ?)',
-									[branchId, s.name, s.start, s.end, s.color]
-								);
-							}
-						}
+						if (!(await countFor(conn))) await ScheduleModel.applyFixedShifts(conn, branchId);
 					} finally {
 						await conn.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {});
 					}
@@ -251,7 +330,7 @@ class ScheduleModel {
 		const [rows] = await pool.query(
 			`SELECT ${SHIFT_TYPE_SELECT} FROM attendance_shift_types
 			 WHERE BRANCH_ID = ?${includeInactive ? '' : ' AND ACTIVE = 1'}
-			 ORDER BY ACTIVE DESC, START_TIME, NAME`,
+			 ORDER BY ACTIVE DESC, SORT_ORDER, START_TIME, NAME`,
 			[branchId]
 		);
 		return rows.map(mapShiftType);
@@ -263,76 +342,12 @@ class ScheduleModel {
 		return row ? mapShiftType(row) : null;
 	}
 
-	/** Another active shift type of the branch with this name (names are unique per branch). */
-	static async nameTaken(branchId, name, exceptId = null) {
-		const [rows] = await pool.query(
-			'SELECT 1 FROM attendance_shift_types WHERE BRANCH_ID = ? AND ACTIVE = 1 AND NAME = ? AND IDNo <> ? LIMIT 1',
-			[branchId, name, exceptId ?? 0]
-		);
-		return rows.length > 0;
-	}
-
-	static async createShiftType(branchId, value, userId) {
-		await ScheduleModel.ensureSchema();
-		const [result] = await pool.query(
-			'INSERT INTO attendance_shift_types (BRANCH_ID, NAME, START_TIME, END_TIME, COLOR, ENCODED_BY) VALUES (?, ?, ?, ?, ?, ?)',
-			[branchId, value.name, value.start, value.end, value.color, userId]
-		);
-		return result.insertId;
-	}
-
-	/**
-	 * Updates a shift type. New times also apply to days given this shift from `fromYmd` (today)
-	 * on; earlier days keep theirs. Returns how many days changed.
-	 */
-	static async updateShiftType(branchId, id, value, fromYmd, userId) {
-		await ScheduleModel.ensureSchema();
-		const conn = await pool.getConnection();
-		try {
-			await conn.beginTransaction();
-			await conn.query(
-				`UPDATE attendance_shift_types SET NAME = ?, START_TIME = ?, END_TIME = ?, COLOR = ?, EDITED_BY = ?, EDITED_DT = NOW()
-				 WHERE IDNo = ? AND BRANCH_ID = ?`,
-				[value.name, value.start, value.end, value.color, userId, id, branchId]
-			);
-			const [days] = await conn.query(
-				`UPDATE attendance_schedule_days SET START_TIME = ?, END_TIME = ?, EDITED_BY = ?, EDITED_DT = NOW()
-				 WHERE SHIFT_TYPE_ID = ? AND WORK_DATE >= ? AND (START_TIME <> ? OR END_TIME <> ?)`,
-				[value.start, value.end, userId, id, fromYmd, value.start, value.end]
-			);
-			await conn.commit();
-			return days.affectedRows;
-		} catch (error) {
-			await conn.rollback();
-			throw error;
-		} finally {
-			conn.release();
-		}
-	}
-
-	/**
-	 * Removes a shift type from the list. Days already given it keep their times and still show its
-	 * name; it just can't be picked any more. Returns how many of those days are from `fromYmd` on.
-	 */
-	static async removeShiftType(branchId, id, fromYmd, userId) {
-		await ScheduleModel.ensureSchema();
-		await pool.query(
-			'UPDATE attendance_shift_types SET ACTIVE = 0, EDITED_BY = ?, EDITED_DT = NOW() WHERE IDNo = ? AND BRANCH_ID = ?',
-			[userId, id, branchId]
-		);
-		const [[row]] = await pool.query(
-			'SELECT COUNT(*) AS N FROM attendance_schedule_days WHERE SHIFT_TYPE_ID = ? AND WORK_DATE >= ?',
-			[id, fromYmd]
-		);
-		return Number(row.N);
-	}
-
 	// ---- Schedule days ----
 
 	/**
 	 * Schedule entries of the given people between two dates:
 	 * Map employeeId -> Map "YYYY-MM-DD" -> entry. A shift entry: { type: 'shift', shiftTypeId,
-	 * name (null for custom times), color, start, end }; off duty: { type, note }.
+	 * name, color, start, end }; off duty: { type, note }.
 	 */
 	static async getDayMaps(employeeIds, startYmd, endYmd) {
 		await ScheduleModel.ensureSchema();
@@ -369,7 +384,8 @@ class ScheduleModel {
 
 	/**
 	 * Sets every cell ({ employeeId, date }) to `value` (validateDayValue), in one transaction.
-	 * A shift type is copied by its current times. 'clear' deletes the entries.
+	 * A shift is copied by its current times (the caller checks its weekdays). 'clear' deletes the
+	 * entries.
 	 */
 	static async setDays(cells, value, userId, shiftType = null) {
 		await ScheduleModel.ensureSchema();
@@ -389,8 +405,8 @@ class ScheduleModel {
 				}
 			} else {
 				const isShift = value.type === 'shift';
-				const start = isShift ? (shiftType ? shiftType.start : value.start) : null;
-				const end = isShift ? (shiftType ? shiftType.end : value.end) : null;
+				const start = isShift ? shiftType.start : null;
+				const end = isShift ? shiftType.end : null;
 				const shiftTypeId = isShift && shiftType ? shiftType.id : null;
 				const note = isShift ? null : value.note;
 				for (let i = 0; i < cells.length; i += BATCH) {
@@ -419,8 +435,9 @@ class ScheduleModel {
 
 ScheduleModel.DAY_TYPES = DAY_TYPES;
 ScheduleModel.OFF_DUTY_TYPES = OFF_DUTY_TYPES;
-ScheduleModel.SEED_SHIFT_TYPES = SEED_SHIFT_TYPES;
-ScheduleModel.validateShiftType = validateShiftType;
+ScheduleModel.FIXED_SHIFTS = FIXED_SHIFTS;
+ScheduleModel.weekdaysLabel = weekdaysLabel;
+ScheduleModel.weekdayOfYmd = weekdayOfYmd;
 ScheduleModel.validateDayValue = validateDayValue;
 ScheduleModel.shiftMinutes = shiftMinutes;
 

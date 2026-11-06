@@ -41,7 +41,7 @@ export const CRUD_MODULES = [
   {
     key: 'schedules',
     label: 'Schedules',
-    description: 'Work schedules per employee per day, and shift types. Add or Edit: set people\'s shifts, days off, leave and absences. Add: add shift types. Edit: edit shift types. Delete: remove shift types.',
+    description: 'Work schedules per employee per day (the shifts themselves are fixed). Add or Edit: set people\'s shifts, days off, leave and absences.',
   },
   {
     key: 'attendance_logs',

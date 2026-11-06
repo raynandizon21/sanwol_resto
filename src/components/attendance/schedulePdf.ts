@@ -1,14 +1,15 @@
 // Printable schedule (Schedules page → Print / PDF): one cutoff (the 1st–15th or the 16th–end) on
 // A4 landscape, to post or hand out. People are grouped by position (like the page), one column per
 // day (the day number and weekday; the month is in the heading), shift names in their colors, a
-// count of people on shift per day, and a legend strip of the shifts with their times in and out. The
+// count of people on shift per day, and a legend table (Shift | Time in | Time out | Days, like the
+// posted schedule's) plus the off-duty days used. The
 // heading, column headings and footer (printed on, page x of y) repeat on every page.
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { TFunction } from 'i18next';
 import type { ScheduleEntry, ShiftType } from '../../services/attendanceService';
-import { addDaysYmd, formatClock, offDutyLabel, shortClock, textOn, weekdayShort, weekdayOf } from './attendanceShared';
+import { addDaysYmd, formatClock, offDutyLabel, shortClock, textOn, weekdayShort, weekdayOf, weekdaysLabel } from './attendanceShared';
 
 type Rgb = [number, number, number];
 
@@ -182,7 +183,7 @@ export function exportSchedulePdf({
       overflow: 'linebreak',
       lineColor: [209, 213, 219],
       lineWidth: 0.5,
-      minCellHeight: 20,
+      minCellHeight: 18,
     },
     headStyles: { fillColor: INDIGO, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', minCellHeight: 24 },
     footStyles: { fillColor: [249, 250, 251], textColor: [55, 65, 81], fontStyle: 'bold', fontSize: 8, minCellHeight: 16 },
@@ -220,61 +221,62 @@ export function exportSchedulePdf({
     didDrawPage: drawHeading,
   });
 
-  // Legend under the grid, in one strip: each shift (in its color) over its time in - time out,
-  // then the off-duty days used. Wraps to more strips when there are many shift types.
-  type LegendItem = { label: string; time: string; fill: Rgb; text: Rgb };
-  const items: LegendItem[] = [
-    ...shiftTypes
-      .filter((s) => s.active)
-      .map((s) => ({ label: s.name, time: `${formatClock(s.start)} - ${formatClock(s.end)}`, fill: rgbOf(s.color), text: textRgbOn(s.color) })),
-    ...(['day_off', 'leave', 'absent'] as const)
-      .filter((type) => rows.some((r) => r.entries.some((e) => e?.type === type)))
-      .map((type) => ({ label: offDutyLabel(t, type), time: '', fill: OFF_DUTY_FILL[type].fill, text: OFF_DUTY_FILL[type].text })),
-  ];
-  const customUsed = rows.some((r) => r.entries.some((e) => e?.type === 'shift' && !e.name));
-  const ITEM_WIDTH = 104;
-  const perStrip = Math.max(1, Math.floor((pageWidth - MARGIN * 2) / ITEM_WIDTH));
-  const strips: (LegendItem | null)[][] = [];
-  for (let i = 0; i < items.length; i += perStrip) strips.push(items.slice(i, i + perStrip));
-  const legendHeight = strips.length * 34 + (customUsed ? 16 : 0);
+  // Legend under the grid, like the posted schedule's: Shift | Time in | Time out, one row per
+  // shift (in its color), plus the weekdays each is for. Next to it, the off-duty days used.
+  const legendShifts = shiftTypes.filter((s) => s.active);
+  const offDutyUsed = (['day_off', 'leave', 'absent'] as const).filter((type) => rows.some((r) => r.entries.some((e) => e?.type === type)));
+  const LEGEND_ROW = 17;
+  const legendHeight = (Math.max(legendShifts.length, offDutyUsed.length) + 1) * LEGEND_ROW;
   let legendY = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 62) + 14;
-  if (items.length && legendY + legendHeight > pageHeight - 36) {
+  if ((legendShifts.length || offDutyUsed.length) && legendY + legendHeight > pageHeight - 36) {
     doc.addPage();
     drawHeading();
     legendY = 70;
   }
-  if (items.length) {
-    const columns = Math.min(perStrip, items.length);
+  type Hook = { section: string; row: { index: number }; column: { index: number }; cell: { styles: Record<string, unknown> } };
+  const legendStyles = {
+    theme: 'grid' as const,
+    startY: legendY,
+    pageBreak: 'avoid' as const,
+    styles: { fontSize: 8.5, cellPadding: 3, halign: 'center', valign: 'middle', lineColor: [209, 213, 219], lineWidth: 0.5, textColor: [31, 41, 55], minCellHeight: LEGEND_ROW },
+    headStyles: { fillColor: INDIGO, textColor: [255, 255, 255], fontStyle: 'bold' },
+  };
+  const LEGEND_WIDTH = 390;
+  if (legendShifts.length) {
     autoTable(doc, {
-      theme: 'grid',
-      startY: legendY,
+      ...legendStyles,
       margin: { left: MARGIN },
-      tableWidth: ITEM_WIDTH * columns,
-      pageBreak: 'avoid',
-      body: strips.flatMap((strip) => [strip.map((it) => it?.label ?? ''), strip.map((it) => it?.time ?? '')]),
-      styles: { fontSize: 8, cellPadding: 3, halign: 'center', valign: 'middle', lineColor: [209, 213, 219], lineWidth: 0.5, textColor: [55, 65, 81] },
-      columnStyles: Object.fromEntries(Array.from({ length: columns }, (_, i) => [i, { cellWidth: ITEM_WIDTH }])),
-      didParseCell: (hook: { section: string; row: { index: number }; column: { index: number }; cell: { styles: Record<string, unknown> } }) => {
+      tableWidth: LEGEND_WIDTH,
+      head: [[t('attendance.shift', 'Shift'), t('attendance.time_in', 'Time in'), t('attendance.time_out', 'Time out'), t('attendance.pdf_days', 'Days')]],
+      body: legendShifts.map((s) => [s.name, formatClock(s.start), formatClock(s.end), weekdaysLabel(t, s.weekdays, '-')]),
+      columnStyles: { 0: { cellWidth: 100 }, 1: { cellWidth: 95 }, 2: { cellWidth: 95 }, 3: { cellWidth: 100 } },
+      didParseCell: (hook: Hook) => {
         if (hook.section !== 'body') return;
-        const item = strips[Math.floor(hook.row.index / 2)]?.[hook.column.index];
-        if (!item) {
-          hook.cell.styles.lineWidth = 0;
-          return;
-        }
-        if (hook.row.index % 2 === 0) {
-          hook.cell.styles.fillColor = item.fill;
-          hook.cell.styles.textColor = item.text;
+        if (hook.column.index === 0) {
+          const s = legendShifts[hook.row.index];
+          hook.cell.styles.fillColor = rgbOf(s.color);
+          hook.cell.styles.textColor = textRgbOn(s.color);
           hook.cell.styles.fontStyle = 'bold';
         }
+        if (hook.column.index === 1 || hook.column.index === 2) hook.cell.styles.fontStyle = 'bold';
       },
     });
   }
-  if (customUsed) {
-    const y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? legendY) + 12;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(90, 90, 90);
-    doc.text(t('attendance.pdf_custom_note', 'Times like 10a-7p are custom shifts (start - end).'), MARGIN, y);
+  if (offDutyUsed.length) {
+    autoTable(doc, {
+      ...legendStyles,
+      margin: { left: MARGIN + (legendShifts.length ? LEGEND_WIDTH + 20 : 0) },
+      tableWidth: 100,
+      head: [[t('attendance.pdf_off_duty', 'Off duty')]],
+      body: offDutyUsed.map((type) => [offDutyLabel(t, type)]),
+      didParseCell: (hook: Hook) => {
+        if (hook.section !== 'body') return;
+        const type = offDutyUsed[hook.row.index];
+        hook.cell.styles.fillColor = OFF_DUTY_FILL[type].fill;
+        hook.cell.styles.textColor = OFF_DUTY_FILL[type].text;
+        hook.cell.styles.fontStyle = 'bold';
+      },
+    });
   }
 
   // Footer on every page: when it was printed, and the page number.
