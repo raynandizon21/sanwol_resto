@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronLeft, ChevronRight, Filter, Info, Printer } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, Info, Printer } from 'lucide-react';
 import { SkeletonTable } from '../ui/Skeleton';
 import { type Branch } from '../partials/Header';
 import { cn } from '../../lib/utils';
@@ -37,6 +37,20 @@ import { cutoffsIn, shortRangeLabel, type Range } from './timesheetPeriods';
 type View = 'month' | 'week';
 type Cell = { employeeId: number; date: string };
 type Selection = { r0: number; c0: number; r1: number; c1: number };
+
+type SheetAction = 'print' | 'download';
+
+/** Saves a built file under `filename`. */
+const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
 
 const toolbarButton =
   'bg-white text-brand-text px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:hover:bg-white';
@@ -124,15 +138,16 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dialogCells, setDialogCells] = useState<Cell[] | null>(null);
-  const [printOpen, setPrintOpen] = useState(false);
-  const [printing, setPrinting] = useState(false);
+  // Print and Download each pick a cutoff: the menu open, and the one being prepared.
+  const [cutoffMenu, setCutoffMenu] = useState<SheetAction | null>(null);
+  const [preparing, setPreparing] = useState<SheetAction | null>(null);
   const dragging = useRef(false);
   // A touch on a day: it opens that day when lifted without scrolling (touch never drags, so the
   // grid can still be scrolled on a phone or tablet).
   const touchTap = useRef<{ r: number; c: number; x: number; y: number } | null>(null);
   const selectionRef = useRef<Selection | null>(null);
   const filterRef = useRef<HTMLDivElement>(null);
-  const printRef = useRef<HTMLDivElement>(null);
+  const sheetActionsRef = useRef<HTMLDivElement>(null);
 
   const range = view === 'month' ? monthBounds(anchor) : { start: anchor, end: addDaysYmd(anchor, 6) };
   const dates = useMemo(() => datesBetween(range.start, range.end), [range.start, range.end]);
@@ -162,16 +177,16 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   // Changes from other screens (schedules, shift types) and new people reload the grid silently.
   useZkLiveReload(branchId, ['attendance', 'users'], () => void load(true));
 
-  // Close the position filter and the print menu on an outside click.
+  // Close the position filter and the cutoff menus on an outside click.
   useEffect(() => {
-    if (!filterOpen && !printOpen) return;
+    if (!filterOpen && !cutoffMenu) return;
     const close = (e: MouseEvent) => {
       if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false);
-      if (printRef.current && !printRef.current.contains(e.target as Node)) setPrintOpen(false);
+      if (sheetActionsRef.current && !sheetActionsRef.current.contains(e.target as Node)) setCutoffMenu(null);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
-  }, [filterOpen, printOpen]);
+  }, [filterOpen, cutoffMenu]);
 
   const today = data?.today ?? getManilaTodayYmd();
   const canSet = Boolean(data?.permissions.setDays);
@@ -335,12 +350,12 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   const printCutoffs = cutoffsIn(range);
 
   /**
-   * Builds one cutoff's PDF and opens the browser's print screen for it (no download or preview
-   * first): loads its days (the view may show only part of it), same filter and order.
+   * Builds one cutoff's PDF, then opens the browser's print screen for it (Print) or saves it
+   * (Download): loads its days (the view may show only part of it), same filter and order.
    */
-  const printCutoff = async (cutoff: Range) => {
-    setPrintOpen(false);
-    setPrinting(true);
+  const sheetForCutoff = async (cutoff: Range, action: SheetAction) => {
+    setCutoffMenu(null);
+    setPreparing(action);
     try {
       const sheet = await getSchedule(branchId, cutoff.start, cutoff.end);
       const sheetEntries = entriesOf(sheet);
@@ -365,11 +380,15 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
         })),
         shiftTypes: sheet.shiftTypes,
       });
-      await printPdf(blob);
+      if (action === 'print') {
+        await printPdf(blob);
+      } else {
+        downloadBlob(blob, `schedule_${(selectedBranch?.name || 'branch').replace(/[^a-zA-Z0-9]+/g, '_')}_${cutoff.start}_to_${cutoff.end}.pdf`);
+      }
     } catch (err) {
       toast.error((err as Error)?.message || t('attendance.schedule_load_failed', 'Could not load the schedule.'));
     } finally {
-      setPrinting(false);
+      setPreparing(null);
     }
   };
 
@@ -490,43 +509,59 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="relative" ref={printRef}>
-              <button
-                type="button"
-                onClick={() => (printCutoffs.length === 1 ? void printCutoff(printCutoffs[0]) : setPrintOpen((o) => !o))}
-                disabled={!data || !rows.length || printing}
-                aria-haspopup={printCutoffs.length > 1 ? 'menu' : undefined}
-                aria-expanded={printCutoffs.length > 1 ? printOpen : undefined}
-                className={toolbarButton}
-              >
-                <Printer size={16} />
-                {printing ? t('attendance.preparing', 'Preparing…') : t('attendance.print_pdf', 'Print / PDF')}
-                {printCutoffs.length > 1 && <ChevronDown size={14} />}
-              </button>
-              {printOpen && (
-                <div role="menu" className="absolute right-0 z-30 mt-2 w-60 bg-white rounded-xl shadow-xl border border-gray-100 p-2">
-                  <p className="px-3 pt-1 pb-2 text-xs font-bold uppercase tracking-wider text-brand-muted">
-                    {t('attendance.print_which_cutoff', 'Print which cutoff?')}
-                  </p>
-                  {printCutoffs.map((p) => {
-                    const current = p.start <= today && today <= p.end;
-                    return (
-                      <button
-                        key={p.start}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => void printCutoff(p)}
-                        className="w-full flex items-center justify-between gap-2 text-left px-3 py-2 rounded-lg text-sm font-bold text-brand-text hover:bg-brand-primary/5"
-                      >
-                        <span className="tabular-nums">{shortRangeLabel(p)}</span>
-                        {current && (
-                          <span className="text-[11px] font-bold text-brand-primary">{t('attendance.current_cutoff', 'Current')}</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+            <div className="flex items-center gap-2" ref={sheetActionsRef}>
+              {(['print', 'download'] as const).map((action) => {
+                const Icon = action === 'print' ? Printer : Download;
+                const hasMenu = printCutoffs.length > 1;
+                return (
+                  <div key={action} className="relative">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        hasMenu ? setCutoffMenu((m) => (m === action ? null : action)) : void sheetForCutoff(printCutoffs[0], action)
+                      }
+                      disabled={!data || !rows.length || preparing != null}
+                      aria-haspopup={hasMenu ? 'menu' : undefined}
+                      aria-expanded={hasMenu ? cutoffMenu === action : undefined}
+                      className={toolbarButton}
+                    >
+                      <Icon size={16} />
+                      {preparing === action
+                        ? t('attendance.preparing', 'Preparing…')
+                        : action === 'print'
+                          ? t('attendance.print', 'Print')
+                          : t('attendance.download', 'Download')}
+                      {hasMenu && <ChevronDown size={14} />}
+                    </button>
+                    {cutoffMenu === action && (
+                      <div role="menu" className="absolute right-0 z-30 mt-2 w-60 bg-white rounded-xl shadow-xl border border-gray-100 p-2">
+                        <p className="px-3 pt-1 pb-2 text-xs font-bold uppercase tracking-wider text-brand-muted">
+                          {action === 'print'
+                            ? t('attendance.print_which_cutoff', 'Print which cutoff?')
+                            : t('attendance.download_which_cutoff', 'Download which cutoff?')}
+                        </p>
+                        {printCutoffs.map((p) => {
+                          const current = p.start <= today && today <= p.end;
+                          return (
+                            <button
+                              key={p.start}
+                              type="button"
+                              role="menuitem"
+                              onClick={() => void sheetForCutoff(p, action)}
+                              className="w-full flex items-center justify-between gap-2 text-left px-3 py-2 rounded-lg text-sm font-bold text-brand-text hover:bg-brand-primary/5"
+                            >
+                              <span className="tabular-nums">{shortRangeLabel(p)}</span>
+                              {current && (
+                                <span className="text-[11px] font-bold text-brand-primary">{t('attendance.current_cutoff', 'Current')}</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
