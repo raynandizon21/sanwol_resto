@@ -1,18 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Info, AlertTriangle, Contact, Smartphone, Lock } from 'lucide-react';
+import { AlertTriangle, Contact, Smartphone } from 'lucide-react';
 import { SidePanel } from '../ui/SidePanel';
 import { Select2 } from '../ui/Select2';
-import { cn } from '../../lib/utils';
-import { createDeviceUser, getNextDeviceUserPin, type EmployeeProfile, type ZkDevice } from '../../services/zktecoService';
+import { createDeviceUser, type EmployeeProfile, type ZkDevice } from '../../services/zktecoService';
 import {
   ContactFields,
   DraftInput,
   PositionField,
   deviceNameFor,
   draftError,
-  inputClass,
   labelClass,
   toChanges,
   toDraft,
@@ -27,11 +25,6 @@ interface AddDeviceUserPanelProps {
   onClose: () => void;
   branchId: string | number;
   devices: ZkDevice[];
-  /**
-   * Changes whenever users or queued adds change (the page's live data), so the User ID shown
-   * is fetched again and stays current while the panel is open.
-   */
-  refreshKey: string;
   /** The user was queued for the device (the page can go straight to fingerprint enrollment). */
   onQueued: (user: { deviceId: number; pin: string; name: string }) => void;
   /**
@@ -47,23 +40,19 @@ interface AddDeviceUserPanelProps {
  * Adds an employee: queues them for the MB160 as a regular user (no password; they punch with
  * their fingerprint, enrolled next) and saves their profile once the device confirms them. The
  * name on the device is made from their name (shortened to fit) and shown, not typed. The User
- * ID isn't typed either: the server assigns it (never reusing a removed person's), and the form
- * shows the one it will give. If another add takes that one first, the toast says so.
+ * ID isn't shown at all: the server assigns it behind the scenes (never reusing a removed
+ * person's).
  */
 export const AddDeviceUserPanel: React.FC<AddDeviceUserPanelProps> = ({
   isOpen,
   onClose,
   branchId,
   devices,
-  refreshKey,
   onQueued,
   prefill,
 }) => {
   const { t } = useTranslation();
   const [deviceId, setDeviceId] = useState<number | null>(null);
-  // The User ID the server will give (read-only preview); null while loading or unavailable.
-  const [preview, setPreview] = useState<{ deviceId: number; pin: string; reusedOld: boolean } | null>(null);
-  const [previewFailed, setPreviewFailed] = useState(false);
   const [draft, setDraft] = useState<ProfileDraft>(() => toDraft(null, ''));
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -75,32 +64,10 @@ export const AddDeviceUserPanel: React.FC<AddDeviceUserPanelProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setDeviceId(prefill?.deviceId ?? (devices.length === 1 ? devices[0].id : null));
-    setPreview(null);
-    setPreviewFailed(false);
     setDraft(toDraft(prefill?.profile ?? null, prefill?.name ?? ''));
     setSubmitted(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
-
-  // The User ID to show: fetched on open, on a device change, and when the page's data changes.
-  useEffect(() => {
-    if (!isOpen || deviceId == null) return;
-    let cancelled = false;
-    getNextDeviceUserPin(branchId, deviceId, readdOf)
-      .then((next) => {
-        if (cancelled) return;
-        setPreview({ deviceId, ...next });
-        setPreviewFailed(false);
-      })
-      .catch(() => {
-        if (!cancelled) setPreviewFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, deviceId, readdOf, branchId, refreshKey]);
-
-  const shownPin = preview && preview.deviceId === deviceId ? preview.pin : null;
 
   const set = <K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
 
@@ -130,24 +97,9 @@ export const AddDeviceUserPanel: React.FC<AddDeviceUserPanelProps> = ({
         profile: toChanges(draft),
         readdOf,
       });
-      if (shownPin && added.pin !== shownPin) {
-        // Another add (from another screen) took the shown ID first.
-        toast.warning(
-          t('attendance.pin_changed_on_send', {
-            shown: shownPin,
-            pin: added.pin,
-            defaultValue: `User ID ${shownPin} was taken just before you sent, so they were added as User ID ${added.pin}.`,
-          }),
-          { duration: 10000 },
-        );
-      } else {
-        toast.success(
-          t('attendance.user_queued_as', {
-            pin: added.pin,
-            defaultValue: `Sent to the device as User ID ${added.pin}. They appear in the list once the device confirms.`,
-          }),
-        );
-      }
+      toast.success(
+        t('attendance.user_queued', 'Sent to the device. They appear in the list once the device confirms.'),
+      );
       onQueued({ deviceId: added.deviceId, pin: added.pin, name: deviceName });
       onClose();
     } catch (err) {
@@ -184,16 +136,6 @@ export const AddDeviceUserPanel: React.FC<AddDeviceUserPanelProps> = ({
       }
     >
       <div className="space-y-5">
-        <div className="flex gap-2 bg-brand-primary/5 border border-brand-primary/20 text-brand-primary rounded-xl px-4 py-3 text-sm font-medium">
-          <Info size={16} className="shrink-0 mt-0.5" />
-          <span>
-            {t(
-              'attendance.add_employee_notice',
-              'The device picks up the new employee within about 10 seconds. Next, you can enroll their fingerprint from here; the device will ask them to scan it. Fields marked * are required; the rest can be filled in later on their Profile.',
-            )}
-          </span>
-        </div>
-
         {device && !device.isOnline && (
           <div className="flex gap-2 bg-orange-50 border border-orange-100 text-orange-600 rounded-xl px-4 py-3 text-sm font-medium">
             <AlertTriangle size={16} className="shrink-0 mt-0.5" />
@@ -223,35 +165,6 @@ export const AddDeviceUserPanel: React.FC<AddDeviceUserPanelProps> = ({
               {fieldError(errors.deviceId)}
             </div>
           )}
-
-          <div>
-            <span className={labelClass}>{t('attendance.pin', 'User ID')}</span>
-            <div aria-readonly className={cn(inputClass, 'flex items-center justify-between gap-2 bg-gray-50 cursor-default')}>
-              <span className="font-semibold tabular-nums text-brand-text">
-                {shownPin ?? (deviceId != null && !previewFailed ? '…' : '—')}
-              </span>
-              <span className="flex items-center gap-1 text-xs text-brand-muted">
-                <Lock size={12} className="shrink-0" />
-                {t('attendance.pin_auto', 'Assigned automatically')}
-              </span>
-            </div>
-            <p className="text-xs text-brand-muted mt-1">
-              {deviceId == null
-                ? t('attendance.pin_hint_choose_device', 'Shown once a device is chosen.')
-                : t(
-                    'attendance.pin_hint',
-                    "The next number on this device. A removed employee's User ID is never given to someone new.",
-                  )}
-            </p>
-            {prefill && preview && preview.deviceId === prefill.deviceId && !preview.reusedOld && (
-              <p className="text-xs text-orange-600 font-medium mt-1">
-                {t('attendance.add_again_pin_taken', {
-                  pin: prefill.pin,
-                  defaultValue: `Their old User ID ${prefill.pin} now belongs to someone else, so they get a new one.`,
-                })}
-              </p>
-            )}
-          </div>
 
           <div>
             <div className="grid grid-cols-2 gap-3">

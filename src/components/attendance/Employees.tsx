@@ -182,19 +182,6 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
   // PIN may already belong to someone else.
   const activeUsers = useMemo(() => users.filter((u) => u.active), [users]);
 
-  // User IDs in use per device, including adds still waiting for the device. When it changes,
-  // Add employee fetches the User ID it shows again (the server assigns it).
-  const pinsKey = useMemo(
-    () =>
-      [
-        ...activeUsers.map((u) => `${u.deviceId}:${u.pin}`),
-        ...pending.filter((p) => p.kind === 'add' && p.status !== 'failed').map((p) => `${p.deviceId}:${p.pin}+`),
-      ]
-        .sort()
-        .join(','),
-    [activeUsers, pending],
-  );
-
   /** 'edit' | 'delete' when a change for this user is still waiting for the device. */
   const pendingChange = (u: DeviceUser): 'edit' | 'delete' | null =>
     pending.find(
@@ -630,7 +617,6 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
         onClose={() => setIsAddOpen(false)}
         branchId={branchId}
         devices={devices}
-        refreshKey={pinsKey}
         prefill={addPrefill}
         onQueued={(added) => {
           void load(true);
