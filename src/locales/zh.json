@@ -2217,6 +2217,10 @@
 		"print_nobody": "此期间没有可打印的人员。",
 		"print_which_cutoff": "打印哪一期？",
 		"current_cutoff": "本期",
-		"preparing": "准备中…"
+		"preparing": "准备中…",
+		"pdf_off_duty": "休息",
+		"pdf_custom_note": "像 10a-7p 这样的时间是自定义班次（开始 - 结束）。",
+		"pdf_printed": "打印于 {{when}}",
+		"pdf_page": "第 {{page}} 页，共 {{pages}} 页"
 	}
 }

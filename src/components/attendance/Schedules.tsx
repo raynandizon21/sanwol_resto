@@ -348,12 +348,11 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
       const sheetDates = datesBetween(cutoff.start, cutoff.end);
       exportSchedulePdf({
         t,
-        // jsPDF's built-in fonts have no en dash.
-        title: `${formatYmdDisplay(cutoff.start)} - ${formatYmdDisplay(cutoff.end)} | ${selectedBranch?.name ?? ''} ${t('attendance.schedule', 'Schedule')}`.trim(),
-        subtitle: positionFilter.length
+        branchName: selectedBranch?.name ?? '',
+        range: cutoff,
+        filterLabel: positionFilter.length
           ? positions.filter((p) => positionFilter.includes(p.key)).map((p) => p.label || t('attendance.no_position', 'No position')).join(', ')
           : t('attendance.all_positions', 'All positions'),
-        dates: sheetDates,
         rows: sheetRows.map((e) => ({
           name: e.name || '—',
           position: e.position || '',

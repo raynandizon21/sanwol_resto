@@ -2838,6 +2838,10 @@
 		"print_nobody": "Nobody to print for this cutoff.",
 		"print_which_cutoff": "Print which cutoff?",
 		"current_cutoff": "Current",
-		"preparing": "Preparing…"
+		"preparing": "Preparing…",
+		"pdf_off_duty": "Off duty",
+		"pdf_custom_note": "Times like 10a-7p are custom shifts (start - end).",
+		"pdf_printed": "Printed {{when}}",
+		"pdf_page": "Page {{page}} of {{pages}}"
 	}
 }

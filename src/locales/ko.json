@@ -2836,6 +2836,10 @@
 		"print_nobody": "이 마감 기간에 인쇄할 직원이 없습니다.",
 		"print_which_cutoff": "인쇄할 마감 기간",
 		"current_cutoff": "이번",
-		"preparing": "준비 중…"
+		"preparing": "준비 중…",
+		"pdf_off_duty": "휴무",
+		"pdf_custom_note": "10a-7p 같은 시간은 사용자 지정 근무입니다(시작 - 종료).",
+		"pdf_printed": "인쇄: {{when}}",
+		"pdf_page": "{{page}} / {{pages}} 페이지"
 	}
 }

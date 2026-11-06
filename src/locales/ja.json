@@ -2216,6 +2216,10 @@
 		"print_nobody": "この締め期間に印刷する人がいません。",
 		"print_which_cutoff": "印刷する締め期間",
 		"current_cutoff": "今回",
-		"preparing": "準備中…"
+		"preparing": "準備中…",
+		"pdf_off_duty": "休み",
+		"pdf_custom_note": "10a-7p のような時間はカスタムシフトです（開始 - 終了）。",
+		"pdf_printed": "印刷日時: {{when}}",
+		"pdf_page": "{{page}} / {{pages}} ページ"
 	}
 }
