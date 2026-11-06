@@ -30,7 +30,8 @@ import {
 } from './attendanceShared';
 import { positionRank } from './profileFields';
 import { OFF_DUTY_STYLES, ScheduleCellDialog } from './ScheduleCellDialog';
-import { exportSchedulePdf } from './schedulePdf';
+import { buildSchedulePdf } from './schedulePdf';
+import { printPdf } from './printPdf';
 import { cutoffsIn, shortRangeLabel, type Range } from './timesheetPeriods';
 
 type View = 'month' | 'week';
@@ -333,7 +334,10 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   // The cutoffs the view overlaps: a month has two, a week one or two.
   const printCutoffs = cutoffsIn(range);
 
-  /** Prints one cutoff: loads its days (the view may show only part of it), same filter and order. */
+  /**
+   * Builds one cutoff's PDF and opens the browser's print screen for it (no download or preview
+   * first): loads its days (the view may show only part of it), same filter and order.
+   */
   const printCutoff = async (cutoff: Range) => {
     setPrintOpen(false);
     setPrinting(true);
@@ -346,21 +350,22 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
         return;
       }
       const sheetDates = datesBetween(cutoff.start, cutoff.end);
-      exportSchedulePdf({
+      const filterLabel = positionFilter.length
+        ? positions.filter((p) => positionFilter.includes(p.key)).map((p) => p.label || t('attendance.no_position', 'No position')).join(', ')
+        : t('attendance.all_positions', 'All positions');
+      const blob = buildSchedulePdf({
         t,
         branchName: selectedBranch?.name ?? '',
         range: cutoff,
-        filterLabel: positionFilter.length
-          ? positions.filter((p) => positionFilter.includes(p.key)).map((p) => p.label || t('attendance.no_position', 'No position')).join(', ')
-          : t('attendance.all_positions', 'All positions'),
+        filterLabel,
         rows: sheetRows.map((e) => ({
           name: e.name || '—',
           position: e.position || '',
           entries: sheetDates.map((d) => sheetEntries.get(`${e.employeeId}|${d}`) ?? null),
         })),
         shiftTypes: sheet.shiftTypes,
-        filename: `schedule_${(selectedBranch?.name || 'branch').replace(/[^a-zA-Z0-9]+/g, '_')}_${cutoff.start}_to_${cutoff.end}.pdf`,
       });
+      await printPdf(blob);
     } catch (err) {
       toast.error((err as Error)?.message || t('attendance.schedule_load_failed', 'Could not load the schedule.'));
     } finally {

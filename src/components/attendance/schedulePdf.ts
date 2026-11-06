@@ -58,14 +58,14 @@ const periodLabel = (start: string, end: string) => {
   return `${month} ${Number(start.slice(8))} - ${endMonth}${Number(end.slice(8))}, ${end.slice(0, 4)}`;
 };
 
-export function exportSchedulePdf({
+/** Builds the PDF (the page opens the print screen for it; it isn't downloaded). */
+export function buildSchedulePdf({
   t,
   branchName,
   range,
   filterLabel,
   rows,
   shiftTypes,
-  filename,
 }: {
   t: TFunction;
   branchName: string;
@@ -75,8 +75,7 @@ export function exportSchedulePdf({
   /** Already in display order (grouped by position). */
   rows: SchedulePdfRow[];
   shiftTypes: ShiftType[];
-  filename: string;
-}) {
+}): Blob {
   const doc = new jsPDF('l', 'pt', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -276,5 +275,5 @@ export function exportSchedulePdf({
     );
   }
 
-  doc.save(filename);
+  return doc.output('blob');
 }
