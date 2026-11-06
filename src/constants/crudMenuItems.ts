@@ -39,9 +39,14 @@ export const CRUD_MODULES = [
     description: 'Employees (users on the MB160 attendance device). Add: add people to the device (and enroll their fingerprint). Edit: edit profiles (the name on the device follows the profile name), enroll fingerprints. Delete: remove people from the device.',
   },
   {
+    key: 'schedules',
+    label: 'Schedules',
+    description: 'Work schedules per employee per day, shift types, holidays and attendance rules. Add or Edit: set people\'s shifts, days off, leave and absences (and copy a week). Add: add shift types and holidays. Edit: edit shift types and the attendance rules. Delete: remove shift types and holidays.',
+  },
+  {
     key: 'attendance_logs',
     label: 'Attendance Logs',
-    description: 'Punches from the attendance device and attendance rules. Add: add a forgotten punch. Edit: correct a punch time or status, change the attendance rules. Delete: delete and restore punches.',
+    description: 'Punches from the attendance device. Add: add a forgotten punch. Edit: correct a punch time or status. Delete: delete and restore punches.',
   },
 ] as const satisfies readonly CrudModuleConfig[];
 

@@ -1,14 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import { AlertTriangle, CalendarOff, ChevronLeft, ChevronRight, Info, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import { SidePanel } from '../ui/SidePanel';
 import { cn } from '../../lib/utils';
 import {
   getTimesheet,
   ISSUE_FLAGS,
-  removeExcusedDay,
-  type ExcuseType,
   type Timesheet,
   type WorkDay,
   type TimesheetPunch,
@@ -16,20 +13,18 @@ import {
 import type { AttendanceLog } from '../../services/zktecoService';
 import { getManilaTodayYmd, formatYmdDisplay } from '../../utils/manilaDateTime';
 import { AddPunchDialog, DeletePunchDialog, EditPunchDialog, timesheetPunchToLog } from './PunchDialogs';
-import { ExcuseDayDialog } from './ExcuseDayDialog';
 import { punchStatusLabel, useZkLiveReload } from './zktecoShared';
 import {
   DayStatusChip,
   dayStatusLabel,
   dayStatusMeta,
-  excuseLabel,
   flagLabel,
   formatClock,
   formatMinutes,
   monthBounds,
-  scheduleHours,
+  offDutyLabel,
   shiftMonth,
-  weekdayList,
+  shiftText,
   weekdayOf,
   weekdayShort,
 } from './attendanceShared';
@@ -53,8 +48,9 @@ interface TimesheetViewProps {
 }
 
 /**
- * One person's month (basic time tracking): a calendar of hours worked per day, totals, and each
- * day's shifts and punches, with quick fixes (edit, delete, or add a forgotten punch).
+ * One person's month: a calendar of hours worked per day, totals, and each day's scheduled shift
+ * (from the Schedules page), shifts worked and punches, with quick fixes (edit, delete, or add a
+ * forgotten punch). Shifts, days off, leave and absences are set on the Schedules page.
  */
 export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employeeId, initialDate, canAdd, canEdit, canDelete }) => {
   const { t } = useTranslation();
@@ -66,7 +62,6 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
   const [editLog, setEditLog] = useState<AttendanceLog | null>(null);
   const [deleteLog, setDeleteLog] = useState<AttendanceLog | null>(null);
   const [addFor, setAddFor] = useState<{ date: string; status: number; shiftIn: string | null } | null>(null);
-  const [markFor, setMarkFor] = useState<{ date: string; current: { type: ExcuseType; note: string | null } | null } | null>(null);
 
   const load = useCallback(
     async (silent = false) => {
@@ -105,18 +100,6 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
 
   const openEdit = (p: TimesheetPunch) => setEditLog(timesheetPunchToLog(p, name));
   const openDelete = (p: TimesheetPunch) => setDeleteLog(timesheetPunchToLog(p, name));
-  const schedule = sheet?.employee.schedule ?? null;
-
-  const unmark = async (date: string) => {
-    if (!sheet) return;
-    try {
-      await removeExcusedDay(branchId, sheet.employee.employeeId, date);
-      toast.success(t('attendance.excuse_removed', 'Mark removed'));
-      void load(true);
-    } catch (err) {
-      toast.error((err as Error)?.message || t('attendance.excuse_failed', 'Could not mark the day'));
-    }
-  };
 
   return (
     <div className="space-y-5">
@@ -133,14 +116,13 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
         </div>
         {standardHours != null && (
           <div className="text-xs text-brand-muted font-medium text-right space-y-0.5">
-            <p>{t('attendance.standard_day_label', { hours: standardHours, defaultValue: `Standard day: ${standardHours} h` })}</p>
             <p>
-              {schedule
-                ? `${t('attendance.schedule', 'Schedule')}: ${scheduleHours(schedule.start, schedule.end)}${
-                    schedule.restDays.length ? ` · ${t('attendance.rest_short', 'Rest')}: ${weekdayList(t, schedule.restDays)}` : ''
-                  }`
-                : t('attendance.schedule_not_tracked', 'No schedule (not checked for late or absences)')}
+              {t('attendance.scheduled_days_label', {
+                count: totals?.scheduledDays ?? 0,
+                defaultValue: `Shifts this month: ${totals?.scheduledDays ?? 0}`,
+              })}
             </p>
+            <p>{t('attendance.standard_day_unscheduled', { hours: standardHours, defaultValue: `Unscheduled days: ${standardHours} h standard` })}</p>
           </div>
         )}
       </div>
@@ -198,8 +180,9 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
                   day
                     ? [
                         `${formatYmdDisplay(ymd)} · ${dayStatusLabel(t, day.status)}${worked ? ` · ${formatMinutes(worked)}` : ''}`,
+                        day.shift ? shiftText(day.shift) : null,
                         day.holiday,
-                        day.excuse ? excuseLabel(t, day.excuse.type) : null,
+                        day.offDuty ? [offDutyLabel(t, day.offDuty.type), day.offDuty.note].filter(Boolean).join(': ') : null,
                         day.lateMinutes ? `${t('attendance.late', 'Late')} ${formatMinutes(day.lateMinutes)}` : null,
                         day.undertimeMinutes ? `${t('attendance.undertime', 'Undertime')} ${formatMinutes(day.undertimeMinutes)}` : null,
                       ]
@@ -214,7 +197,17 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
                   ymd === today && 'outline outline-1 outline-brand-primary/40',
                 )}
               >
-                <span className="text-xs font-bold tabular-nums">{i + 1}</span>
+                <span className="flex items-center justify-between gap-0.5">
+                  <span className="text-xs font-bold tabular-nums">{i + 1}</span>
+                  {/* The day's shift color (a shift type), so the plan shows next to what happened. */}
+                  {day?.shift && (
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/10"
+                      style={{ backgroundColor: day.shift.color ?? '#9CA3AF' }}
+                      aria-hidden
+                    />
+                  )}
+                </span>
                 <span className="flex items-center justify-between gap-0.5 text-[10px] font-bold tabular-nums">
                   {worked ? formatMinutes(worked) : ''}
                   {Icon && day && day.status !== 'worked' && <Icon size={11} className="shrink-0" />}
@@ -259,9 +252,6 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
             }
             onEdit={openEdit}
             onDelete={openDelete}
-            canMark={canEdit && Boolean(sheet?.employee.employeeId)}
-            onMark={() => setMarkFor({ date: day.date, current: day.excuse })}
-            onUnmark={() => void unmark(day.date)}
           />
         ))}
       </div>
@@ -276,13 +266,6 @@ export const TimesheetView: React.FC<TimesheetViewProps> = ({ branchId, employee
         defaultStatus={addFor?.status}
         shiftIn={addFor?.shiftIn}
         onClose={() => setAddFor(null)}
-        onDone={() => void load(true)}
-        layerClassName={DIALOG_LAYER}
-      />
-      <ExcuseDayDialog
-        target={markFor && sheet ? { employeeId: sheet.employee.employeeId, name, date: markFor.date, current: markFor.current } : null}
-        branchId={branchId}
-        onClose={() => setMarkFor(null)}
         onDone={() => void load(true)}
         layerClassName={DIALOG_LAYER}
       />
@@ -305,11 +288,7 @@ const DayCard: React.FC<{
   onAdd: (status: number) => void;
   onEdit: (p: TimesheetPunch) => void;
   onDelete: (p: TimesheetPunch) => void;
-  /** Attendance Logs → Edit: mark the day as leave / day off / holiday, or remove the mark. */
-  canMark: boolean;
-  onMark: () => void;
-  onUnmark: () => void;
-}> = ({ day, canAdd, canEdit, canDelete, onAdd, onEdit, onDelete, canMark, onMark, onUnmark }) => {
+}> = ({ day, canAdd, canEdit, canDelete, onAdd, onEdit, onDelete }) => {
   const { t } = useTranslation();
   const issues = day.flags.filter((f) => ISSUE_FLAGS.includes(f));
   const notes = day.flags.filter((f) => !ISSUE_FLAGS.includes(f));
@@ -327,6 +306,16 @@ const DayCard: React.FC<{
         <p className="text-sm font-bold text-brand-text">{formatYmdDisplay(day.date)}</p>
         <DayStatusChip status={day.status} t={t} />
       </div>
+
+      {/* What the Schedules page says for the day. */}
+      <p className="flex items-center gap-1.5 text-xs font-medium text-brand-muted">
+        <CalendarClock size={13} className="shrink-0" />
+        {day.shift
+          ? `${t('attendance.shift', 'Shift')}: ${shiftText(day.shift)}`
+          : day.offDuty
+            ? [offDutyLabel(t, day.offDuty.type), day.offDuty.note].filter(Boolean).join(': ')
+            : t('attendance.not_scheduled', 'Not scheduled')}
+      </p>
 
       {day.shifts.length > 0 && (
         <div className="space-y-0.5">
@@ -361,39 +350,15 @@ const DayCard: React.FC<{
             .join(' · ')}
         </p>
       )}
-      {day.status === 'absent' && (
+      {day.status === 'absent' && day.offDuty?.type !== 'absent' && (
         <p className="text-xs text-red-700 font-medium">
-          {t('attendance.absent_hint', 'A work day by their schedule with no punches. If they were on leave, mark the day.')}
+          {t('attendance.absent_hint', 'They had a shift and no punches. If they were off or on leave, change the day on the Schedules page.')}
         </p>
       )}
       {day.holiday && (
         <p className="text-xs text-sky-700 font-medium">
           {t('attendance.branch_holiday', 'Branch holiday')}: {day.holiday}
         </p>
-      )}
-      {day.excuse && (
-        <div className="flex items-center justify-between gap-2 bg-violet-50 text-violet-800 rounded-xl px-3 py-2">
-          <span className="text-xs font-bold">
-            {excuseLabel(t, day.excuse.type)}
-            {day.excuse.note && <span className="font-medium"> · {day.excuse.note}</span>}
-          </span>
-          {canMark && (
-            <span className="flex gap-0.5 shrink-0">
-              <button type="button" className={iconButton} onClick={onMark} aria-label={t('attendance.excuse_edit', 'Change mark')}>
-                <Pencil size={13} />
-              </button>
-              <button
-                type="button"
-                className={cn(iconButton, 'hover:text-red-600 hover:bg-red-50')}
-                onClick={onUnmark}
-                aria-label={t('attendance.excuse_remove', 'Remove mark')}
-                title={t('attendance.excuse_remove', 'Remove mark')}
-              >
-                <X size={13} />
-              </button>
-            </span>
-          )}
-        </div>
       )}
 
       {issues.length > 0 && (
@@ -454,13 +419,6 @@ const DayCard: React.FC<{
           <button type="button" className={softButton} onClick={() => onAdd(suggestedStatus(day))}>
             <Plus size={13} />
             {t('attendance.add_punch_title', 'Add punch')}
-          </button>
-        )}
-        {/* Leave filed ahead of time is marked on a future day too. */}
-        {canMark && !day.excuse && (
-          <button type="button" className={softButton} onClick={onMark}>
-            <CalendarOff size={13} />
-            {t('attendance.excuse_title', 'Mark day')}
           </button>
         )}
       </div>

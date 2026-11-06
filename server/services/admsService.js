@@ -553,6 +553,7 @@ async function saveUser(conn, device, kv, source, { employeeId = null, profile =
 			 WHERE IDNo = ?`,
 			[v.name, v.privilege, v.password, v.card, v.group, ...deviceValues, holder.IDNo]
 		);
+		await linkTemplates(conn, device, pin, holder.IDNo);
 		return Number(holder.IDNo);
 	}
 
@@ -600,10 +601,26 @@ async function saveUser(conn, device, kv, source, { employeeId = null, profile =
 		device.IDNo,
 		pin,
 	]);
+	await linkTemplates(conn, device, pin, id);
 	return id;
 }
 
-/** Only which biometrics a user has is kept; the payload is reduced to a hash. */
+/**
+ * Makes `employeeId` the owner of every template of this User ID (zk_biometric_templates.EMPLOYEE_ID).
+ * Templates are deleted whenever someone is taken off the device, so whatever is left under the
+ * PIN belongs to whoever has it now; this covers templates sent before their USER line.
+ */
+async function linkTemplates(conn, device, pin, employeeId) {
+	await conn.execute(
+		'UPDATE zk_biometric_templates SET EMPLOYEE_ID = ? WHERE DEVICE_ID = ? AND PIN = ? AND NOT (EMPLOYEE_ID <=> ?)',
+		[employeeId, device.IDNo, pin, employeeId]
+	);
+}
+
+/**
+ * Only which biometrics a user has is kept; the payload is reduced to a hash. EMPLOYEE_ID is the
+ * person who has the User ID on the device; if nobody has it yet, saveUser fills it in later.
+ */
 async function saveTemplate(conn, device, kind, kv) {
 	const pin = kvGet(kv, 'PIN');
 	if (pin === null) return;
@@ -619,13 +636,16 @@ async function saveTemplate(conn, device, kind, kv) {
 
 	await conn.execute(
 		`INSERT INTO zk_biometric_templates
-			(DEVICE_ID, PIN, TEMPLATE_KIND, BIO_TYPE, TEMPLATE_NO, TEMPLATE_INDEX, TEMPLATE_SIZE, VALID, TEMPLATE_HASH, SYNCED_DT)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+			(EMPLOYEE_ID, DEVICE_ID, PIN, TEMPLATE_KIND, BIO_TYPE, TEMPLATE_NO, TEMPLATE_INDEX, TEMPLATE_SIZE, VALID, TEMPLATE_HASH, SYNCED_DT)
+		 VALUES ((SELECT e.IDNo FROM employee e WHERE e.ZK_DEVICE_ID = ? AND e.ZK_ACTIVE_PIN = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
 		 ON DUPLICATE KEY UPDATE
 			EDITED_DT = IF(TEMPLATE_HASH <=> VALUES(TEMPLATE_HASH) AND VALID <=> VALUES(VALID), EDITED_DT, NOW()),
 			TEMPLATE_SIZE = VALUES(TEMPLATE_SIZE), VALID = VALUES(VALID), TEMPLATE_HASH = VALUES(TEMPLATE_HASH),
+			EMPLOYEE_ID = COALESCE(VALUES(EMPLOYEE_ID), EMPLOYEE_ID),
 			SYNCED_DT = NOW()`,
 		[
+			device.IDNo,
+			pin,
 			device.IDNo,
 			pin,
 			kind,

@@ -20,6 +20,7 @@ import {
   IdCard,
   Clock,
   Fingerprint,
+  CalendarDays,
 } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { cn } from '../../lib/utils';
@@ -425,6 +426,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, select
     IdCard,
     Clock,
     Fingerprint,
+    CalendarDays,
     Users,
   };
 

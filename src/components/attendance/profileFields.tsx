@@ -9,10 +9,43 @@ import type { EmployeeProfileChanges } from '../../services/attendanceService';
 // show the same fields with the same rules. The server validates them again (utils/employeeProfile.js).
 
 // The Position dropdown's list; another position can still be typed (same list as the legacy employee metadata).
-export const POSITION_SUGGESTIONS = [
-  'Kitchen', 'Service', 'Waiter/Waitress', 'Cashier', 'Manager',
-  'Supervisor', 'Bartender', 'Cleaning', 'Security', 'Maintenance',
+/**
+ * Positions offered in the Position dropdown, by area (alphabetical inside each). Sanwol's front of
+ * house positions are from its FOH schedule (November 2026). Any other position can still be typed.
+ * The Schedules page groups people in this order.
+ */
+export const POSITION_GROUPS: { key: string; label: string; i18nKey: string; positions: string[] }[] = [
+  {
+    key: 'foh',
+    label: 'Front of house',
+    i18nKey: 'attendance.area_foh',
+    positions: [
+      'Banchan Attendant',
+      'Bartender',
+      'Cashier',
+      'Grilling & Charcoal Attendant',
+      'Grilling Helper/Utility',
+      'Waiter',
+      'Waitress',
+    ],
+  },
+  { key: 'kitchen', label: 'Kitchen', i18nKey: 'attendance.area_kitchen', positions: ['Kitchen'] },
+  { key: 'management', label: 'Management', i18nKey: 'attendance.area_management', positions: ['Manager', 'Supervisor'] },
+  { key: 'support', label: 'Support', i18nKey: 'attendance.area_support', positions: ['Cleaning', 'Maintenance', 'Security'] },
 ];
+
+export const POSITION_SUGGESTIONS = POSITION_GROUPS.flatMap((g) => g.positions);
+
+/**
+ * Sort key for grouping people by position: listed positions in dropdown order, then other typed
+ * positions alphabetically, then no position.
+ */
+export const positionRank = (position: string | null | undefined): [number, string] => {
+  const p = String(position ?? '').trim();
+  if (!p) return [2, ''];
+  const i = POSITION_SUGGESTIONS.findIndex((x) => x.toLowerCase() === p.toLowerCase());
+  return i >= 0 ? [0, String(i).padStart(3, '0')] : [1, p.toLowerCase()];
+};
 
 export const inputClass =
   'w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-primary/20 outline-none disabled:bg-gray-50 disabled:text-brand-muted';
@@ -142,12 +175,12 @@ export const DraftInput: React.FC<
 /** Position: from the list, or typed. */
 export const PositionField: React.FC<FieldProps> = ({ draft, set, disabled }) => {
   const { t } = useTranslation();
-  // The list, plus a position typed earlier that isn't in it, so it still shows.
+  // The list by area, plus a position typed earlier that isn't in it, so it still shows.
+  const typed = draft.position && !POSITION_SUGGESTIONS.includes(draft.position) ? draft.position : null;
   const options = [
     { value: '', label: t('attendance.not_set', 'Not set') },
-    ...[...POSITION_SUGGESTIONS, ...(draft.position && !POSITION_SUGGESTIONS.includes(draft.position) ? [draft.position] : [])].map(
-      (p) => ({ value: p, label: p }),
-    ),
+    ...(typed ? [{ value: typed, label: typed }] : []),
+    ...POSITION_GROUPS.map((g) => ({ label: t(g.i18nKey, g.label), options: g.positions.map((p) => ({ value: p, label: p })) })),
   ];
   return (
     <div>

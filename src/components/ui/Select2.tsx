@@ -9,8 +9,17 @@ interface Option {
   label: string;
 }
 
-interface Select2Props {
+/** Options under a heading (react-select's grouped options). */
+export interface Select2Group {
+  label: string;
   options: Option[];
+}
+
+const isGroup = (o: Option | Select2Group): o is Select2Group => Array.isArray((o as Select2Group).options);
+
+interface Select2Props {
+  /** Plain options, or groups of them (shown under their heading). */
+  options: (Option | Select2Group)[];
   value: string | number | null;
   onChange: (value: string | number | null) => void;
   placeholder?: string;
@@ -64,7 +73,8 @@ export const Select2: React.FC<Select2Props> = ({
   formatCreateLabel,
 }) => {
   const { t } = useTranslation();
-  const selectedOption = options.find(opt => opt.value === value) || null;
+  const flatOptions = options.flatMap((o) => (isGroup(o) ? o.options : [o]));
+  const selectedOption = flatOptions.find(opt => opt.value === value) || null;
 
   const isCompact = variant === 'compact';
   const SelectComponent = (creatable ? CreatableSelect : Select) as typeof Select;
@@ -103,6 +113,7 @@ export const Select2: React.FC<Select2Props> = ({
               isFocused ? '!bg-brand-primary/5 !text-brand-text' : '!text-brand-text'
           ),
           valueContainer: () => cn(isCompact ? '!px-2 !py-0' : '!px-2'),
+          groupHeading: () => '!text-[11px] !font-bold !uppercase !tracking-wider !text-brand-muted !px-4 !pt-2',
           clearIndicator: () => '!text-gray-400 hover:!text-red-500 !p-1',
           dropdownIndicator: () => '!text-gray-400 !p-1',
         }}

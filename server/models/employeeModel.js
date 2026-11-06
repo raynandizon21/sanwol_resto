@@ -7,24 +7,32 @@
 
 const pool = require('../config/db');
 
+const EXCLUDE_DDL =
+	"TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = left out of schedules and attendance (system / IT account, not staff)'";
+
 // Profile columns added for the Employees page. Each person on the MB160 is an employee row; the
 // device columns (ZK_*) are added by models/zktecoModel.js. See docs/attendance.md.
 const ADDED_COLUMNS = [
 	{ name: 'BIRTHDATE', ddl: 'ADD COLUMN BIRTHDATE DATE NULL DEFAULT NULL AFTER ADDRESS' },
 	{ name: 'DATE_SEPARATED', ddl: "ADD COLUMN DATE_SEPARATED DATE NULL DEFAULT NULL COMMENT 'Last day of work' AFTER DATE_STARTED" },
 	{ name: 'NOTES', ddl: 'ADD COLUMN NOTES VARCHAR(255) NULL DEFAULT NULL AFTER EMERGENCY_CONTACT_PHONE' },
-	// Work schedule (2026-11-05), for late, undertime and absences: the branch's, their own, or none.
-	{ name: 'SCHEDULE_MODE', ddl: "ADD COLUMN SCHEDULE_MODE VARCHAR(10) NOT NULL DEFAULT 'branch' COMMENT 'branch = the branch schedule, own = the columns below, none = not tracked' AFTER NOTES" },
-	{ name: 'SCHEDULE_START', ddl: "ADD COLUMN SCHEDULE_START TIME NULL DEFAULT NULL COMMENT 'Own schedule: start time (NULL = not tracked)' AFTER SCHEDULE_MODE" },
-	{ name: 'SCHEDULE_END', ddl: "ADD COLUMN SCHEDULE_END TIME NULL DEFAULT NULL COMMENT 'Own schedule: end time (NULL = no undertime)' AFTER SCHEDULE_START" },
-	{ name: 'SCHEDULE_REST_DAYS', ddl: "ADD COLUMN SCHEDULE_REST_DAYS VARCHAR(20) NULL DEFAULT NULL COMMENT 'Own schedule: rest days (0=Sun..6=Sat, comma-separated)' AFTER SCHEDULE_END" },
+	// 2026-11-06: Profile → "Exclude from schedules and attendance", for a system or IT account on the
+	// device (e.g. 3Core's) that doesn't work shifts.
+	{ name: 'EXCLUDE_FROM_ATTENDANCE', ddl: `ADD COLUMN EXCLUDE_FROM_ATTENDANCE ${EXCLUDE_DDL} AFTER NOTES` },
 ];
+
+// Renamed columns: [old, new, definition]. Briefly NOT_STAFF on 2026-11-06 (same meaning).
+const RENAMED_COLUMNS = [['NOT_STAFF', 'EXCLUDE_FROM_ATTENDANCE', EXCLUDE_DDL]];
 
 // Added by the first version of the Employees page (employment type, work schedule) and removed
 // 2026-11-04: Sanwol's staff have no fixed schedules, and attendance was basic time tracking.
 // Dropped from existing tables; none of them is used by the legacy employee API. Schedules came
-// back on 2026-11-05 as the SCHEDULE_* columns (optional, so these old names stay dropped).
-const DROPPED_COLUMNS = ['EMPLOYMENT_TYPE', 'SHIFT_START', 'SHIFT_END', 'BREAK_MINUTES', 'REST_DAYS'];
+// back on 2026-11-05 as the SCHEDULE_* columns (branch / own / none), which were dropped in turn on
+// 2026-11-06: schedules are set per employee per day on the Schedules page (models/scheduleModel.js).
+const DROPPED_COLUMNS = [
+	'EMPLOYMENT_TYPE', 'SHIFT_START', 'SHIFT_END', 'BREAK_MINUTES', 'REST_DAYS',
+	'SCHEDULE_MODE', 'SCHEDULE_START', 'SCHEDULE_END', 'SCHEDULE_REST_DAYS',
+];
 
 // Kitchen and floor staff have no login account, and a device's branch can be unset.
 const NULLABLE_COLUMNS = [
@@ -37,16 +45,13 @@ const PROFILE_SELECT = `
 	e.IDNo, e.BRANCH_ID, e.USER_INFO_ID, e.FIRSTNAME, e.LASTNAME, e.CONTACTNo, e.DEPARTMENT,
 	e.ADDRESS, DATE_FORMAT(e.BIRTHDATE, '%Y-%m-%d') AS BIRTHDATE,
 	DATE_FORMAT(e.DATE_STARTED, '%Y-%m-%d') AS DATE_STARTED, DATE_FORMAT(e.DATE_SEPARATED, '%Y-%m-%d') AS DATE_SEPARATED,
-	e.EMERGENCY_CONTACT_NAME, e.EMERGENCY_CONTACT_PHONE, e.NOTES, e.ACTIVE,
-	e.SCHEDULE_MODE, TIME_FORMAT(e.SCHEDULE_START, '%H:%i') AS SCHEDULE_START,
-	TIME_FORMAT(e.SCHEDULE_END, '%H:%i') AS SCHEDULE_END, e.SCHEDULE_REST_DAYS,
+	e.EMERGENCY_CONTACT_NAME, e.EMERGENCY_CONTACT_PHONE, e.NOTES, e.EXCLUDE_FROM_ATTENDANCE, e.ACTIVE,
 	DATE_FORMAT(e.EDITED_DT, '%Y-%m-%d %H:%i:%s') AS EDITED_DT`;
 
 // Columns updateProfile may write; anything else in the payload is ignored.
 const PROFILE_EDITABLE = [
 	'FIRSTNAME', 'LASTNAME', 'CONTACTNo', 'DEPARTMENT', 'ADDRESS', 'BIRTHDATE',
-	'DATE_STARTED', 'DATE_SEPARATED', 'EMERGENCY_CONTACT_NAME', 'EMERGENCY_CONTACT_PHONE', 'NOTES',
-	'SCHEDULE_MODE', 'SCHEDULE_START', 'SCHEDULE_END', 'SCHEDULE_REST_DAYS',
+	'DATE_STARTED', 'DATE_SEPARATED', 'EMERGENCY_CONTACT_NAME', 'EMERGENCY_CONTACT_PHONE', 'NOTES', 'EXCLUDE_FROM_ATTENDANCE',
 ];
 
 class EmployeeModel {
@@ -91,6 +96,19 @@ class EmployeeModel {
 				if (existing.get(col.name) === 'NO') {
 					await pool.query(`ALTER TABLE employee ${col.ddl}`);
 					console.log(`[Schema] employee.${col.name} made optional`);
+				}
+			}
+			for (const [from, to, definition] of RENAMED_COLUMNS) {
+				if (existing.has(from) && !existing.has(to)) {
+					await pool.query(`ALTER TABLE employee CHANGE COLUMN ${from} ${to} ${definition}`);
+					existing.delete(from);
+					existing.set(to, 'NO');
+					console.log(`[Schema] employee.${from} renamed to ${to}`);
+				} else if (existing.has(from)) {
+					// Both exist (the new one was added before the rename ran): the old one goes.
+					await pool.query(`ALTER TABLE employee DROP COLUMN ${from}`);
+					existing.delete(from);
+					console.log(`[Schema] employee.${from} dropped (replaced by ${to})`);
 				}
 			}
 			for (const col of ADDED_COLUMNS) {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, CalendarCheck, ChevronRight, Clock, Hourglass, Settings2, Timer, UserCheck, UserX } from 'lucide-react';
+import { AlertTriangle, CalendarCheck, ChevronRight, Clock, Hourglass, Timer, UserCheck, UserX } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { DataTable, type ColumnDef } from '../ui/DataTable';
 import { SkeletonTable } from '../ui/Skeleton';
@@ -9,7 +9,6 @@ import { getAttendanceSummary, type AttendanceSummary as Summary, type SummaryEm
 import { formatYmdDisplay } from '../../utils/manilaDateTime';
 import { useZkLiveReload } from './zktecoShared';
 import { flagLabel, formatClock, formatMinutes, toHours } from './attendanceShared';
-import { AttendanceRulesDialog } from './AttendanceRulesDialog';
 
 // Two series per chart (validated pair: brand indigo + orange, both ≥ 3:1 on white, CVD ΔE 31).
 // Orange is "extra / attention" in both charts: hours over the standard day, days needing a fix.
@@ -99,7 +98,6 @@ const Tile: React.FC<{ icon: React.ElementType; label: string; value: React.Reac
 
 interface AttendanceSummaryProps {
   branchId: string | number;
-  branchName: string | null;
   dateRange: { start: string; end: string };
   /** Opens a person's timesheet, optionally on a date. */
   onOpenTimesheet: (employee: { employeeId: number; name: string | null; pin: string }, date?: string) => void;
@@ -110,13 +108,11 @@ interface AttendanceSummaryProps {
  * day, people at work per day, staffing by hour, problems to fix and per-person totals (the table
  * view of the charts).
  */
-export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, branchName, dateRange, onOpenTimesheet }) => {
+export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, dateRange, onOpenTimesheet }) => {
   const { t } = useTranslation();
-  const isAllBranches = String(branchId) === 'all';
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rulesOpen, setRulesOpen] = useState(false);
 
   const load = useCallback(
     async (silent = false) => {
@@ -205,7 +201,7 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
         e.totals.absentDays ? (
           <span className="text-sm font-bold tabular-nums text-red-700">{e.totals.absentDays}</span>
         ) : (
-          num(e.schedule ? '0' : '—')
+          num(e.totals.scheduledDays ? '0' : '—')
         ),
     },
     {
@@ -216,7 +212,7 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
             {e.totals.lateDays} · {formatMinutes(e.totals.lateMinutes)}
           </span>
         ) : (
-          num(e.schedule ? '0' : '—')
+          num(e.totals.scheduledDays ? '0' : '—')
         ),
     },
     { header: t('attendance.hours_worked', 'Hours worked'), render: (e) => num(formatMinutes(e.totals.workedMinutes)) },
@@ -268,25 +264,16 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
   const today = summary.today;
   const totals = summary.totals;
   const hasData = summary.employees.length > 0;
-  const tracked = summary.employees.some((e) => e.schedule);
+  const tracked = summary.employees.some((e) => e.totals.scheduledDays > 0);
 
   return (
     <div className={cn('space-y-6 transition-opacity', loading && 'opacity-60')}>
       {/* Today (live) */}
+      {/* Attendance rules, shifts and holidays are set on the Schedules page. */}
       <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-brand-text">
           {t('attendance.today', 'Today')} · {formatYmdDisplay(today.date)}
         </p>
-        <button
-          type="button"
-          onClick={() => setRulesOpen(true)}
-          disabled={isAllBranches}
-          title={isAllBranches ? t('attendance.rules_pick_branch', 'Choose a branch to see its attendance rules') : undefined}
-          className="bg-white text-brand-text px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
-        >
-          <Settings2 size={16} />
-          {t('attendance.rules_title', 'Attendance rules')}
-        </button>
       </div>
       <div className="grid grid-cols-3 gap-4">
         <Tile icon={Clock} label={t('attendance.on_shift_now', 'On shift now')} value={today.onShift.length} tone="text-brand-primary">
@@ -347,8 +334,8 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
         <Tile icon={UserX} label={t('attendance.absences', 'Absences')} value={totals.absentDays} tone={totals.absentDays ? 'text-red-700' : 'text-brand-text'}>
           <p className="text-xs text-brand-muted font-medium mt-1">
             {tracked
-              ? t('attendance.absences_hint', 'Work days by the schedule with no punches')
-              : t('attendance.no_schedules_short', 'No one has a schedule yet (Attendance rules)')}
+              ? t('attendance.absences_hint_v2', 'Shifts with no punches, and recorded absences')
+              : t('attendance.no_schedules_short_v2', 'No shifts in this period (set them on the Schedules page)')}
           </p>
         </Tile>
         <Tile icon={Timer} label={t('attendance.late', 'Late')} value={totals.lateDays} tone={totals.lateDays ? 'text-orange-600' : 'text-brand-text'}>
@@ -481,14 +468,6 @@ export const AttendanceSummary: React.FC<AttendanceSummaryProps> = ({ branchId, 
           </div>
         </>
       )}
-
-      <AttendanceRulesDialog
-        isOpen={rulesOpen}
-        branchId={branchId}
-        branchName={branchName}
-        onClose={() => setRulesOpen(false)}
-        onSaved={() => void load(true)}
-      />
     </div>
   );
 };

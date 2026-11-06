@@ -33,11 +33,17 @@ router.get('/attendance/settings', authenticate, getUserBranches, AttendanceCont
 // GET - Profiles of people no longer on the device (to link someone added back on the device)
 router.get('/attendance/former-employees', authenticate, getUserBranches, AttendanceController.getFormerEmployees);
 
-// GET - One employee profile, with BRANCH_SCHEDULE (the branch schedule they'd follow)
+// GET - One employee profile
 router.get('/attendance/employees/:id', authenticate, getUserBranches, AttendanceController.getEmployee);
 
-// GET - One branch's holidays (?branch_id=X). Nobody is absent on them.
+// GET - One branch's holidays (?branch_id=X). Only people given a shift are expected on them.
 router.get('/attendance/holidays', authenticate, getUserBranches, AttendanceController.getHolidays);
+
+// GET - The Schedules page: people, their days, shift types, holidays (?branch_id=X&start_date=&end_date=, at most 62 days)
+router.get('/attendance/schedule', authenticate, getUserBranches, AttendanceController.getSchedule);
+
+// GET - One branch's shift types (?branch_id=X)
+router.get('/attendance/shift-types', authenticate, getUserBranches, AttendanceController.getShiftTypes);
 
 // ============================================
 // POST / PUT / PATCH ROUTES
@@ -47,20 +53,27 @@ router.get('/attendance/holidays', authenticate, getUserBranches, AttendanceCont
 router.post('/attendance/employees/link', authenticate, getUserBranches, AttendanceController.linkEmployee);
 
 // PUT - Save one branch's attendance rules (?branch_id=X)
-// Body: { standardHours, maxShiftHours, graceMinutes, scheduleStart, scheduleEnd, closedDays, cutoff }
+// Body: { standardHours, maxShiftHours, graceMinutes, cutoff }
 router.put('/attendance/settings', authenticate, getUserBranches, AttendanceController.updateSettings);
 
 // POST - Add a branch holiday (?branch_id=X). Body: { date, name }
 router.post('/attendance/holidays', authenticate, getUserBranches, AttendanceController.saveHoliday);
 
-// PUT - Mark one person's day as leave, day off or holiday. Body: { employee_id, date, type, note }
-router.put('/attendance/excused-days', authenticate, getUserBranches, AttendanceController.saveExcusedDay);
+// PUT - Set people's days (?branch_id=X). Body: { cells: [{ employee_id, date }], value: { type, shift_type_id | start, end | note } }
+router.put('/attendance/schedule', authenticate, getUserBranches, AttendanceController.setScheduleDays);
+
+// POST - Copy a week onto another (?branch_id=X). Body: { from_start, to_start, overwrite, employee_ids? }
+router.post('/attendance/schedule/copy-week', authenticate, getUserBranches, AttendanceController.copyScheduleWeek);
+
+// POST / PUT - Add / edit a shift type (?branch_id=X). Body: { name, start, end, color }
+router.post('/attendance/shift-types', authenticate, getUserBranches, AttendanceController.createShiftType);
+router.put('/attendance/shift-types/:id', authenticate, getUserBranches, AttendanceController.updateShiftType);
 
 // DELETE - A branch holiday (?branch_id=X)
 router.delete('/attendance/holidays/:id', authenticate, getUserBranches, AttendanceController.removeHoliday);
 
-// DELETE - One person's day mark (?branch_id=&employee_id=&date=)
-router.delete('/attendance/excused-days', authenticate, getUserBranches, AttendanceController.removeExcusedDay);
+// DELETE - A shift type (?branch_id=X); days already given it keep it
+router.delete('/attendance/shift-types/:id', authenticate, getUserBranches, AttendanceController.removeShiftType);
 
 // PATCH - Edit an employee profile (only the fields sent). Body: snake_case fields, see the controller.
 router.patch('/attendance/employees/:id', authenticate, getUserBranches, AttendanceController.updateEmployee);

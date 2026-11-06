@@ -397,7 +397,6 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
         {view === 'summary' ? (
           <AttendanceSummary
             branchId={branchId}
-            branchName={selectedBranch?.name ?? null}
             dateRange={dateRange}
             onOpenTimesheet={(employee, date) => setTimesheetFor({ employee, date })}
           />

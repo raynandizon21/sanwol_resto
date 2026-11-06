@@ -3,9 +3,9 @@
 // ============================================
 // File: models/attendanceSettingsModel.js
 // Description: Per-branch attendance rules used by services/attendanceEngine.js: the standard
-// day, the longest shift, the branch work schedule (call time, end time, grace period, days
-// closed; all optional) and the payroll cutoff. A branch without a row uses the defaults.
-// See docs/attendance.md.
+// day, the longest shift, the grace period for late arrivals and the payroll cutoff. A branch
+// without a row uses the defaults. Work schedules are per employee per day (models/scheduleModel.js;
+// the branch schedule was removed 2026-11-06). Edited on the Schedules page. See docs/attendance.md.
 // ============================================
 
 const pool = require('../config/db');
@@ -19,11 +19,8 @@ const DEFAULT_CUTOFF = Object.freeze({ type: 'semi_monthly', day1: 1, day2: 16, 
 
 const DEFAULTS = Object.freeze({
 	...DEFAULT_RULES,
-	// The branch work schedule. No call time = no schedule (nobody is late or absent).
-	scheduleStart: null,
-	scheduleEnd: null,
+	// Minutes after a shift's start before a time-in counts as late.
 	graceMinutes: 15,
-	closedDays: [],
 	cutoff: DEFAULT_CUTOFF,
 });
 
@@ -34,13 +31,10 @@ const NUMBER_FIELDS = [
 	{ column: 'LATE_GRACE_MINUTES', rule: 'graceMinutes', min: 0, max: 120 },
 ];
 
-// Added 2026-11-05 (schedules, late, absences, cutoffs).
+// Added 2026-11-05 (late, cutoffs).
 const ADDED_COLUMNS = [
-	{ name: 'SCHEDULE_START', ddl: "ADD COLUMN SCHEDULE_START TIME NULL DEFAULT NULL COMMENT 'Branch call time; NULL = no schedule (nobody late or absent)' AFTER MAX_SHIFT_HOURS" },
-	{ name: 'SCHEDULE_END', ddl: "ADD COLUMN SCHEDULE_END TIME NULL DEFAULT NULL COMMENT 'Branch end time; NULL = no undertime' AFTER SCHEDULE_START" },
-	{ name: 'LATE_GRACE_MINUTES', ddl: `ADD COLUMN LATE_GRACE_MINUTES SMALLINT NOT NULL DEFAULT ${DEFAULTS.graceMinutes} COMMENT 'Minutes after the call time before a time-in is late' AFTER SCHEDULE_END` },
-	{ name: 'CLOSED_DAYS', ddl: "ADD COLUMN CLOSED_DAYS VARCHAR(20) NULL DEFAULT NULL COMMENT 'Weekdays the branch is closed (0=Sun..6=Sat, comma-separated)' AFTER LATE_GRACE_MINUTES" },
-	{ name: 'CUTOFF_TYPE', ddl: "ADD COLUMN CUTOFF_TYPE VARCHAR(20) NOT NULL DEFAULT 'semi_monthly' COMMENT 'semi_monthly, monthly, weekly or biweekly' AFTER CLOSED_DAYS" },
+	{ name: 'LATE_GRACE_MINUTES', ddl: `ADD COLUMN LATE_GRACE_MINUTES SMALLINT NOT NULL DEFAULT ${DEFAULTS.graceMinutes} COMMENT 'Minutes after a shift starts before a time-in is late' AFTER MAX_SHIFT_HOURS` },
+	{ name: 'CUTOFF_TYPE', ddl: "ADD COLUMN CUTOFF_TYPE VARCHAR(20) NOT NULL DEFAULT 'semi_monthly' COMMENT 'semi_monthly, monthly, weekly or biweekly' AFTER LATE_GRACE_MINUTES" },
 	{ name: 'CUTOFF_DAY_1', ddl: "ADD COLUMN CUTOFF_DAY_1 TINYINT NOT NULL DEFAULT 1 COMMENT 'Day of the month a period starts (semi_monthly, monthly)' AFTER CUTOFF_TYPE" },
 	{ name: 'CUTOFF_DAY_2', ddl: "ADD COLUMN CUTOFF_DAY_2 TINYINT NOT NULL DEFAULT 16 COMMENT 'Day of the month the second period starts (semi_monthly)' AFTER CUTOFF_DAY_1" },
 	{ name: 'CUTOFF_WEEKDAY', ddl: "ADD COLUMN CUTOFF_WEEKDAY TINYINT NOT NULL DEFAULT 1 COMMENT 'Weekday a period starts (weekly; 0=Sun)' AFTER CUTOFF_DAY_2" },
@@ -49,31 +43,24 @@ const ADDED_COLUMNS = [
 
 // Rules from the first version (overtime, automatic break, the old grace period), removed
 // 2026-11-04 when attendance became basic time tracking. Dropped from existing tables. The grace
-// period came back on 2026-11-05 as LATE_GRACE_MINUTES.
-const DROPPED_COLUMNS = ['GRACE_MINUTES', 'OT_MODE', 'OT_MIN_MINUTES', 'OT_ROUND_MINUTES', 'DEFAULT_BREAK_MINUTES'];
+// period came back on 2026-11-05 as LATE_GRACE_MINUTES. The branch schedule (call time, end time,
+// days closed) was dropped 2026-11-06: schedules are per employee per day now.
+const DROPPED_COLUMNS = [
+	'GRACE_MINUTES', 'OT_MODE', 'OT_MIN_MINUTES', 'OT_ROUND_MINUTES', 'DEFAULT_BREAK_MINUTES',
+	'SCHEDULE_START', 'SCHEDULE_END', 'CLOSED_DAYS',
+];
 
 const SELECT = `
-	BRANCH_ID, STANDARD_HOURS, MAX_SHIFT_HOURS, LATE_GRACE_MINUTES,
-	TIME_FORMAT(SCHEDULE_START, '%H:%i') AS SCHEDULE_START, TIME_FORMAT(SCHEDULE_END, '%H:%i') AS SCHEDULE_END,
-	CLOSED_DAYS, CUTOFF_TYPE, CUTOFF_DAY_1, CUTOFF_DAY_2, CUTOFF_WEEKDAY,
+	BRANCH_ID, STANDARD_HOURS, MAX_SHIFT_HOURS, LATE_GRACE_MINUTES, CUTOFF_TYPE, CUTOFF_DAY_1, CUTOFF_DAY_2, CUTOFF_WEEKDAY,
 	DATE_FORMAT(CUTOFF_ANCHOR, '%Y-%m-%d') AS CUTOFF_ANCHOR`;
 
-/** "0,6" -> [0, 6] (weekdays, sorted, no repeats). Also used for employee rest days. */
-const parseWeekdays = (value) =>
-	[...new Set(String(value ?? '').split(',').map((v) => v.trim()).filter((v) => /^[0-6]$/.test(v)).map(Number))].sort();
-
-const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-
 const fromRow = (row) => {
-	if (!row) return { ...DEFAULTS, closedDays: [], cutoff: { ...DEFAULT_CUTOFF } };
+	if (!row) return { ...DEFAULTS, cutoff: { ...DEFAULT_CUTOFF } };
 	const rules = {};
 	for (const f of NUMBER_FIELDS) {
 		const value = row[f.column];
 		rules[f.rule] = value == null ? DEFAULTS[f.rule] : Number(value);
 	}
-	rules.scheduleStart = row.SCHEDULE_START || null;
-	rules.scheduleEnd = row.SCHEDULE_END || null;
-	rules.closedDays = parseWeekdays(row.CLOSED_DAYS);
 	rules.cutoff = {
 		type: CUTOFF_TYPES.includes(row.CUTOFF_TYPE) ? row.CUTOFF_TYPE : DEFAULT_CUTOFF.type,
 		day1: Number(row.CUTOFF_DAY_1) || DEFAULT_CUTOFF.day1,
@@ -186,16 +173,6 @@ class AttendanceSettingsModel {
 			}
 			rules[f.rule] = f.decimals ? Math.round(value * 100) / 100 : Math.round(value);
 		}
-		for (const key of ['scheduleStart', 'scheduleEnd']) {
-			const value = input?.[key] || null;
-			if (value && !HHMM.test(value)) return { error: 'Times must be HH:MM' };
-			rules[key] = value;
-		}
-		if (rules.scheduleEnd && !rules.scheduleStart) return { error: 'Set the call time before the end time' };
-		if (rules.scheduleEnd && rules.scheduleEnd === rules.scheduleStart) return { error: 'The end time must differ from the call time' };
-		const closed = Array.isArray(input?.closedDays) ? input.closedDays : [];
-		rules.closedDays = parseWeekdays(closed.join(','));
-		if (rules.closedDays.length === 7) return { error: 'The branch must be open at least one day a week' };
 		const { cutoff, error } = validateCutoff(input?.cutoff ?? DEFAULT_CUTOFF);
 		if (error) return { error };
 		rules.cutoff = cutoff;
@@ -208,9 +185,6 @@ class AttendanceSettingsModel {
 			STANDARD_HOURS: rules.standardHours,
 			MAX_SHIFT_HOURS: rules.maxShiftHours,
 			LATE_GRACE_MINUTES: rules.graceMinutes,
-			SCHEDULE_START: rules.scheduleStart,
-			SCHEDULE_END: rules.scheduleEnd,
-			CLOSED_DAYS: rules.closedDays.length ? rules.closedDays.join(',') : null,
 			CUTOFF_TYPE: rules.cutoff.type,
 			CUTOFF_DAY_1: rules.cutoff.day1,
 			CUTOFF_DAY_2: rules.cutoff.day2,
@@ -228,7 +202,5 @@ class AttendanceSettingsModel {
 }
 
 AttendanceSettingsModel.DEFAULT_CUTOFF = DEFAULT_CUTOFF;
-AttendanceSettingsModel.parseWeekdays = parseWeekdays;
-AttendanceSettingsModel.HHMM = HHMM;
 
 module.exports = AttendanceSettingsModel;

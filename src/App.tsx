@@ -40,6 +40,7 @@ import { Categories } from './components/categories/Categories';
 import { ExpensesMock } from './components/expenses/ExpensesMock';
 import { Ingredients } from './components/ingredients/Ingredients';
 import { AttendanceLogs } from './components/attendance/AttendanceLogs';
+import { Schedules } from './components/attendance/Schedules';
 import { Employees } from './components/attendance/Employees';
 import { Users } from './components/users/Users';
 import { UserRole } from './components/users/UserRole';
@@ -543,6 +544,7 @@ export default function App() {
     if (part === 'ai-assistant') return 'AI Sales Assistant';
     if (part === 'expenses-mock') return 'Expenses';
     if (part === 'attendance-logs') return 'Attendance Logs';
+    if (part === 'schedules') return 'Schedules';
     if (part === 'employee') return 'Employees';
     if (primaryPath === 'inventory' && idx === 1) {
       const id = String(part);
@@ -869,6 +871,18 @@ export default function App() {
                     exit={{ opacity: 0, y: -10 }}
                   >
                     <Employees selectedBranch={selectedBranch} />
+                  </motion.div>
+                } />
+
+                {/* Work schedules per employee per day (its own month/week picker; no header date range). */}
+                <Route path="/schedules" element={
+                  <motion.div
+                    key={selectedBranch ? selectedBranch.id : 'initial'}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                  >
+                    <Schedules selectedBranch={selectedBranch} />
                   </motion.div>
                 } />
 

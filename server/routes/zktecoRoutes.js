@@ -30,6 +30,9 @@ router.get('/zkteco/device-users', authenticate, getUserBranches, ZktecoControll
 // GET - Users added from the app that the device hasn't confirmed yet (or failed in the last day)
 router.get('/zkteco/device-users/pending', authenticate, getUserBranches, ZktecoController.getPendingUserCommands);
 
+// GET - The User ID the next Add employee will get (shown read-only in the form). ?device_id=&readd_of=
+router.get('/zkteco/device-users/next-pin', authenticate, getUserBranches, ZktecoController.getNextUserPin);
+
 // GET - Server-Sent Events: { type: attendance|users|commands|device } whenever the device sends data
 router.get('/zkteco/events', authenticate, getUserBranches, ZktecoController.streamEvents);
 
@@ -38,7 +41,7 @@ router.get('/zkteco/events', authenticate, getUserBranches, ZktecoController.str
 // ============================================
 
 // POST - Add an employee to the device (queued; delivered on the device's next poll)
-// Body: { device_id?, pin, profile?, name?, readd_of? (employee IDNo, for "Add again") }
+// Body: { device_id?, profile?, name?, readd_of? (employee IDNo, for "Add again") }. The User ID is assigned by the server.
 router.post('/zkteco/device-users', authenticate, getUserBranches, ZktecoController.createDeviceUser);
 
 // POST - Make the device prompt for a fingerprint for this user (ENROLL_FP)

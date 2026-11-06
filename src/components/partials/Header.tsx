@@ -105,6 +105,7 @@ export const Header: React.FC<HeaderProps> = ({
       'User Role': 'sidebar.user_role',
       'User Access': 'sidebar.user_access',
       'User Management': 'header.user_management',
+      Schedules: 'sidebar.schedules',
     };
 
     if (tab.startsWith('User')) return t('header.user_management');
@@ -133,6 +134,7 @@ export const Header: React.FC<HeaderProps> = ({
       Receipt: 'header.subtitle_receipt',
       'AI Sales Assistant': 'header.subtitle_ai_assistant',
       'User Management': 'header.subtitle_user_management',
+      Schedules: 'header.subtitle_schedules',
     };
 
     if (tab.startsWith('User')) {

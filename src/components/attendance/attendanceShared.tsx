@@ -1,7 +1,7 @@
 import React from 'react';
 import type { TFunction } from 'i18next';
 import { AlertTriangle, CalendarOff, CheckCircle2, Clock, Flag, Moon, UserX } from 'lucide-react';
-import type { DayFlag, DayStatus, ExcuseType } from '../../services/attendanceService';
+import type { DayFlag, DayShift, DayStatus, OffDutyType } from '../../services/attendanceService';
 import { cn } from '../../lib/utils';
 
 /** 510 -> "8h 30m", 45 -> "45m", 0 -> "0h". */
@@ -45,44 +45,62 @@ const DAY_STATUS_META: Record<DayStatus, StatusMeta> = {
   off: { key: 'attendance.day_no_punches', label: 'No punches', chip: 'bg-gray-50 text-brand-muted', cell: 'bg-white text-brand-muted', icon: null },
   upcoming: { key: 'attendance.day_upcoming', label: 'Upcoming', chip: 'bg-gray-50 text-brand-muted', cell: 'bg-white text-gray-300', icon: null },
   absent: { key: 'attendance.day_absent', label: 'Absent', chip: 'bg-red-50 text-red-700', cell: 'bg-red-100 text-red-800', icon: UserX },
-  rest_day: { key: 'attendance.day_rest', label: 'Rest day', chip: 'bg-gray-100 text-gray-600', cell: 'bg-gray-100 text-gray-500', icon: Moon },
+  rest_day: { key: 'attendance.day_rest', label: 'Day off', chip: 'bg-gray-100 text-gray-600', cell: 'bg-gray-100 text-gray-500', icon: Moon },
   holiday: { key: 'attendance.day_holiday', label: 'Holiday', chip: 'bg-sky-50 text-sky-700', cell: 'bg-sky-100 text-sky-800', icon: Flag },
-  excused: { key: 'attendance.day_excused', label: 'Excused', chip: 'bg-violet-50 text-violet-700', cell: 'bg-violet-100 text-violet-800', icon: CalendarOff },
+  excused: { key: 'attendance.day_excused', label: 'Leave', chip: 'bg-violet-50 text-violet-700', cell: 'bg-violet-100 text-violet-800', icon: CalendarOff },
 };
 
-const EXCUSE_TEXT: Record<ExcuseType, [string, string]> = {
-  leave: ['attendance.excuse_leave', 'Leave'],
-  day_off: ['attendance.excuse_day_off', 'Day off'],
-  holiday: ['attendance.excuse_holiday', 'Holiday'],
+const OFF_DUTY_TEXT: Record<OffDutyType, [string, string]> = {
+  day_off: ['attendance.off_day_off', 'Day off'],
+  leave: ['attendance.off_leave', 'Leave'],
+  absent: ['attendance.off_absent', 'Absent'],
 };
 
-export const EXCUSE_TYPES: ExcuseType[] = ['leave', 'day_off', 'holiday'];
+export const OFF_DUTY_TYPES: OffDutyType[] = ['day_off', 'leave', 'absent'];
 
-export const excuseLabel = (t: TFunction, type: ExcuseType) => {
-  const entry = EXCUSE_TEXT[type];
+export const offDutyLabel = (t: TFunction, type: OffDutyType) => {
+  const entry = OFF_DUTY_TEXT[type];
   return entry ? t(entry[0], entry[1]) : type;
 };
 
 /**
- * The short word for a day without punches, for grid cells: "Absent", "Rest day", the holiday's
- * name, or the excuse ("Leave"). Null for other days.
+ * The short word for a day without punches, for grid cells: "Absent", "Day off", "Leave" or the
+ * holiday's name. Null for other days.
  */
-export const dayMarkLabel = (t: TFunction, day: { status: DayStatus; holiday: string | null; excuse: { type: ExcuseType } | null }) => {
-  if (day.status === 'excused' && day.excuse) return excuseLabel(t, day.excuse.type);
+export const dayMarkLabel = (t: TFunction, day: { status: DayStatus; holiday: string | null }) => {
   if (day.status === 'holiday') return day.holiday || dayStatusLabel(t, 'holiday');
-  if (day.status === 'absent' || day.status === 'rest_day') return dayStatusLabel(t, day.status);
+  if (day.status === 'absent' || day.status === 'rest_day' || day.status === 'excused') return dayStatusLabel(t, day.status);
   return null;
 };
 
-/** Weekday names in order (0 = Sunday), for schedules. */
-export const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
-
-/** "Mon, Tue" for rest days / closed days; "—" for none. */
-export const weekdayList = (t: TFunction, days: number[]) => (days.length ? days.map((d) => weekdayShort(t, d)).join(', ') : '—');
-
-/** "10:00 AM – 7:00 PM" or "10:00 AM" (no end time). */
+/** "10:00 AM – 7:00 PM". */
 export const scheduleHours = (start: string | null, end: string | null) =>
   start ? (end ? `${formatClock(start)} – ${formatClock(end)}` : formatClock(start)) : '—';
+
+/** "10a", "2:30p": compact times for grid cells. */
+export const shortClock = (hhmm: string) => {
+  const m = hhmm.match(/^(\d{2}):(\d{2})/);
+  if (!m) return hhmm;
+  const h = Number(m[1]);
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${m[2] === '00' ? '' : `:${m[2]}`}${h < 12 ? 'a' : 'p'}`;
+};
+
+/** A day's shift as text: "Opening (10:00 AM – 7:00 PM)", or just the times for custom ones. */
+export const shiftText = (shift: DayShift | null) =>
+  shift ? (shift.name ? `${shift.name} (${scheduleHours(shift.start, shift.end)})` : scheduleHours(shift.start, shift.end)) : '';
+
+/** Black or white, whichever reads better on `hex` (a shift type's color). */
+export const textOn = (hex: string | null | undefined) => {
+  const m = String(hex ?? '').match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!m) return '#111827';
+  const [r, g, b] = [m[1], m[2], m[3]].map((v) => {
+    const c = parseInt(v, 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.4 ? '#111827' : '#FFFFFF';
+};
 
 export const dayStatusMeta = (status: DayStatus) => DAY_STATUS_META[status] ?? DAY_STATUS_META.off;
 
@@ -107,6 +125,7 @@ const FLAG_TEXT: Record<DayFlag, [string, string]> = {
   missing_out: ['attendance.flag_missing_out', 'No time-out'],
   long_shift: ['attendance.flag_long_shift', 'Shift over 16 hours (time-out likely forgotten)'],
   inferred: ['attendance.flag_inferred', 'Time-in/out guessed from punches with no type'],
+  marked_absent: ['attendance.flag_marked_absent', 'Marked absent on the schedule, but punched in'],
 };
 
 export const flagLabel = (t: TFunction, flag: DayFlag) => {

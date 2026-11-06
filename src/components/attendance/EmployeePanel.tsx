@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Clock, Fingerprint, Info, UserRound, Smartphone, CalendarDays, CalendarClock } from 'lucide-react';
+import { AlertTriangle, Clock, Fingerprint, Info, UserRound, Smartphone, CalendarDays } from 'lucide-react';
 import { SidePanel } from '../ui/SidePanel';
 import { cn } from '../../lib/utils';
 import type { DeviceUser } from '../../services/zktecoService';
 import { fingerLabel } from './EnrollFingerprintDialog';
 import { EmployeeProfileForm } from './EmployeeProfileForm';
-import { EmployeeScheduleForm } from './EmployeeScheduleForm';
 import { TimesheetView } from './Timesheet';
 import { labelClass } from './profileFields';
 
@@ -15,7 +14,7 @@ const sectionTitle = 'flex items-center gap-2 text-sm font-bold text-brand-text'
 const softButton =
   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand-primary bg-brand-primary/10 hover:bg-brand-primary/15 transition-colors disabled:opacity-40';
 
-type Tab = 'profile' | 'schedule' | 'device' | 'attendance';
+type Tab = 'profile' | 'device' | 'attendance';
 
 interface EmployeePanelProps {
   /** The live row from the page, so fingerprints update while the panel is open. */
@@ -36,14 +35,13 @@ interface EmployeePanelProps {
 }
 
 /**
- * One employee, in four tabs:
+ * One employee, in three tabs (their work schedule is set on the Schedules page):
  * - Profile: app-only details (EmployeeProfileForm).
- * - Schedule: the work schedule late, undertime and absences are checked against.
  * - Device: the name shown on the MB160 (it follows the profile name, so it's only shown here)
  *   and the fingerprints (the enrollment dialog opens on top). Role, password, card and face
  *   aren't managed here: staff punch with fingerprints, and the rest is set on the device itself.
  * - Attendance: their timesheet.
- * Someone removed from the device has Profile, Schedule and Attendance.
+ * Someone removed from the device has Profile and Attendance.
  */
 export const EmployeePanel: React.FC<EmployeePanelProps> = ({
   user,
@@ -73,7 +71,6 @@ export const EmployeePanel: React.FC<EmployeePanelProps> = ({
   const displayName = user.profile?.fullName || user.name || '—';
   const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
     { key: 'profile', label: t('attendance.tab_profile', 'Profile'), icon: UserRound },
-    { key: 'schedule', label: t('attendance.tab_schedule', 'Schedule'), icon: CalendarClock },
     ...(onDevice ? [{ key: 'device' as const, label: t('attendance.tab_device', 'Device'), icon: Smartphone }] : []),
     { key: 'attendance', label: t('attendance.tab_attendance', 'Attendance'), icon: CalendarDays },
   ];
@@ -116,8 +113,6 @@ export const EmployeePanel: React.FC<EmployeePanelProps> = ({
       )}
 
       {tab === 'profile' && <EmployeeProfileForm user={user} branchId={branchId} canEdit={canEditDetails} onSaved={onSaved} />}
-
-      {tab === 'schedule' && <EmployeeScheduleForm user={user} branchId={branchId} canEdit={canEditDetails} onSaved={onSaved} />}
 
       {tab === 'attendance' &&
         (user.employeeId ? (

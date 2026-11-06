@@ -22,12 +22,11 @@ import {
   dayMarkLabel,
   dayStatusLabel,
   dayStatusMeta,
-  excuseLabel,
   flagLabel,
   formatClock,
   formatMinutes,
-  scheduleHours,
-  weekdayList,
+  offDutyLabel,
+  shiftText as plannedShiftText,
   weekdayOf,
   weekdayShort,
 } from './attendanceShared';
@@ -61,12 +60,13 @@ const decimalHours = (minutes: number) => (minutes / 60).toFixed(2);
 
 const personLabel = (t: TFunction, e: TimesheetsEmployee) => e.name || `${t('attendance.unknown_user', 'Not on device')} (${e.pin})`;
 
-/** "10:00 AM – 7:00 PM · Rest: Sun" / "Not tracked". */
-const scheduleText = (t: TFunction, e: TimesheetsEmployee) => {
-  if (!e.schedule) return t('attendance.schedule_not_tracked', 'No schedule (not checked for late or absences)');
-  const rest = e.schedule.restDays.length ? ` · ${t('attendance.rest_short', 'Rest')}: ${weekdayList(t, e.schedule.restDays)}` : '';
-  return `${scheduleHours(e.schedule.start, e.schedule.end)}${rest}`;
-};
+/** What the Schedules page says for a day: "Opening (10:00 AM – 7:00 PM)", "Leave: Sick", or "". */
+const plannedText = (t: TFunction, day: WorkDay) =>
+  day.shift
+    ? plannedShiftText(day.shift)
+    : day.offDuty
+      ? [offDutyLabel(t, day.offDuty.type), day.offDuty.note].filter(Boolean).join(': ')
+      : '';
 
 /** "2 · 35m" (days · minutes), or "—". */
 const countAndMinutes = (days: number, minutes: number) => (days ? `${days} · ${formatMinutes(minutes)}` : '—');
@@ -111,6 +111,7 @@ const ZERO_TOTALS: AttendanceTotals = {
   undertimeDays: 0,
   undertimeMinutes: 0,
   excusedDays: 0,
+  scheduledDays: 0,
   averageMinutes: 0,
 };
 
@@ -213,7 +214,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
     for (const e of rows) for (const key of Object.keys(sum) as (keyof AttendanceTotals)[]) sum[key] += e.totals[key] || 0;
     return sum;
   }, [rows]);
-  const anyTracked = rows.some((e) => e.schedule);
+  const anyTracked = rows.some((e) => e.totals.scheduledDays > 0);
 
   const nowLabel = t('attendance.now_short', 'now');
   const scopeLabel = isAllBranches ? t('attendance.all_branches', 'All branches') : branchName || '';
@@ -243,15 +244,14 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
     ];
     const lines = [headers.map(csvCell).join(',')];
     for (const e of rows) {
-      const schedule = e.schedule ? scheduleHours(e.schedule.start, e.schedule.end) : '';
       for (const d of e.days) {
-        // Days with punches, absences and marked days; rest days and days off have nothing to record.
+        // Days with punches, absences, leave and holidays; days off and blank days have nothing to record.
         if (!d.shifts.length && !['absent', 'holiday', 'excused'].includes(d.status)) continue;
         const firstIn = d.shifts.find((s) => s.in)?.in ?? null;
         const last = d.shifts[d.shifts.length - 1];
         // The day's last shift; blank when it has no time-out (the Problems column says so).
         const lastOut = last && !last.open ? last.out : null;
-        const note = d.excuse ? [excuseLabel(t, d.excuse.type), d.excuse.note].filter(Boolean).join(': ') : d.holiday ?? '';
+        const note = [d.offDuty?.note, d.holiday].filter(Boolean).join('; ');
         const cells: (string | number)[] = [
           personLabel(t, e),
           e.pin,
@@ -259,7 +259,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
           d.date,
           weekdayShort(t, weekdayOf(d.date)),
           dayStatusLabel(t, d.status),
-          d.scheduled ? schedule : '',
+          d.shift ? plannedShiftText(d.shift) : d.offDuty ? offDutyLabel(t, d.offDuty.type) : '',
           firstIn ? formatClock(firstIn) : '',
           last?.open ? nowLabel : lastOut ? formatClock(lastOut) : '',
           d.shifts.map((s) => shiftText(s, nowLabel, formatClock, ' - ')).join('; '),
@@ -574,7 +574,6 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                           type="button"
                           disabled={e.employeeId == null}
                           onClick={() => openCell(e)}
-                          title={e.employeeId != null ? `${t('attendance.schedule', 'Schedule')}: ${scheduleText(t, e)}` : undefined}
                           className="text-left disabled:cursor-default"
                         >
                           <span className={cn('block text-sm font-bold', e.name ? 'text-brand-text hover:underline' : 'text-brand-muted italic')}>
@@ -586,8 +585,8 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
                           </span>
                           <span className="block text-xs text-brand-text font-bold tabular-nums mt-0.5">
                             {formatMinutes(e.totals.workedMinutes)}
-                            {e.employeeId != null && !e.schedule && (
-                              <span className="ml-1.5 font-medium text-brand-muted">· {t('attendance.no_schedule_short', 'No schedule')}</span>
+                            {e.employeeId != null && e.totals.scheduledDays === 0 && (
+                              <span className="ml-1.5 font-medium text-brand-muted">· {t('attendance.not_scheduled', 'Not scheduled')}</span>
                             )}
                             {!e.active && e.employeeId != null && (
                               <span className="ml-1.5 font-medium text-brand-muted">· {t('attendance.tag_removed', 'Removed')}</span>
@@ -674,8 +673,8 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
           {!anyTracked && (
             <p className="text-xs text-brand-muted font-medium">
               {t(
-                'attendance.no_schedules_hint',
-                'Nobody here has a schedule, so late, undertime and absences aren’t checked. Set a call time in Summary → Attendance rules, or a schedule per employee (Employees → Schedule).',
+                'attendance.no_schedules_hint_v2',
+                'Nobody here has shifts in this period, so late, undertime and absences aren’t checked. Set them on the Schedules page.',
               )}
             </p>
           )}
@@ -711,13 +710,20 @@ const DayCell: React.FC<{
   const base = cn('border-b border-gray-100 px-1.5 py-1.5 align-middle text-center', isSunday && 'bg-gray-50/70', isToday && 'bg-brand-primary/5');
   if (!day) return <td className={base} />;
 
-  // No punches: absent, rest day, holiday or excused show as a labelled cell; other days a dash.
+  // No punches: absent, day off, leave or holiday show as a labelled cell; a shift still to come
+  // shows its name faintly; other days a dash.
   if (!day.shifts.length) {
     const mark = dayMarkLabel(t, day);
     if (!mark) {
       return (
-        <td className={base}>
-          <span className={cn('text-xs', day.status === 'upcoming' ? 'text-gray-200' : 'text-gray-300')}>{day.status === 'upcoming' ? '' : '—'}</span>
+        <td className={base} title={day.shift ? plannedText(t, day) : undefined}>
+          {day.shift ? (
+            <span className="text-[10px] font-medium text-gray-400 truncate block max-w-[80px] mx-auto">
+              {day.shift.name ?? `${shortClock(`2000-01-01 ${day.shift.start}`)}–${shortClock(`2000-01-01 ${day.shift.end}`)}`}
+            </span>
+          ) : (
+            <span className={cn('text-xs', day.status === 'upcoming' ? 'text-gray-200' : 'text-gray-300')}>{day.status === 'upcoming' ? '' : '—'}</span>
+          )}
         </td>
       );
     }
@@ -726,7 +732,7 @@ const DayCell: React.FC<{
     const title = [
       `${formatYmdDisplay(day.date)} · ${dayStatusLabel(t, day.status)}`,
       day.holiday,
-      day.excuse ? [excuseLabel(t, day.excuse.type), day.excuse.note].filter(Boolean).join(': ') : null,
+      plannedText(t, day) || null,
     ]
       .filter(Boolean)
       .join('\n');
@@ -756,9 +762,10 @@ const DayCell: React.FC<{
       : day.status === 'on_shift'
         ? 'bg-brand-primary/10 text-brand-primary hover:bg-brand-primary/15'
         : 'bg-green-50 text-green-900 hover:bg-green-100';
-  const mark = day.excuse ? excuseLabel(t, day.excuse.type) : day.holiday;
+  const mark = day.offDuty ? offDutyLabel(t, day.offDuty.type) : day.holiday;
   const title = [
     `${formatYmdDisplay(day.date)} · ${dayStatusLabel(t, day.status)}${mark ? ` · ${mark}` : ''}`,
+    day.shift ? `${t('attendance.shift', 'Shift')}: ${plannedShiftText(day.shift)}` : t('attendance.not_scheduled', 'Not scheduled'),
     ...day.shifts.map((s) => shiftText(s, nowLabel, formatClock, ' – ') + (s.minutes != null ? ` (${formatMinutes(s.minutes)})` : '')),
     day.workedMinutes
       ? `${t('attendance.worked', 'Worked')} ${formatMinutes(day.workedMinutes)}${
@@ -769,7 +776,7 @@ const DayCell: React.FC<{
       : null,
     ...notes,
     ...issues.map((f) => flagLabel(t, f)),
-    t('attendance.standard_day_label', { hours: standardHours, defaultValue: `Standard day: ${standardHours} h` }),
+    day.shift ? null : t('attendance.standard_day_label', { hours: standardHours, defaultValue: `Standard day: ${standardHours} h` }),
   ]
     .filter(Boolean)
     .join('\n');

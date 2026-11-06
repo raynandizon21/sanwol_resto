@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { cn } from '../../lib/utils';
 import {
@@ -15,7 +15,7 @@ import {
   type Holiday,
 } from '../../services/attendanceService';
 import { formatYmdDisplay, getManilaTodayYmd } from '../../utils/manilaDateTime';
-import { WEEKDAYS, weekdayShort } from './attendanceShared';
+import { weekdayShort } from './attendanceShared';
 import { cutoffPeriodOf, shortRangeLabel, stepPeriod } from './timesheetPeriods';
 
 const inputClass =
@@ -33,60 +33,13 @@ interface AttendanceRulesDialogProps {
   onSaved: () => void;
 }
 
-/** Weekday toggles (closed days, rest days). */
-export const WeekdayPicker: React.FC<{ value: number[]; onChange: (days: number[]) => void; disabled?: boolean }> = ({ value, onChange, disabled }) => {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {WEEKDAYS.map((d) => {
-        const on = value.includes(d);
-        return (
-          <button
-            key={d}
-            type="button"
-            disabled={disabled}
-            aria-pressed={on}
-            onClick={() => onChange(on ? value.filter((x) => x !== d) : [...value, d].sort())}
-            className={cn(
-              'px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors disabled:opacity-60',
-              on ? 'bg-brand-primary text-white border-brand-primary' : 'bg-white text-brand-muted border-gray-200 hover:bg-gray-50',
-            )}
-          >
-            {weekdayShort(t, d)}
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
-/** A time input that can be left empty (with a clear button). */
-export const OptionalTime: React.FC<{ value: string | null; onChange: (v: string | null) => void; disabled?: boolean; clearLabel: string }> = ({
-  value,
-  onChange,
-  disabled,
-  clearLabel,
-}) => (
-  <div className="relative">
-    <input type="time" value={value ?? ''} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className={inputClass} />
-    {value && !disabled && (
-      <button
-        type="button"
-        onClick={() => onChange(null)}
-        className="absolute right-9 top-1/2 -translate-y-1/2 p-1 rounded-md text-brand-muted hover:text-red-600 hover:bg-red-50"
-        aria-label={clearLabel}
-        title={clearLabel}
-      >
-        <X size={14} />
-      </button>
-    )}
-  </div>
-);
+/** Weekday numbers in order (0 = Sunday). */
+const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
 /**
- * One branch's attendance rules: hours (standard day, longest shift), the branch work schedule
- * (call time, end time, grace period, closed days; all optional), the payroll cutoff, and the
- * branch holidays (saved right away, separately from the rest).
+ * One branch's attendance rules, opened from the Schedules page: hours (standard day, longest
+ * shift, grace period for late), the payroll cutoff, and the branch holidays (saved right away,
+ * separately from the rest). Work schedules are set per person per day on the Schedules page.
  */
 export const AttendanceRulesDialog: React.FC<AttendanceRulesDialogProps> = ({ isOpen, branchId, branchName, onClose, onSaved }) => {
   const { t } = useTranslation();
@@ -95,6 +48,7 @@ export const AttendanceRulesDialog: React.FC<AttendanceRulesDialogProps> = ({ is
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [holidayRights, setHolidayRights] = useState({ add: false, remove: false });
   const [holidayDraft, setHolidayDraft] = useState({ date: '', name: '' });
   const [holidayBusy, setHolidayBusy] = useState(false);
 
@@ -110,7 +64,10 @@ export const AttendanceRulesDialog: React.FC<AttendanceRulesDialogProps> = ({ is
       })
       .catch((err) => setError((err as Error)?.message || String(err)));
     getHolidays(branchId)
-      .then((res) => setHolidays(res.holidays))
+      .then((res) => {
+        setHolidays(res.holidays);
+        setHolidayRights({ add: res.canAdd, remove: res.canRemove });
+      })
       .catch(() => setHolidays([]));
   }, [isOpen, branchId]);
 
@@ -247,55 +204,19 @@ export const AttendanceRulesDialog: React.FC<AttendanceRulesDialogProps> = ({ is
           {/* Hours */}
           <div className={sectionClass}>
             <p className={sectionTitle}>{t('attendance.rules_hours', 'Hours')}</p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               {numberField(
                 'standardHours',
                 t('attendance.standard_hours', 'Standard day (hours)'),
-                t('attendance.standard_hours_hint_basic', 'Hours a day counted as regular. Time worked past it is shown as "over".'),
+                t('attendance.standard_hours_hint_v2', 'Regular hours on a day without a shift. With a shift, regular hours go up to the shift’s length; the rest is "over".'),
                 0.5,
               )}
               {numberField('maxShiftHours', t('attendance.max_shift', 'Longest shift (hours)'), t('attendance.max_shift_hint', 'No time-out within this many hours of the time-in means it was forgotten.'))}
-            </div>
-          </div>
-
-          {/* Branch schedule */}
-          <div className={sectionClass}>
-            <div>
-              <p className={sectionTitle}>{t('attendance.rules_schedule', 'Branch schedule')}</p>
-              <p className={hintClass}>
-                {t(
-                  'attendance.rules_schedule_hint',
-                  'Optional. Employees follow it unless their profile has their own schedule or "No schedule". Without a call time, nobody on the branch schedule is checked for late or absences.',
-                )}
-              </p>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className={labelClass}>{t('attendance.call_time', 'Call time')}</label>
-                <OptionalTime
-                  value={rules.scheduleStart}
-                  disabled={!canEdit}
-                  onChange={(v) => setRules((r) => (r ? { ...r, scheduleStart: v, scheduleEnd: v ? r.scheduleEnd : null } : r))}
-                  clearLabel={t('attendance.clear', 'Clear')}
-                />
-                <p className={hintClass}>{t('attendance.call_time_hint', 'A later time-in is late.')}</p>
-              </div>
-              <div>
-                <label className={labelClass}>{t('attendance.end_time', 'End time')}</label>
-                <OptionalTime
-                  value={rules.scheduleEnd}
-                  disabled={!canEdit || !rules.scheduleStart}
-                  onChange={(v) => set('scheduleEnd', v)}
-                  clearLabel={t('attendance.clear', 'Clear')}
-                />
-                <p className={hintClass}>{t('attendance.end_time_hint', 'Optional. An earlier time-out is undertime.')}</p>
-              </div>
-              {numberField('graceMinutes', t('attendance.grace_minutes', 'Grace period (minutes)'), t('attendance.grace_hint', 'Late only past this. Then late counts from the call time.'))}
-            </div>
-            <div>
-              <label className={labelClass}>{t('attendance.closed_days', 'Closed on')}</label>
-              <WeekdayPicker value={rules.closedDays} onChange={(days) => set('closedDays', days)} disabled={!canEdit} />
-              <p className={hintClass}>{t('attendance.closed_days_hint', 'Rest days for everyone on the branch schedule: never absent.')}</p>
+              {numberField(
+                'graceMinutes',
+                t('attendance.grace_minutes', 'Grace period (minutes)'),
+                t('attendance.grace_hint_v2', 'Late only past this many minutes after the shift starts. Then late counts from the start.'),
+              )}
             </div>
           </div>
 
@@ -385,10 +306,13 @@ export const AttendanceRulesDialog: React.FC<AttendanceRulesDialogProps> = ({ is
             <div>
               <p className={sectionTitle}>{t('attendance.rules_holidays', 'Holidays')}</p>
               <p className={hintClass}>
-                {t('attendance.rules_holidays_hint', 'Nobody in this branch is absent on these dates. Saved right away. For one person, mark the day in their timesheet.')}
+                {t(
+                  'attendance.rules_holidays_hint_v2',
+                  'Shown on the Schedules page. Anyone given a shift that day is expected to work; people without one aren’t absent. Saved right away.',
+                )}
               </p>
             </div>
-            {canEdit && (
+            {holidayRights.add && (
               <div className="flex gap-2">
                 <input
                   type="date"
@@ -425,7 +349,7 @@ export const AttendanceRulesDialog: React.FC<AttendanceRulesDialogProps> = ({ is
                       <span className="font-bold text-brand-text tabular-nums">{formatYmdDisplay(h.date)}</span>
                       <span className="text-brand-muted"> · {h.name}</span>
                     </span>
-                    {canEdit && (
+                    {holidayRights.remove && (
                       <button
                         type="button"
                         disabled={holidayBusy}
@@ -445,7 +369,7 @@ export const AttendanceRulesDialog: React.FC<AttendanceRulesDialogProps> = ({ is
 
           {!canEdit && (
             <p className="text-xs text-brand-muted">
-              {t('attendance.rules_read_only', 'You can view these rules. Changing them needs Attendance Logs → Edit permission.')}
+              {t('attendance.rules_read_only_v2', 'You can view these rules. Changing them needs Schedules → Edit permission.')}
             </p>
           )}
           {error && <div className="bg-red-50 border border-red-100 text-red-600 p-3 rounded-xl text-sm font-medium">{error}</div>}

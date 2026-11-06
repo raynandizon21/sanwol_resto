@@ -18,6 +18,7 @@ const ALL_MODULE_KEYS = [
   'ingredients',
   'table_settings',
   'device_users',
+  'schedules',
   'attendance_logs',
 ];
 

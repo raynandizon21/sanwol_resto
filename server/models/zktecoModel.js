@@ -12,10 +12,19 @@
 
 const zkPool = require('../config/zktecoDb');
 const EmployeeModel = require('./employeeModel');
+const { HttpError } = require('../utils/zktecoHttp');
 
 // Same collation as the rest of sanwol_resto (employee is utf8mb4_general_ci): PINs are compared
 // across employee and the zk_ tables, and mixed collations make MariaDB refuse those comparisons.
 const TABLE_OPTIONS = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci';
+
+// zk_biometric_templates.EMPLOYEE_ID (added 2026-11-06). Employee rows are never deleted by the
+// app (removal and merges only deactivate them), so SET NULL only covers a manual delete; the
+// owner is filled in again when the device next reports that User ID (admsService.saveUser).
+const TEMPLATE_EMPLOYEE_COMMENT =
+	"'employee.IDNo who has this User ID on the device (owner of the biometric); NULL = not on the device yet'";
+const TEMPLATE_EMPLOYEE_FK =
+	'FOREIGN KEY (EMPLOYEE_ID) REFERENCES employee (IDNo) ON UPDATE CASCADE ON DELETE SET NULL';
 
 const TABLES = [
 	`CREATE TABLE IF NOT EXISTS zk_devices (
@@ -81,9 +90,11 @@ const TABLES = [
 	) ${TABLE_OPTIONS} COMMENT='ZKTeco MB160: punches from the device and punches added in the app'`,
 
 	// Which fingerprints / faces / photos each user has. Only metadata: the biometric data itself
-	// is not stored (TEMPLATE_HASH just notices when a template is replaced).
+	// is not stored (TEMPLATE_HASH just notices when a template is replaced). The device identifies
+	// a template by (DEVICE_ID, PIN); EMPLOYEE_ID is the person who has that User ID on the device.
 	`CREATE TABLE IF NOT EXISTS zk_biometric_templates (
 		IDNo BIGINT NOT NULL AUTO_INCREMENT,
+		EMPLOYEE_ID INT NULL DEFAULT NULL COMMENT ${TEMPLATE_EMPLOYEE_COMMENT},
 		DEVICE_ID INT NOT NULL,
 		PIN VARCHAR(32) NOT NULL,
 		TEMPLATE_KIND VARCHAR(16) NOT NULL COMMENT 'FP, FACE, BIODATA, USERPIC, BIOPHOTO',
@@ -97,7 +108,9 @@ const TABLES = [
 		EDITED_DT DATETIME NULL DEFAULT NULL COMMENT 'Last time the template itself changed',
 		SYNCED_DT DATETIME NULL DEFAULT NULL COMMENT 'Last time the device reported this template',
 		PRIMARY KEY (IDNo),
-		UNIQUE KEY uq_zk_biometric_templates (DEVICE_ID, PIN, TEMPLATE_KIND, BIO_TYPE, TEMPLATE_NO, TEMPLATE_INDEX)
+		UNIQUE KEY uq_zk_biometric_templates (DEVICE_ID, PIN, TEMPLATE_KIND, BIO_TYPE, TEMPLATE_NO, TEMPLATE_INDEX),
+		KEY idx_zk_biometric_templates_employee (EMPLOYEE_ID),
+		CONSTRAINT fk_zk_biometric_templates_employee ${TEMPLATE_EMPLOYEE_FK}
 	) ${TABLE_OPTIONS} COMMENT='ZKTeco MB160: which biometrics each device user has (no biometric data)'`,
 
 	// Server -> device queue. IDNo is sent to the device as C:<IDNo>:<COMMAND>.
@@ -164,6 +177,24 @@ const EMPLOYEE_ZK_COLUMNS = [
 	['ZK_REMOVED_BY', "INT NULL DEFAULT NULL COMMENT 'ZKTeco: user who removed them in the app (NULL = removed on the device)'"],
 	['ZK_SYNCED_DT', "DATETIME NULL DEFAULT NULL COMMENT 'ZKTeco: last time the device reported them'"],
 ];
+// Changes to zk_ tables made after they were first created (CREATE TABLE IF NOT EXISTS leaves an
+// existing table as it is). Each step is checked and applied on its own, in this order, so a run
+// stopped halfway finishes on the next start.
+const ZK_TABLE_COLUMNS = [
+	['zk_biometric_templates', 'EMPLOYEE_ID', `INT NULL DEFAULT NULL COMMENT ${TEMPLATE_EMPLOYEE_COMMENT} AFTER IDNo`],
+];
+const ZK_TABLE_INDEXES = [
+	['zk_biometric_templates', 'idx_zk_biometric_templates_employee', 'ADD KEY idx_zk_biometric_templates_employee (EMPLOYEE_ID)'],
+];
+// Run after their backfill, so no row points at a missing employee.
+const ZK_TABLE_FOREIGN_KEYS = [
+	[
+		'zk_biometric_templates',
+		'fk_zk_biometric_templates_employee',
+		`ADD CONSTRAINT fk_zk_biometric_templates_employee ${TEMPLATE_EMPLOYEE_FK}`,
+	],
+];
+
 const EMPLOYEE_ZK_INDEXES = [
 	['uq_employee_zk_active_pin', 'ADD UNIQUE KEY uq_employee_zk_active_pin (ZK_DEVICE_ID, ZK_ACTIVE_PIN)'],
 	['idx_employee_zk_pin', 'ADD KEY idx_employee_zk_pin (ZK_DEVICE_ID, ZK_PIN)'],
@@ -186,6 +217,10 @@ const ONLINE_THRESHOLD_SECONDS = 60;
 const ENROLL_PROMPT_MAX_SECONDS = 180;
 const ENROLL_TIMEOUT_CODE = 6;
 const ENROLL_DUPLICATE_CODE = 4;
+
+// User IDs the app gives new users: 1–9 digits, no leading zero (nextNewUserPin).
+const NEW_USER_PIN_RE = /^[1-9]\d{0,8}$/;
+const NEW_USER_PIN_MAX = 999999999;
 
 // Privilege codes that can open the device menu (14 super admin; 6 admin on older firmware).
 const ADMIN_PRIVILEGES = [14, 6];
@@ -273,6 +308,7 @@ class ZktecoModel {
 					console.log(`[Schema] employee.${name} created`);
 				}
 			}
+			await ZktecoModel.migrateZkTables();
 			ZktecoModel._schemaReady = true;
 			ZktecoModel._schemaPromise = null;
 		})().catch((error) => {
@@ -282,6 +318,43 @@ class ZktecoModel {
 		});
 
 		return ZktecoModel._schemaPromise;
+	}
+
+	/** Applies ZK_TABLE_COLUMNS, ZK_TABLE_INDEXES and ZK_TABLE_FOREIGN_KEYS where missing. */
+	static async migrateZkTables() {
+		const exists = async (sql, params) => (await zkPool.query(sql, params))[0].length > 0;
+		for (const [table, column, definition] of ZK_TABLE_COLUMNS) {
+			const sql = `SELECT 1 FROM information_schema.COLUMNS
+				WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`;
+			if (!(await exists(sql, [table, column]))) {
+				await zkPool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+				console.log(`[Schema] ${table}.${column} created`);
+			}
+		}
+		for (const [table, name, ddl] of ZK_TABLE_INDEXES) {
+			const sql = `SELECT 1 FROM information_schema.STATISTICS
+				WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1`;
+			if (!(await exists(sql, [table, name]))) {
+				await zkPool.query(`ALTER TABLE ${table} ${ddl}`);
+				console.log(`[Schema] ${table}.${name} created`);
+			}
+		}
+		// Templates without an owner get the person who has that User ID on the device (cheap when
+		// there's nothing to do; also catches rows left NULL by a manual employee delete).
+		await zkPool.query(
+			`UPDATE zk_biometric_templates t
+			 JOIN employee e ON e.ZK_DEVICE_ID = t.DEVICE_ID AND e.ZK_ACTIVE_PIN = t.PIN
+			 SET t.EMPLOYEE_ID = e.IDNo
+			 WHERE t.EMPLOYEE_ID IS NULL`
+		);
+		for (const [table, name, ddl] of ZK_TABLE_FOREIGN_KEYS) {
+			const sql = `SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+				WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? AND CONSTRAINT_TYPE = 'FOREIGN KEY' LIMIT 1`;
+			if (!(await exists(sql, [table, name]))) {
+				await zkPool.query(`ALTER TABLE ${table} ${ddl}`);
+				console.log(`[Schema] ${table}.${name} created`);
+			}
+		}
 	}
 
 	static async getDevices(branchIds) {
@@ -433,13 +506,13 @@ class ZktecoModel {
 
 	/**
 	 * Someone added back directly on the device got a new employee row (`currentId`). This moves
-	 * their device link, punches and excused days onto their old profile (`formerId`) and
+	 * their device link, punches, schedule days and templates onto their old profile (`formerId`) and
 	 * deactivates the new one.
 	 */
 	static async mergeIntoFormerEmployee(currentId, formerId, userId) {
 		await ZktecoModel.ensureSchema();
 		// Before the transaction: creating the table would commit it halfway.
-		await require('./attendanceCalendarModel').ensureSchema();
+		await require('./scheduleModel').ensureSchema();
 		const conn = await zkPool.getConnection();
 		try {
 			await conn.beginTransaction();
@@ -487,9 +560,13 @@ class ZktecoModel {
 				]
 			);
 			await conn.query('UPDATE zk_attendance_logs SET EMPLOYEE_ID = ? WHERE EMPLOYEE_ID = ?', [former.IDNo, current.IDNo]);
+			await conn.query('UPDATE zk_biometric_templates SET EMPLOYEE_ID = ? WHERE EMPLOYEE_ID = ?', [former.IDNo, current.IDNo]);
 			await conn.query('UPDATE zk_device_commands SET EMPLOYEE_ID = ? WHERE EMPLOYEE_ID = ?', [former.IDNo, current.IDNo]);
 			// Excused days; a date the old profile already has keeps its own mark.
-			await conn.query('UPDATE IGNORE attendance_excused_days SET EMPLOYEE_ID = ? WHERE EMPLOYEE_ID = ?', [former.IDNo, current.IDNo]);
+			// Days both have keep the old profile's entry (UPDATE IGNORE skips them; the new profile's
+			// leftovers are deleted); the rest move over.
+			await conn.query('UPDATE IGNORE attendance_schedule_days SET EMPLOYEE_ID = ? WHERE EMPLOYEE_ID = ?', [former.IDNo, current.IDNo]);
+			await conn.query('DELETE FROM attendance_schedule_days WHERE EMPLOYEE_ID = ?', [current.IDNo]);
 			await conn.commit();
 			return { deviceId: Number(current.ZK_DEVICE_ID) };
 		} catch (error) {
@@ -581,7 +658,7 @@ class ZktecoModel {
 	// ---- Employees page (people on the device) ----
 
 	/**
-	 * Everyone on each device, with biometric counts and last punch. Never returns passwords, card
+	 * Everyone on each device, with biometric counts. Never returns passwords, card
 	 * numbers or templates. People removed from the device only with include_deleted. IDNo and
 	 * EMPLOYEE_ID are both the employee row.
 	 */
@@ -600,8 +677,7 @@ class ZktecoModel {
 				COALESCE(bt.HAS_FACE, 0) AS HAS_FACE,
 				COALESCE(bt.PALM_COUNT, 0) AS PALM_COUNT,
 				bt.FP_FINGERS,
-				COALESCE(bt.HAS_PHOTO, 0) AS HAS_PHOTO,
-				(SELECT MAX(a.EFFECTIVE_DT) FROM zk_attendance_logs a WHERE a.EMPLOYEE_ID = e.IDNo AND a.IS_DELETED = 0) AS LAST_PUNCH_DT
+				COALESCE(bt.HAS_PHOTO, 0) AS HAS_PHOTO
 			FROM employee e
 			JOIN zk_devices d ON d.IDNo = e.ZK_DEVICE_ID
 			LEFT JOIN branches b ON b.IDNo = d.BRANCH_ID
@@ -671,6 +747,63 @@ class ZktecoModel {
 			[deviceId, pin, deviceId, `DATA UPDATE USERINFO PIN=${pin}\t%`]
 		);
 		return rows.length > 0;
+	}
+
+	/**
+	 * The User ID for an add from the app (the app never lets anyone type one). "Add again" keeps
+	 * the person's old ID while nobody else has it. Otherwise it's one more than the highest ID
+	 * ever used on the device: by anyone on it now or removed (`ZK_PIN` is kept), by a punch
+	 * (including IDs nobody here has), or by an add still on its way. So a removed person's ID is
+	 * never handed to someone new, and one User ID means one person in logs and exports. IDs the
+	 * app can't send (not 1–9 digits) are ignored. Returns { pin, reusedOld }.
+	 * Callers that queue the add hold `withAddUserLock` so two adds can't get the same ID.
+	 */
+	static async nextNewUserPin(deviceId, readdOfId = null) {
+		await ZktecoModel.ensureSchema();
+		if (readdOfId) {
+			const [[row]] = await zkPool.query('SELECT ZK_PIN FROM employee WHERE IDNo = ? AND ZK_DEVICE_ID = ?', [readdOfId, deviceId]);
+			const old = row?.ZK_PIN != null ? String(row.ZK_PIN) : null;
+			if (old && NEW_USER_PIN_RE.test(old) && !(await ZktecoModel.isPinTaken(deviceId, old))) {
+				return { pin: old, reusedOld: true };
+			}
+		}
+		const addPrefix = 'DATA UPDATE USERINFO PIN=';
+		const [[{ MAX_PIN }]] = await zkPool.query(
+			`SELECT MAX(CAST(t.P AS UNSIGNED)) AS MAX_PIN FROM (
+				SELECT ZK_PIN AS P FROM employee WHERE ZK_DEVICE_ID = ?
+				UNION ALL
+				SELECT DISTINCT PIN FROM zk_attendance_logs WHERE DEVICE_ID = ?
+				UNION ALL
+				SELECT SUBSTRING_INDEX(SUBSTRING(COMMAND, ${addPrefix.length + 1}), CHAR(9), 1)
+				FROM zk_device_commands
+				WHERE DEVICE_ID = ? AND STATUS IN ('pending', 'sent') AND COMMAND LIKE '${addPrefix}%'
+			 ) t
+			 WHERE t.P REGEXP '^[1-9][0-9]{0,8}$'`,
+			[deviceId, deviceId, deviceId]
+		);
+		const next = Number(MAX_PIN || 0) + 1;
+		if (next > NEW_USER_PIN_MAX) throw new HttpError(409, 'No User ID left on this device');
+		return { pin: String(next), reusedOld: false };
+	}
+
+	/**
+	 * Runs `fn` while holding this device's add-user lock (MySQL GET_LOCK), so picking the next
+	 * User ID and queueing its add happen one request at a time.
+	 */
+	static async withAddUserLock(deviceId, fn) {
+		const lockName = `zk_add_user_${deviceId}`;
+		const conn = await zkPool.getConnection();
+		try {
+			const [[{ GOT }]] = await conn.query('SELECT GET_LOCK(?, 10) AS GOT', [lockName]);
+			if (Number(GOT) !== 1) throw new HttpError(503, 'Another employee is being added right now. Try again.');
+			try {
+				return await fn();
+			} finally {
+				await conn.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {});
+			}
+		} finally {
+			conn.release();
+		}
 	}
 
 	/**

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -44,9 +45,9 @@ import {
   StateTag,
   formatDeviceDateTime,
   isDeviceAdmin,
-  privilegeLabel,
   useZkLiveReload,
 } from './zktecoShared';
+import { formatYmdDisplay, getManilaTodayYmd } from '../../utils/manilaDateTime';
 
 /** "Add again": the removed user, with their saved profile to show in the form. */
 type AddPrefill = NonNullable<React.ComponentProps<typeof AddDeviceUserPanel>['prefill']>;
@@ -57,6 +58,38 @@ interface EmployeesProps {
 
 // Fingers named in the Fingerprints column; more show as "+N" (all of them on hover).
 const FINGERS_SHOWN = 2;
+
+/**
+ * A table row: the device user plus flat copies of the profile fields shown as columns, so the
+ * table can sort them. null = not filled in (blanks sort last).
+ */
+type EmployeeRow = DeviceUser & {
+  position: string | null;
+  contactNo: string | null;
+  dateHired: string | null;
+};
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ymdOrNull = (v: string | null | undefined) => (v && YMD_RE.test(v) ? v : null);
+
+/** Whole months from one YYYY-MM-DD to another (a month counts once its day of the month is reached). */
+const monthsBetween = (from: string, to: string) => {
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm) - (td < fd ? 1 : 0);
+};
+
+/** Length of service, e.g. "1 yr 8 mo", from `start` to `end` (both YYYY-MM-DD). */
+const tenureLabel = (t: TFunction, start: string, end: string) => {
+  if (start > end) return t('attendance.tenure_not_started', 'Not started yet');
+  const months = monthsBetween(start, end);
+  if (months < 1) return t('attendance.tenure_under_month', 'Under 1 mo');
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  if (!y) return t('attendance.tenure_months', { m, defaultValue: `${m} mo` });
+  if (!m) return t('attendance.tenure_years', { y, defaultValue: `${y} yr` });
+  return t('attendance.tenure_years_months', { y, m, defaultValue: `${y} yr ${m} mo` });
+};
 
 const actionButton =
   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand-primary bg-brand-primary/10 hover:bg-brand-primary/15 transition-colors';
@@ -149,18 +182,18 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
   // PIN may already belong to someone else.
   const activeUsers = useMemo(() => users.filter((u) => u.active), [users]);
 
-  // User IDs in use per device, including adds still waiting for the device.
-  const takenPins = useMemo(() => {
-    const map = new Map<number, Set<string>>();
-    const add = (deviceId: number, pin: string | null) => {
-      if (!pin) return;
-      if (!map.has(deviceId)) map.set(deviceId, new Set());
-      map.get(deviceId)!.add(pin);
-    };
-    activeUsers.forEach((u) => add(u.deviceId, u.pin));
-    pending.filter((p) => p.kind === 'add' && p.status !== 'failed').forEach((p) => add(p.deviceId, p.pin));
-    return map;
-  }, [activeUsers, pending]);
+  // User IDs in use per device, including adds still waiting for the device. When it changes,
+  // Add employee fetches the User ID it shows again (the server assigns it).
+  const pinsKey = useMemo(
+    () =>
+      [
+        ...activeUsers.map((u) => `${u.deviceId}:${u.pin}`),
+        ...pending.filter((p) => p.kind === 'add' && p.status !== 'failed').map((p) => `${p.deviceId}:${p.pin}+`),
+      ]
+        .sort()
+        .join(','),
+    [activeUsers, pending],
+  );
 
   /** 'edit' | 'delete' when a change for this user is still waiting for the device. */
   const pendingChange = (u: DeviceUser): 'edit' | 'delete' | null =>
@@ -175,13 +208,30 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
     isDeviceAdmin(u.privilege) &&
     activeUsers.filter((o) => o.deviceId === u.deviceId && isDeviceAdmin(o.privilege) && !isBeingRemoved(o)).length <= 1;
 
+  const rows = useMemo<EmployeeRow[]>(
+    () =>
+      users.map((u) => ({
+        ...u,
+        position: u.profile?.position.trim() || null,
+        contactNo: u.profile?.contactNo.trim() || null,
+        dateHired: ymdOrNull(u.profile?.dateStarted),
+      })),
+    [users],
+  );
+
   const filteredUsers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) =>
-      [u.pin, u.name ?? '', u.profile?.fullName ?? '', u.profile?.position ?? ''].some((v) => v.toLowerCase().includes(q)),
+    if (!q) return rows;
+    // Contact numbers also match by digits only ("09171234567" finds "0917 123 4567").
+    const digits = q.replace(/\D/g, '');
+    return rows.filter(
+      (u) =>
+        [u.pin, u.name ?? '', u.profile?.fullName ?? '', u.position ?? '', u.contactNo ?? ''].some((v) =>
+          v.toLowerCase().includes(q),
+        ) ||
+        (digits.length >= 3 && (u.contactNo ?? '').replace(/\D/g, '').includes(digits)),
     );
-  }, [users, searchQuery]);
+  }, [rows, searchQuery]);
 
   const isDeviceOnline = (deviceId: number) => devices.find((d) => d.id === deviceId)?.isOnline ?? false;
 
@@ -200,9 +250,11 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
     }
   };
 
-  const adminCount = activeUsers.filter((u) => isDeviceAdmin(u.privilege)).length;
-  // Staff punch with fingerprints, so this is who's ready to punch that way.
-  const fingerprintCount = activeUsers.filter((u) => u.fingers.length > 0).length;
+  // The cards count staff only (not people excluded from schedules and attendance).
+  const staffUsers = activeUsers.filter((u) => !u.profile?.excludeFromAttendance);
+  // Staff punch with fingerprints, so these people can't punch yet.
+  const needFingerprintCount = staffUsers.filter((u) => u.fingers.length === 0).length;
+  const today = getManilaTodayYmd();
 
   const dim = (u: DeviceUser) => (u.active ? '' : 'opacity-50');
 
@@ -215,7 +267,7 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
       : t('attendance.removed_on_device', { when: whenText, defaultValue: `Removed on the device (noticed ${whenText})` });
   };
 
-  const columns: ColumnDef<DeviceUser>[] = [
+  const columns: ColumnDef<EmployeeRow>[] = [
     {
       header: t('attendance.pin', 'User ID'),
       accessorKey: 'pin',
@@ -229,7 +281,6 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
       render: (u) => {
         const fullName = u.profile?.fullName || u.name || '—';
         const sub = [
-          u.profile?.position,
           u.name && u.name !== fullName ? t('attendance.on_device_as', { name: u.name, defaultValue: `On device: ${u.name}` }) : null,
         ].filter(Boolean);
         return (
@@ -238,6 +289,23 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
             <span className="text-sm font-bold text-brand-text">{fullName}</span>
             {sub.length > 0 && <span className="text-xs text-brand-muted font-medium">{sub.join(' · ')}</span>}
           </div>
+          {u.profile?.excludeFromAttendance && (
+            <StateTag
+              tone="gray"
+              label={t('attendance.tag_excluded', 'Excluded')}
+              title={t('attendance.tag_excluded_hint', 'Excluded from schedules and attendance (Profile). For a system or IT account.')}
+            />
+          )}
+          {u.active && isDeviceAdmin(u.privilege) && (
+            <StateTag
+              tone="primary"
+              label={t('attendance.tag_device_admin', 'Device admin')}
+              title={t(
+                'attendance.device_admin_hint',
+                "Can open the device's menu. Admins are made on the MB160, and its last admin can't be removed.",
+              )}
+            />
+          )}
           {!u.active && <StateTag tone="red" label={t('attendance.tag_removed', 'Removed')} title={removedNote(u)} />}
           {u.active && pendingChange(u) === 'delete' && <StateTag tone="orange" label={t('attendance.tag_removing', 'Removing…')} />}
           {u.active && pendingChange(u) === 'edit' && <StateTag tone="orange" label={t('attendance.tag_updating', 'Updating…')} />}
@@ -246,18 +314,48 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
       },
     },
     {
-      header: t('attendance.role', 'Role'),
+      header: t('attendance.position', 'Position'),
+      accessorKey: 'position',
+      sortable: true,
       render: (u) => (
-        <span
-          className={cn(
-            'px-2.5 py-1 rounded-full text-xs font-bold',
-            isDeviceAdmin(u.privilege) ? 'bg-brand-primary/10 text-brand-primary' : 'bg-gray-100 text-brand-muted',
-            dim(u),
-          )}
-        >
-          {privilegeLabel(t, u.privilege)}
+        <span className={cn('text-sm font-medium', u.position ? 'text-brand-text' : 'text-brand-muted', dim(u))}>
+          {u.position ?? '—'}
         </span>
       ),
+    },
+    {
+      header: t('attendance.contact_no', 'Contact no.'),
+      render: (u) => (
+        <span className={cn('text-sm font-medium tabular-nums whitespace-nowrap', !u.contactNo && 'text-brand-muted', dim(u))}>
+          {u.contactNo ?? '—'}
+        </span>
+      ),
+    },
+    {
+      // Length of service underneath, up to their last day when one is saved (or, for someone
+      // removed without one, the day they were removed).
+      header: t('attendance.date_hired', 'Date hired'),
+      accessorKey: 'dateHired',
+      sortable: true,
+      render: (u) => {
+        const lastDay = ymdOrNull(u.profile?.dateSeparated);
+        const removedDay = !u.active && u.removedDt ? u.removedDt.slice(0, 10) : null;
+        const end = [today, lastDay, removedDay].filter((d): d is string => d != null).sort()[0];
+        const lines = [
+          u.dateHired ? tenureLabel(t, u.dateHired, end) : null,
+          lastDay
+            ? t('attendance.last_day_on', { date: formatYmdDisplay(lastDay), defaultValue: `Last day ${formatYmdDisplay(lastDay)}` })
+            : null,
+        ].filter(Boolean);
+        return (
+          <div className={cn('flex flex-col', dim(u))}>
+            <span className={cn('text-sm font-medium tabular-nums whitespace-nowrap', !u.dateHired && 'text-brand-muted')}>
+              {u.dateHired ? formatYmdDisplay(u.dateHired) : '—'}
+            </span>
+            {lines.length > 0 && <span className="text-xs text-brand-muted font-medium">{lines.join(' · ')}</span>}
+          </div>
+        );
+      },
     },
     {
       // Staff punch with fingerprints. Anything else the user has on the device (set there, not in
@@ -318,29 +416,6 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
           </div>
         );
       },
-    },
-    {
-      header: t('attendance.last_punch', 'Last punch'),
-      accessorKey: 'lastPunchDt',
-      sortable: true,
-      render: (u) => {
-        if (!u.lastPunchDt) return <span className={cn('text-sm text-brand-muted', dim(u))}>—</span>;
-        const { date, time } = formatDeviceDateTime(u.lastPunchDt);
-        return (
-          <div className={cn('flex flex-col', dim(u))}>
-            <span className="text-sm font-medium tabular-nums">{time}</span>
-            <span className="text-xs text-brand-muted font-medium">{date}</span>
-          </div>
-        );
-      },
-    },
-    {
-      header: t('attendance.added_from', 'Added from'),
-      render: (u) => (
-        <span className={cn('text-sm font-medium', dim(u))}>
-          {u.source === 'server' ? t('attendance.source_app', 'This app') : t('attendance.source_device', 'ZKTeco device')}
-        </span>
-      ),
     },
     // There's one device (the MB160), so no Device column; with All Branches, show whose it is.
     ...(isAllBranches
@@ -437,8 +512,8 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" />
             <input
               type="text"
-              placeholder={t('attendance.search_placeholder', 'Search by user ID or name')}
-              className="bg-white border-none rounded-xl pl-10 pr-4 py-2.5 text-base w-80 shadow-sm focus:ring-2 focus:ring-brand-primary/20 outline-none"
+              placeholder={t('attendance.employees_search_placeholder', 'Search name, User ID, position or contact no.')}
+              className="bg-white border-none rounded-xl pl-10 pr-4 py-2.5 text-base w-96 shadow-sm focus:ring-2 focus:ring-brand-primary/20 outline-none"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -522,20 +597,16 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-2 gap-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm">
             <p className="text-brand-muted text-sm font-medium mb-1">{t('attendance.employees_count', 'Employees')}</p>
-            <h3 className="text-3xl font-bold">{loading ? '—' : activeUsers.length}</h3>
+            <h3 className="text-3xl font-bold">{loading ? '—' : staffUsers.length}</h3>
           </div>
-          <div className="bg-white p-6 rounded-2xl shadow-sm">
-            <p className="text-brand-muted text-sm font-medium mb-1">{t('attendance.device_admins', 'Device admins')}</p>
-            <h3 className="text-3xl font-bold text-brand-primary">{loading ? '—' : adminCount}</h3>
-          </div>
-          <div className="bg-white p-6 rounded-2xl shadow-sm">
-            <p className="text-brand-muted text-sm font-medium mb-1">
-              {t('attendance.with_fingerprint', 'With fingerprint')}
-            </p>
-            <h3 className="text-3xl font-bold text-green-600">{loading ? '—' : fingerprintCount}</h3>
+          <div className="bg-white p-6 rounded-2xl shadow-sm" title={t('attendance.need_fingerprint_hint', "No fingerprint enrolled yet, so they can't punch. Enroll one from their row (pencil, then the Device tab).")}>
+            <p className="text-brand-muted text-sm font-medium mb-1">{t('attendance.need_fingerprint', 'Need fingerprint')}</p>
+            <h3 className={cn('text-3xl font-bold', !loading && needFingerprintCount > 0 ? 'text-orange-600' : 'text-green-600')}>
+              {loading ? '—' : needFingerprintCount}
+            </h3>
           </div>
         </div>
 
@@ -559,7 +630,7 @@ export const Employees: React.FC<EmployeesProps> = ({ selectedBranch }) => {
         onClose={() => setIsAddOpen(false)}
         branchId={branchId}
         devices={devices}
-        takenPins={takenPins}
+        refreshKey={pinsKey}
         prefill={addPrefill}
         onQueued={(added) => {
           void load(true);

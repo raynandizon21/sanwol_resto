@@ -52,13 +52,6 @@ export const verifyTypeLabel = (t: TFunction, verify: number | null): string => 
   return entry ? t(entry[0], entry[1]) : codeLabel(t, verify);
 };
 
-export const privilegeLabel = (t: TFunction, privilege: number | null): string => {
-  if (privilege == null || privilege === 0) return t('attendance.role_user', 'User');
-  if (privilege === 14 || privilege === 6) return t('attendance.role_admin', 'Admin');
-  if (privilege === 2) return t('attendance.role_enroller', 'Enroller');
-  return codeLabel(t, privilege);
-};
-
 export const isDeviceAdmin = (privilege: number | null) => privilege === 14 || privilege === 6;
 
 /** "YYYY-MM-DD HH:mm:ss" (device-local) -> { date: "Oct 23, 2026", time: "1:07:36 PM" }, no timezone conversion. */

@@ -75,16 +75,9 @@ export interface EmployeeProfile {
   emergencyContactName: string;
   emergencyContactPhone: string;
   notes: string;
-  /** Work schedule: the branch's (default), their own, or none (not tracked for late or absences). */
-  scheduleMode: ScheduleMode;
-  /** Own schedule: "HH:MM" or "". */
-  scheduleStart: string;
-  scheduleEnd: string;
-  /** Own schedule: rest days, 0 = Sunday. */
-  scheduleRestDays: number[];
+  /** Excluded from schedules and attendance (a system or IT account like 3Core's, not staff). */
+  excludeFromAttendance: boolean;
 }
-
-export type ScheduleMode = 'branch' | 'own' | 'none';
 
 /** An employee as they are on the MB160. `id` and `employeeId` are both employee.IDNo. */
 export interface DeviceUser {
@@ -104,7 +97,6 @@ export interface DeviceUser {
   hasPhoto: boolean;
   /** Finger numbers (0-9) that have a fingerprint enrolled. */
   fingers: number[];
-  lastPunchDt: string | null;
   updatedDt: string;
   /** false = removed from the device (listed only with "Show deleted"). */
   active: boolean;
@@ -181,10 +173,7 @@ export type EmployeeProfileApiRecord = {
   EMERGENCY_CONTACT_NAME: string | null;
   EMERGENCY_CONTACT_PHONE: string | null;
   NOTES: string | null;
-  SCHEDULE_MODE?: string | null;
-  SCHEDULE_START?: string | null;
-  SCHEDULE_END?: string | null;
-  SCHEDULE_REST_DAYS?: string | null;
+  EXCLUDE_FROM_ATTENDANCE?: number | null;
 };
 
 type DeviceUserApiRecord = {
@@ -202,7 +191,6 @@ type DeviceUserApiRecord = {
   PALM_COUNT: number | string;
   HAS_PHOTO: number | string;
   FP_FINGERS: string | null;
-  LAST_PUNCH_DT: string | null;
   ACTIVE: number;
   ENCODED_DT: string;
   EDITED_DT: string | null;
@@ -303,13 +291,7 @@ export const mapEmployeeProfile = (row: EmployeeProfileApiRecord): EmployeeProfi
     emergencyContactName: row.EMERGENCY_CONTACT_NAME ?? '',
     emergencyContactPhone: row.EMERGENCY_CONTACT_PHONE ?? '',
     notes: row.NOTES ?? '',
-    scheduleMode: row.SCHEDULE_MODE === 'own' || row.SCHEDULE_MODE === 'none' ? row.SCHEDULE_MODE : 'branch',
-    scheduleStart: row.SCHEDULE_START ?? '',
-    scheduleEnd: row.SCHEDULE_END ?? '',
-    scheduleRestDays: String(row.SCHEDULE_REST_DAYS ?? '')
-      .split(',')
-      .filter((v) => /^[0-6]$/.test(v.trim()))
-      .map(Number),
+    excludeFromAttendance: Boolean(Number(row.EXCLUDE_FROM_ATTENDANCE ?? 0)),
   };
 };
 
@@ -339,7 +321,6 @@ const mapDeviceUser = (row: DeviceUserApiRecord): DeviceUser => ({
         .filter((n) => Number.isInteger(n) && n >= 0 && n <= 9),
     ),
   ].sort((a, b) => a - b),
-  lastPunchDt: row.LAST_PUNCH_DT,
   updatedDt: row.EDITED_DT || row.ENCODED_DT,
   active: Boolean(Number(row.ACTIVE)),
   removedDt: Number(row.ACTIVE) ? null : row.EDITED_DT,
@@ -410,7 +391,6 @@ export const DEVICE_PRIVILEGE_ADMIN = 14;
  */
 export interface NewDeviceUser {
   deviceId?: number;
-  pin: string;
   /** Only used without a profile; with one, the server makes the device name from the profile name. */
   name?: string;
   profile?: EmployeeProfileChanges;
@@ -452,19 +432,40 @@ type PendingDeviceUserApiRecord = {
 export const createDeviceUser = async (
   branchId: string | number | null | undefined,
   user: NewDeviceUser,
-): Promise<{ commandId: number }> => {
+): Promise<{ commandId: number; deviceId: number; pin: string }> => {
   const response = await fetch(buildUrl('/zkteco/device-users', { branch_id: branchParam(branchId) }), {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       device_id: user.deviceId,
-      pin: user.pin,
       name: user.name ?? '',
       profile: user.profile ?? null,
       readd_of: user.readdOf ?? null,
     }),
   });
-  return handleResponse<{ commandId: number }>(response);
+  // The server assigns the User ID (`pin`).
+  return handleResponse<{ commandId: number; deviceId: number; pin: string }>(response);
+};
+
+/**
+ * The User ID the next add on this device will get (Add employee shows it read-only). For "Add
+ * again", their old one when nobody else has it (`reusedOld`). Another add sent in between can
+ * still move it on, so compare it with the `pin` createDeviceUser returns.
+ */
+export const getNextDeviceUserPin = async (
+  branchId: string | number | null | undefined,
+  deviceId: number,
+  readdOf?: number,
+): Promise<{ pin: string; reusedOld: boolean }> => {
+  const response = await fetch(
+    buildUrl('/zkteco/device-users/next-pin', {
+      branch_id: branchParam(branchId),
+      device_id: String(deviceId),
+      readd_of: readdOf != null ? String(readdOf) : '',
+    }),
+    { headers: authHeaders() },
+  );
+  return handleResponse<{ pin: string; reusedOld: boolean }>(response);
 };
 
 export const getPendingDeviceUsers = async (

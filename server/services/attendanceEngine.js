@@ -3,8 +3,9 @@
 // ============================================
 // File: services/attendanceEngine.js
 // Description: Pairs one person's punches into time-in → time-out shifts and adds up the hours per
-// day, split into regular (up to the standard day) and "over". With a work schedule it also finds
-// late arrivals, undertime and absences (rest days, holidays and excused days aren't absences).
+// day, split into regular (up to the day's scheduled shift, or the standard day) and "over". Their
+// schedule (one entry per date, set on the Schedules page) adds late arrivals, undertime and
+// absences; days off and leave aren't absences, and an unscheduled day isn't checked.
 // Pure (no DB), so every page computes the same thing. No overtime rules. Rules: docs/attendance.md.
 //
 // Times are device-local wall-clock text ("YYYY-MM-DD HH:mm[:ss]"). They are turned into
@@ -17,6 +18,8 @@ const DEFAULT_RULES = Object.freeze({
 	standardHours: 8,
 	// A time-in with no time-out within this many hours is a forgotten time-out.
 	maxShiftHours: 20,
+	// Minutes after a shift's start before a time-in counts as late.
+	graceMinutes: 0,
 });
 
 // MB160 punch states. Whatever key is pressed, it's either arriving or leaving:
@@ -119,17 +122,27 @@ function evaluateShift(s, rules, nowMin) {
 /** Weekday of a "YYYY-MM-DD" (0 = Sunday). */
 const weekdayOf = (ymd) => new Date(`${ymd}T00:00:00Z`).getUTCDay();
 
+/** Minutes a shift lasts ("HH:MM" times; an end at or before the start is the next day's). */
+const shiftLength = (start, end) => {
+	const diff = toMin(`2000-01-01 ${end}`) - toMin(`2000-01-01 ${start}`);
+	return diff > 0 ? diff : diff + 1440;
+};
+
 /**
- * What the schedule expects of one date: whether it's a work day, and why not (rest day, holiday,
- * excused, not employed yet or anymore). No schedule: nothing is expected.
+ * What the schedule says about one date: a shift (expected to work), off duty (day off, leave, a
+ * recorded absence) or nothing (not scheduled: not checked). A shift only counts between the hire
+ * date and the last day of work. A branch holiday is only a label: whoever has a shift is expected.
  */
 function expectationFor(ymd, ctx) {
 	const holiday = ctx.holidays.get(ymd) ?? null;
-	const excuse = ctx.excused.get(ymd) ?? null;
-	const { schedule } = ctx;
+	const entry = ctx.roster.get(ymd) ?? null;
 	const employed = (!ctx.hired || ymd >= ctx.hired) && (!ctx.separated || ymd <= ctx.separated);
-	const restDay = Boolean(schedule && employed && schedule.restDays.includes(weekdayOf(ymd)));
-	return { holiday, excuse, employed, restDay, scheduled: Boolean(schedule && employed && !restDay && !holiday && !excuse) };
+	const shift =
+		employed && entry?.type === 'shift' && entry.start && entry.end
+			? { shiftTypeId: entry.shiftTypeId ?? null, name: entry.name ?? null, color: entry.color ?? null, start: entry.start, end: entry.end }
+			: null;
+	const offDuty = entry && entry.type !== 'shift' ? { type: entry.type, note: entry.note ?? null } : null;
+	return { holiday, shift, offDuty, employed, scheduled: Boolean(shift) };
 }
 
 /** Totals for one date from the shifts that started on it. */
@@ -138,43 +151,51 @@ function computeDay(ymd, shifts, rules, ctx) {
 	const flags = new Set();
 	evaluated.forEach((e) => e.flags.forEach((f) => flags.add(f)));
 
-	const workedMinutes = evaluated.reduce((sum, e) => sum + (e.minutes ?? 0), 0);
-	const regularMinutes = Math.min(workedMinutes, Math.round(rules.standardHours * 60));
-	const isOpen = evaluated.some((e) => e.isOpen);
-
 	const expect = expectationFor(ymd, ctx);
-	const { schedule } = ctx;
+	const { shift } = expect;
+
+	// Regular hours go up to the day's shift (9 h for a 10:00–19:00 shift), else the standard day.
+	const workedMinutes = evaluated.reduce((sum, e) => sum + (e.minutes ?? 0), 0);
+	const regularCap = shift ? shiftLength(shift.start, shift.end) : Math.round(rules.standardHours * 60);
+	const regularMinutes = Math.min(workedMinutes, regularCap);
+	const isOpen = evaluated.some((e) => e.isOpen);
 
 	let status;
 	if (!shifts.length) {
-		// Marked days show even ahead of time (a leave filed in advance, a holiday).
-		if (expect.excuse) status = 'excused';
-		else if (expect.holiday) status = 'holiday';
+		// Off-duty days show even ahead of time (leave filed in advance, a day off, a known absence).
+		if (expect.offDuty?.type === 'leave') status = 'excused';
+		else if (expect.offDuty?.type === 'day_off') status = 'rest_day';
+		else if (expect.offDuty?.type === 'absent') status = 'absent';
+		// A holiday with no shift for them: not expected.
+		else if (expect.holiday && !shift) status = 'holiday';
 		else if (ymd > ctx.today) status = 'upcoming';
-		// Absent: a past work day with no punches at all. Today isn't over yet.
-		else if (expect.scheduled && ymd < ctx.today) status = 'absent';
-		else if (expect.restDay) status = 'rest_day';
+		// Absent: a past day with a shift and no punches at all. Today isn't over yet.
+		else if (shift && ymd < ctx.today) status = 'absent';
+		else if (shift) status = 'upcoming';
 		else status = 'off';
 	} else if (isOpen) status = 'on_shift';
 	else if ([...flags].some((f) => ISSUE_FLAGS.has(f))) status = 'incomplete';
 	else status = 'worked';
 
-	// Late: the day's first time-in after the start plus the grace period. Past the grace period
-	// it counts from the start (8:00 start, 15 min grace, in at 8:20 = 20 min late).
+	// Recorded as absent but they punched: the punches count, and the day says so.
+	if (shifts.length && expect.offDuty?.type === 'absent') flags.add('marked_absent');
+
+	// Late: the day's first time-in after the shift start plus the grace period. Past the grace
+	// period it counts from the start (10:00 start, 15 min grace, in at 10:20 = 20 min late).
 	let lateMinutes = 0;
 	const firstIn = evaluated.find((e) => e.shift.in)?.shift.in;
-	if (expect.scheduled && firstIn) {
-		const late = Math.floor(firstIn.min - toMin(`${ymd} ${schedule.start}`) + 1e-9);
-		if (late > schedule.graceMinutes) lateMinutes = late;
+	if (shift && firstIn) {
+		const late = Math.floor(firstIn.min - toMin(`${ymd} ${shift.start}`) + 1e-9);
+		if (late > (rules.graceMinutes ?? 0)) lateMinutes = late;
 	}
-	// Undertime: the day's last time-out before the scheduled end, on a complete day only (a day
-	// to fix or still running can't tell yet). An end at or before the start is the next day's.
+	// Undertime: the day's last time-out before the shift's end, on a complete day only (a day to
+	// fix or still running can't tell yet). An end at or before the start is the next day's.
 	let undertimeMinutes = 0;
-	if (expect.scheduled && schedule.end && status === 'worked') {
+	if (shift && status === 'worked') {
 		const counted = evaluated.filter((e) => e.minutes != null);
 		if (counted.length) {
 			const lastOut = Math.max(...counted.map((e) => e.shift.out.min));
-			const endMin = toMin(`${ymd} ${schedule.end}`) + (schedule.end <= schedule.start ? 1440 : 0);
+			const endMin = toMin(`${ymd} ${shift.end}`) + (shift.end <= shift.start ? 1440 : 0);
 			undertimeMinutes = Math.max(0, Math.floor(endMin - lastOut + 1e-9));
 		}
 	}
@@ -185,13 +206,15 @@ function computeDay(ymd, shifts, rules, ctx) {
 		workedMinutes,
 		regularMinutes,
 		overMinutes: workedMinutes - regularMinutes,
-		// A work day by the schedule (not a rest day, holiday or excused day).
+		// They had a shift (expected to work).
 		scheduled: expect.scheduled,
+		// The day's shift { shiftTypeId, name (null = custom times), color, start, end } or null.
+		shift,
+		// Off duty that day: { type: day_off | leave | absent, note } or null.
+		offDuty: expect.offDuty,
 		lateMinutes,
 		undertimeMinutes,
-		restDay: expect.restDay,
 		holiday: expect.holiday,
-		excuse: expect.excuse,
 		flags: [...flags],
 		shifts: evaluated.map((e) => ({
 			in: e.shift.in ? dtOf(e.shift.in.min) : null,
@@ -218,12 +241,13 @@ function computeDay(ymd, shifts, rules, ctx) {
  * punches: [{ dt: "YYYY-MM-DD HH:mm:ss", status, ref }] for that person, any order; include a
  *   day before startYmd and after endYmd so shifts crossing the range edges are complete. `ref`
  *   is passed through to day.punches (e.g. the punch's id) for the timesheet.
- * rules: DEFAULT_RULES shape. now: device-local "YYYY-MM-DD HH:mm:ss" (decides "on shift").
- * schedule: { start: "HH:MM", end: "HH:MM" | null, restDays: [weekday 0-6], graceMinutes } or
- *   null (no schedule: never late, absent or undertime).
- * holidays: Map "YYYY-MM-DD" -> name (the branch's). excused: Map "YYYY-MM-DD" -> { type, note }
- *   (leave, day off, holiday marked for this person). hired / separated: "YYYY-MM-DD" or null
- *   (no absences before the hire date or after the last day of work).
+ * rules: DEFAULT_RULES shape (standardHours, maxShiftHours, graceMinutes). now: device-local
+ *   "YYYY-MM-DD HH:mm:ss" (decides "on shift").
+ * roster: Map "YYYY-MM-DD" -> their schedule that day: { type: 'shift', start: "HH:MM",
+ *   end: "HH:MM", name, color, shiftTypeId } or { type: 'day_off' | 'leave' | 'absent', note }.
+ *   A date not in it isn't scheduled (never late, absent or undertime).
+ * holidays: Map "YYYY-MM-DD" -> name (the branch's). hired / separated: "YYYY-MM-DD" or null
+ *   (shifts before the hire date or after the last day of work aren't expected).
  */
 function computeAttendance({
 	punches,
@@ -231,9 +255,8 @@ function computeAttendance({
 	startYmd,
 	endYmd,
 	now,
-	schedule = null,
+	roster = new Map(),
 	holidays = new Map(),
-	excused = new Map(),
 	hired = null,
 	separated = null,
 }) {
@@ -252,9 +275,8 @@ function computeAttendance({
 	const ctx = {
 		nowMin: now ? toMin(now) : null,
 		today: now ? String(now).slice(0, 10) : '9999-12-31',
-		schedule: schedule && schedule.start ? schedule : null,
+		roster,
 		holidays,
-		excused,
 		hired,
 		separated,
 	};
@@ -279,13 +301,14 @@ const emptyTotals = () => ({
 	undertimeDays: 0,
 	undertimeMinutes: 0,
 	excusedDays: 0,
+	scheduledDays: 0,
 	averageMinutes: 0,
 });
 
 /**
  * Range totals for one person. daysWorked: days with a time-in. daysWithHours: days with counted
  * hours (the average is over these, so an unfixed or still-running day doesn't drag it down).
- * excusedDays: days marked leave / day off / holiday for them (branch holidays aren't counted).
+ * excusedDays: days on leave. scheduledDays: days with a shift.
  */
 function summarize(days) {
 	const t = emptyTotals();
@@ -296,7 +319,8 @@ function summarize(days) {
 		if (d.status === 'absent') t.absentDays += 1;
 		if (d.lateMinutes > 0) t.lateDays += 1;
 		if (d.undertimeMinutes > 0) t.undertimeDays += 1;
-		if (d.excuse) t.excusedDays += 1;
+		if (d.offDuty?.type === 'leave') t.excusedDays += 1;
+		if (d.shift) t.scheduledDays += 1;
 		t.workedMinutes += d.workedMinutes;
 		t.regularMinutes += d.regularMinutes;
 		t.overMinutes += d.overMinutes;
@@ -314,6 +338,7 @@ module.exports = {
 	summarize,
 	emptyTotals,
 	weekdayOf,
+	shiftLength,
 	// exported for the summary service and tests
 	toMin,
 	addDays,

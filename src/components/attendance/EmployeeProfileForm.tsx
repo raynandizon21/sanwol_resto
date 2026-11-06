@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Info, Link2, Smartphone } from 'lucide-react';
+import { Info, Link2, ServerCog, Smartphone } from 'lucide-react';
 import { Select2 } from '../ui/Select2';
 import type { DeviceUser } from '../../services/zktecoService';
 import {
@@ -11,6 +11,7 @@ import {
   type FormerEmployee,
 } from '../../services/attendanceService';
 import { formatYmdDisplay } from '../../utils/manilaDateTime';
+import { cn } from '../../lib/utils';
 import {
   ContactFields,
   DraftInput,
@@ -46,6 +47,7 @@ export const EmployeeProfileForm: React.FC<EmployeeProfileFormProps> = ({ user, 
   const [former, setFormer] = useState<FormerEmployee[] | null>(null);
   const [linkTo, setLinkTo] = useState<number | null>(null);
   const [linking, setLinking] = useState(false);
+  const [savingExclude, setSavingExclude] = useState(false);
 
   // Fresh form per person (not on every live refresh of the same one).
   useEffect(() => {
@@ -84,6 +86,26 @@ export const EmployeeProfileForm: React.FC<EmployeeProfileFormProps> = ({ user, 
       setError((err as Error)?.message || t('attendance.profile_save_failed', 'Could not save the employee'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Saved right away (it isn't part of the profile details above).
+  const setExcluded = async (value: boolean) => {
+    if (!profile) return;
+    setSavingExclude(true);
+    setError(null);
+    try {
+      await updateEmployeeProfile(branchId, profile.id, { exclude_from_attendance: value });
+      toast.success(
+        value
+          ? t('attendance.exclude_attendance_on', 'Excluded from schedules and attendance')
+          : t('attendance.exclude_attendance_off', 'Back in schedules and attendance'),
+      );
+      onSaved();
+    } catch (err) {
+      setError((err as Error)?.message || t('attendance.profile_save_failed', 'Could not save the employee'));
+    } finally {
+      setSavingExclude(false);
     }
   };
 
@@ -148,6 +170,33 @@ export const EmployeeProfileForm: React.FC<EmployeeProfileFormProps> = ({ user, 
         </div>
         <ContactFields {...fieldProps} />
       </div>
+
+      {/* For a system or IT account (e.g. 3Core's) that's on the device but doesn't work shifts. */}
+      {profile && (
+        <div className={sectionClass}>
+          <label className={cn('flex items-start gap-3', canEdit && !savingExclude ? 'cursor-pointer' : 'cursor-default')}>
+            <input
+              type="checkbox"
+              checked={profile.excludeFromAttendance}
+              disabled={!canEdit || savingExclude}
+              onChange={(e) => void setExcluded(e.target.checked)}
+              className="mt-1 accent-brand-primary"
+            />
+            <span>
+              <span className={sectionTitle}>
+                <ServerCog size={16} className="text-brand-primary" />
+                {t('attendance.exclude_attendance', 'Exclude from schedules and attendance')}
+              </span>
+              <span className="block text-xs text-brand-muted mt-1">
+                {t(
+                  'attendance.exclude_attendance_hint',
+                  'For a system or IT account on the device (like 3Core’s), not someone who works shifts. They’re left out of Schedules and Attendance Logs (summary, timesheets, exports) and the Employees page’s counts, but stay on the Employees page so the device account can still be managed. Their punches are kept; untick to bring them back.',
+                )}
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
 
       {/* Someone added back directly on the device gets a new profile; this joins them to their old one. */}
       {canEdit && user.active && profile && (

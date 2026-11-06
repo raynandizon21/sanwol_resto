@@ -148,8 +148,26 @@ class ZktecoController {
 		}
 	}
 
-	// POST /zkteco/device-users  { device_id?, pin, profile?, name?, readd_of? }
+	// GET /zkteco/device-users/next-pin?device_id=&readd_of=  → { pin, reusedOld }
+	// The User ID Add employee shows. The add assigns it again under a lock, so another add
+	// sent in between can still move it on by one (the form then tells the user).
+	static async getNextUserPin(req, res) {
+		try {
+			if (!(await canCreateDeviceUser(req))) {
+				return ApiResponse.forbidden(res, 'You are not allowed to add users to the attendance device');
+			}
+			const device = await getScopedDevice(resolveBranchScope(req), parseInt(req.query.device_id, 10));
+			const next = await ZktecoModel.nextNewUserPin(device.IDNo, parseInt(req.query.readd_of, 10) || null);
+			return ApiResponse.success(res, next, 'Next User ID retrieved successfully');
+		} catch (error) {
+			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
+			return handleError(res, error, 'next User ID');
+		}
+	}
+
+	// POST /zkteco/device-users  { device_id?, profile?, name?, readd_of? }
 	// readd_of: "Add again" of that removed employee (employee.IDNo): the same person goes back on.
+	// The User ID is assigned here (ZktecoModel.nextNewUserPin); a `pin` in the body is ignored.
 	// Queues DATA UPDATE USERINFO; the device picks it up on its next poll (≤ 10 s).
 	// The person is put on the device in the app once it confirms (admsService.applyCommandResult).
 	static async createDeviceUser(req, res) {
@@ -174,11 +192,6 @@ class ZktecoController {
 			}
 			if (!Number(device.ACTIVE)) return ApiResponse.badRequest(res, 'This device is disabled');
 
-			const pin = String(body.pin ?? '').trim();
-			if (!NEW_USER_RULES.pin.test(pin)) {
-				return ApiResponse.badRequest(res, 'User ID must be 1–9 digits and not start with 0');
-			}
-
 			// Profile details (optional; first name required when sent). They're written to the
 			// employee profile once the device confirms the user.
 			let profileFields = null;
@@ -195,27 +208,29 @@ class ZktecoController {
 			if (!name || charCount(name) > NEW_USER_RULES.nameMax) {
 				return ApiResponse.badRequest(res, `Name is required (up to ${NEW_USER_RULES.nameMax} characters)`);
 			}
-			if (await ZktecoModel.isPinTaken(device.IDNo, pin)) {
-				return ApiResponse.error(res, `User ID ${pin} is already on this device`, 409);
-			}
 			const readdOfId = parseInt(body.readd_of, 10) || null;
 			if (readdOfId) {
 				const blocker = await ZktecoModel.readdBlocker(device.IDNo, readdOfId);
 				if (blocker) return ApiResponse.error(res, blocker, 409);
 			}
 
-			// Everyone added from the app is a regular user with no password: staff punch with their
-			// fingerprint, and device admins are made on the MB160 itself.
-			const commandId = await AdmsService.queueCommand(
-				device.IDNo,
-				`Add user ${pin} (${name})`,
-				AdmsService.buildUserUpsertCommand({ pin, name, privilege: AdmsService.PRIVILEGE_USER, password: '' }),
-				req.user?.user_id ?? null,
-				{
-					employeeId: readdOfId,
-					profileJson: profileFields ? JSON.stringify({ fields: profileFields, userId: req.user?.user_id ?? null }) : null,
-				}
-			);
+			// Picking the ID and queueing the add happen under one lock, so two adds sent at the
+			// same time get different IDs. Everyone added from the app is a regular user with no
+			// password: staff punch with their fingerprint, and device admins are made on the MB160.
+			const { commandId, pin } = await ZktecoModel.withAddUserLock(device.IDNo, async () => {
+				const { pin: nextPin } = await ZktecoModel.nextNewUserPin(device.IDNo, readdOfId);
+				const id = await AdmsService.queueCommand(
+					device.IDNo,
+					`Add user ${nextPin} (${name})`,
+					AdmsService.buildUserUpsertCommand({ pin: nextPin, name, privilege: AdmsService.PRIVILEGE_USER, password: '' }),
+					req.user?.user_id ?? null,
+					{
+						employeeId: readdOfId,
+						profileJson: profileFields ? JSON.stringify({ fields: profileFields, userId: req.user?.user_id ?? null }) : null,
+					}
+				);
+				return { commandId: id, pin: nextPin };
+			});
 			return ApiResponse.created(res, { commandId, deviceId: device.IDNo, pin }, 'User queued for the device');
 		} catch (error) {
 			if (error instanceof HttpError) return ApiResponse.error(res, error.message, error.status);
