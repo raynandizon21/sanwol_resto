@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, Info, Printer } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, Printer } from 'lucide-react';
 import { SkeletonTable } from '../ui/Skeleton';
 import { type Branch } from '../partials/Header';
 import { cn } from '../../lib/utils';
@@ -18,13 +18,13 @@ import { formatYmdDisplay, getManilaTodayYmd } from '../../utils/manilaDateTime'
 import { useZkLiveReload } from './zktecoShared';
 import {
   addDaysYmd,
+  formatClock,
   monthBounds,
   offDutyLabel,
   scheduleHours,
   shortClock,
   textOn,
   weekdayOf,
-  weekdaysLabel,
   weekdayShort,
 } from './attendanceShared';
 import { positionRank } from './profileFields';
@@ -58,13 +58,13 @@ const toolbarButton =
 const VIEWS: View[] = ['month', 'cutoff', 'week'];
 
 // The grid fills the screen: its height is the window minus what's above and below it (app header,
-// toolbar, legend, hint, app footer, room for the grid's sideways scrollbar). A table's height works
+// toolbar, legend, app footer, room for the grid's sideways scrollbar). A table's height works
 // as a minimum, so with too many people for the window it just grows and the page scrolls; the grid
 // has no vertical scrollbar of its own.
-const GRID_CHROME_PX = 320;
+const GRID_CHROME_PX = 372;
 // Rows stop growing here, so a filtered list of a few people doesn't stretch across the screen.
 const ROW_MAX_PX = 32;
-const GROUP_ROW_PX = 18;
+const GROUP_ROW_PX = 17;
 const HEAD_AND_FOOT_PX = 62;
 
 const datesBetween = (start: string, end: string) => {
@@ -718,38 +718,47 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
           </div>
         )}
 
-        {/* Legend */}
+        {/* Legend: the shifts as a table like the printed sheet's, the rest beside it to save height. */}
         {data && (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            {activeShiftTypes.map((s) => (
-              <span key={s.id} className="inline-flex items-center gap-1.5 bg-white rounded-lg shadow-sm pr-2.5">
-                <span className="px-2 py-1 rounded-lg font-bold whitespace-nowrap" style={{ backgroundColor: s.color, color: textOn(s.color) }}>
-                  {s.name}
+          <div className="space-y-1">
+            <h3 className="text-xs leading-4 font-bold text-brand-text">{t('attendance.legend', 'Legend')}</h3>
+            <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+              {activeShiftTypes.length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                  <table className="border-separate border-spacing-0 text-[11px] leading-4 text-center tabular-nums whitespace-nowrap">
+                    <thead>
+                      <tr className="bg-gray-50 text-brand-muted [&>th:last-child]:border-r-0">
+                        <th className="border-b border-r border-gray-200 px-3 font-bold w-28">{t('attendance.shift', 'Shift')}</th>
+                        <th className="border-b border-r border-gray-200 px-3 font-bold w-24">{t('attendance.time_in', 'Time in')}</th>
+                        <th className="border-b border-r border-gray-200 px-3 font-bold w-24">{t('attendance.time_out', 'Time out')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-brand-text font-medium">
+                      {activeShiftTypes.map((s) => (
+                        <tr key={s.id} className="[&>td:last-child]:border-r-0 [&:last-child>td]:border-b-0">
+                          <td className="border-b border-r border-gray-100 px-3 font-bold" style={{ backgroundColor: s.color, color: textOn(s.color) }}>
+                            {s.name}
+                          </td>
+                          <td className="border-b border-r border-gray-100 px-3">{formatClock(s.start)}</td>
+                          <td className="border-b border-r border-gray-100 px-3">{formatClock(s.end)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {(['day_off', 'leave', 'absent'] as const).map((type) => (
+                  <span key={type} className={cn('px-2 py-1 rounded-lg font-bold', OFF_DUTY_STYLES[type])}>
+                    {offDutyLabel(t, type)}
+                  </span>
+                ))}
+                <span className="px-2 py-1 rounded-lg font-medium bg-white border border-gray-200 text-brand-muted">
+                  {t('attendance.blank_not_scheduled', 'Blank: not scheduled')}
                 </span>
-                <span className="font-medium text-brand-text tabular-nums whitespace-nowrap">
-                  {scheduleHours(s.start, s.end)}
-                  {s.weekdays.length < 7 && <span className="text-brand-muted"> · {weekdaysLabel(t, s.weekdays)}</span>}
-                </span>
-              </span>
-            ))}
-            {(['day_off', 'leave', 'absent'] as const).map((type) => (
-              <span key={type} className={cn('px-2 py-1 rounded-lg font-bold', OFF_DUTY_STYLES[type])}>
-                {offDutyLabel(t, type)}
-              </span>
-            ))}
-            <span className="px-2 py-1 rounded-lg font-medium bg-white border border-gray-200 text-brand-muted">
-              {t('attendance.blank_not_scheduled', 'Blank: not scheduled')}
-            </span>
+              </div>
+            </div>
           </div>
-        )}
-        {data && canSet && (
-          <p className="flex items-start gap-1.5 text-xs text-brand-muted font-medium">
-            <Info size={13} className="shrink-0 mt-0.5" />
-            {t(
-              'attendance.schedules_hint',
-              'Click a day, or drag across days and people, to set a shift, a day off, leave or absent. Late, undertime and absences in Attendance Logs follow this schedule; a blank day isn’t checked.',
-            )}
-          </p>
         )}
       </motion.div>
 
