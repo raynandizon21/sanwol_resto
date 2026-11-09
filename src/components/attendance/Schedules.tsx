@@ -21,7 +21,6 @@ import {
   monthBounds,
   offDutyLabel,
   scheduleHours,
-  shiftMonth,
   shortClock,
   textOn,
   weekdayOf,
@@ -32,9 +31,9 @@ import { positionRank } from './profileFields';
 import { OFF_DUTY_STYLES, ScheduleCellDialog } from './ScheduleCellDialog';
 import { buildSchedulePdf } from './schedulePdf';
 import { printPdf } from './printPdf';
-import { cutoffsIn, shortRangeLabel, type Range } from './timesheetPeriods';
+import { cutoffsIn, periodOf, shortRangeLabel, stepPeriod, type PeriodKind, type Range } from './timesheetPeriods';
 
-type View = 'month' | 'week';
+type View = PeriodKind;
 type Cell = { employeeId: number; date: string };
 type Selection = { r0: number; c0: number; r1: number; c1: number };
 
@@ -55,8 +54,18 @@ const downloadBlob = (blob: Blob, filename: string) => {
 const toolbarButton =
   'bg-white text-brand-text px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:hover:bg-white';
 
-/** Monday of the week containing `ymd` (weeks run Monday–Sunday, like the timesheet's "This week"). */
-const mondayOf = (ymd: string) => addDaysYmd(ymd, -((weekdayOf(ymd) + 6) % 7));
+/** The toolbar's views, widest first. */
+const VIEWS: View[] = ['month', 'cutoff', 'week'];
+
+// The grid fills the screen: its height is the window minus what's above and below it (app header,
+// toolbar, legend, hint, app footer, room for the grid's sideways scrollbar). A table's height works
+// as a minimum, so with too many people for the window it just grows and the page scrolls; the grid
+// has no vertical scrollbar of its own.
+const GRID_CHROME_PX = 320;
+// Rows stop growing here, so a filtered list of a few people doesn't stretch across the screen.
+const ROW_MAX_PX = 32;
+const GROUP_ROW_PX = 18;
+const HEAD_AND_FOOT_PX = 62;
 
 const datesBetween = (start: string, end: string) => {
   const list: string[] = [];
@@ -116,7 +125,7 @@ interface SchedulesProps {
 }
 
 /**
- * Staff → Schedules: each employee's schedule per day, in a month or week grid (rows = people,
+ * Staff → Schedules: each employee's schedule per day, in a month, cutoff or week grid (rows = people,
  * grouped by position; columns = days). Click a day, or drag across days and people, then pick a
  * shift, custom times, a day off, leave or absent. Late, undertime and absences in Attendance Logs
  * are checked against it. Also: the branch's shift types, a position filter, and a printable
@@ -129,7 +138,7 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   const isAllBranches = String(branchId) === 'all';
 
   const [view, setView] = useState<View>('month');
-  // First of the month (month view) or Monday (week view).
+  // First day of the period shown: the 1st (month), the 1st or 16th (cutoff) or Monday (week).
   const [anchor, setAnchor] = useState(() => monthBounds(getManilaTodayYmd()).start);
   const [data, setData] = useState<ScheduleData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -149,7 +158,7 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   const filterRef = useRef<HTMLDivElement>(null);
   const sheetActionsRef = useRef<HTMLDivElement>(null);
 
-  const range = view === 'month' ? monthBounds(anchor) : { start: anchor, end: addDaysYmd(anchor, 6) };
+  const range = periodOf(view, anchor);
   const dates = useMemo(() => datesBetween(range.start, range.end), [range.start, range.end]);
 
   const load = useCallback(
@@ -209,21 +218,21 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
 
   const step = (delta: number) => {
     setSelection(null);
-    setAnchor((a) => (view === 'month' ? shiftMonth(a, delta) : addDaysYmd(a, 7 * delta)));
+    setAnchor(stepPeriod(view, range, delta as -1 | 1).start);
   };
   const switchView = (next: View) => {
     if (next === view) return;
     setSelection(null);
     setView(next);
-    // The week to show: this week when it's in the month shown, else the month's first week.
-    setAnchor((a) =>
-      next === 'month' ? monthBounds(a).start : mondayOf(today.slice(0, 7) === a.slice(0, 7) ? today : a),
-    );
+    // The new period holds today when today is on screen, else the first day on screen.
+    setAnchor(periodOf(next, range.start <= today && today <= range.end ? today : range.start).start);
   };
   const rangeLabel =
     view === 'month'
       ? new Date(`${anchor}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-      : `${formatYmdDisplay(range.start)} – ${formatYmdDisplay(range.end)}`;
+      : view === 'cutoff'
+        ? `${shortRangeLabel(range)}, ${range.start.slice(0, 4)}`
+        : `${formatYmdDisplay(range.start)} – ${formatYmdDisplay(range.end)}`;
 
   // ---- Selecting days (click, or drag a rectangle across days and people) ----
 
@@ -346,7 +355,7 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
 
   // ---- Print (one cutoff per PDF) ----
 
-  // The cutoffs the view overlaps: a month has two, a week one or two.
+  // The cutoffs the view overlaps: a month has two, a cutoff one, a week one or two.
   const printCutoffs = cutoffsIn(range);
 
   /**
@@ -404,8 +413,9 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
     );
   }
 
-  const compact = view === 'month';
-  const dayColWidth = compact ? 'min-w-[60px] w-[60px]' : 'min-w-[120px]';
+  const compact = view !== 'week';
+  const dayColWidth = view === 'month' ? 'min-w-[60px] w-[60px]' : view === 'cutoff' ? 'min-w-[72px]' : 'min-w-[120px]';
+  const gridMaxPx = rows.length * ROW_MAX_PX + groups.length * GROUP_ROW_PX + HEAD_AND_FOOT_PX;
   const isWeekend = (d: string) => weekdayOf(d) === 0 || weekdayOf(d) === 6;
   const filterLabel = positionFilter.length
     ? t('attendance.positions_n', { count: positionFilter.length, defaultValue: `Positions (${positionFilter.length})` })
@@ -417,14 +427,14 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
       const bg = entry.color ?? '#E5E7EB';
       const times = `${shortClock(entry.start)}–${shortClock(entry.end)}`;
       return (
-        <span className="block rounded-md px-1 py-1 leading-tight" style={{ backgroundColor: bg, color: textOn(bg) }}>
-          <span className="block text-[11px] font-bold truncate">{entry.name ?? times}</span>
-          {!compact && entry.name && <span className="block text-[10px] font-medium opacity-80 tabular-nums">{times}</span>}
+        <span className="block rounded px-1 text-[11px] leading-4 font-bold truncate" style={{ backgroundColor: bg, color: textOn(bg) }}>
+          {entry.name ?? times}
+          {!compact && entry.name && <span className="ml-1.5 text-[10px] font-medium opacity-80 tabular-nums">{times}</span>}
         </span>
       );
     }
     return (
-      <span className={cn('block rounded-md px-1 py-1 text-[11px] font-bold truncate leading-tight', OFF_DUTY_STYLES[entry.type])}>
+      <span className={cn('block rounded px-1 text-[11px] leading-4 font-bold truncate', OFF_DUTY_STYLES[entry.type])}>
         {offDutyLabel(t, entry.type)}
       </span>
     );
@@ -445,12 +455,12 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
 
   return (
     <div className="space-y-6 pt-6">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: 'easeOut' }} className="space-y-6">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: 'easeOut' }} className="space-y-3">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <div className="inline-flex bg-white rounded-xl p-1 shadow-sm" role="tablist">
-              {(['month', 'week'] as View[]).map((v) => (
+              {VIEWS.map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -462,7 +472,11 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
                     view === v ? 'bg-brand-primary text-white' : 'text-brand-muted hover:text-brand-text',
                   )}
                 >
-                  {v === 'month' ? t('attendance.view_month', 'Month') : t('attendance.view_week', 'Week')}
+                  {v === 'month'
+                    ? t('attendance.view_month', 'Month')
+                    : v === 'cutoff'
+                      ? t('attendance.view_cutoff', 'Cutoff')
+                      : t('attendance.view_week', 'Week')}
                 </button>
               ))}
             </div>
@@ -582,23 +596,28 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
           </div>
         ) : (
           <div className={cn('bg-white rounded-2xl shadow-sm overflow-hidden transition-opacity', loading && 'opacity-60')}>
-            <div className="overflow-auto max-h-[calc(100vh-260px)] select-none" onPointerMove={onGridPointerMove}>
-              <table className="border-separate border-spacing-0 w-max min-w-full">
+            <div className="overflow-x-auto select-none" onPointerMove={onGridPointerMove}>
+              <table
+                className="border-separate border-spacing-0 w-max min-w-full"
+                style={{ height: `min(calc(100vh - ${GRID_CHROME_PX}px), ${gridMaxPx}px)` }}
+              >
                 <thead>
                   <tr>
-                    <th className="sticky left-0 top-0 z-30 bg-gray-50 border-b border-r border-gray-200 px-4 py-2 text-left text-xs font-bold text-brand-muted min-w-[220px]">
+                    <th className="sticky left-0 z-30 bg-gray-50 border-b border-r border-gray-200 px-4 py-2 text-left text-xs font-bold text-brand-muted min-w-[220px]">
                       {t('attendance.employee', 'Employee')}
                     </th>
                     {dates.map((d) => (
                       <th
                         key={d}
                         className={cn(
-                          'sticky top-0 z-20 border-b border-r border-gray-200 px-1 py-1.5 text-center',
+                          'border-b border-r border-gray-200 px-1 py-1.5 text-center whitespace-nowrap',
                           dayColWidth,
                           isWeekend(d) ? 'bg-gray-200/70 text-brand-text' : 'bg-gray-50 text-brand-text',
                         )}
                       >
-                        <span className="block text-[10px] font-bold uppercase text-brand-muted">{weekdayShort(t, weekdayOf(d))}</span>
+                        <span className={cn('text-[10px] font-bold uppercase text-brand-muted', view === 'month' ? 'block' : 'mr-1')}>
+                          {weekdayShort(t, weekdayOf(d))}
+                        </span>
                         <span
                           className={cn(
                             'inline-flex items-center justify-center text-sm font-bold tabular-nums',
@@ -617,7 +636,10 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
                     return groups.map((g) => (
                       <React.Fragment key={g.key || '_none'}>
                         <tr>
-                          <td className="sticky left-0 z-10 bg-violet-50 border-b border-gray-200 px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-violet-800">
+                          <td
+                            className="sticky left-0 z-10 bg-violet-50 border-b border-gray-200 px-4 text-[11px] leading-4 font-bold uppercase tracking-wider text-violet-800 whitespace-nowrap"
+                            style={{ height: GROUP_ROW_PX }}
+                          >
                             {g.label || t('attendance.no_position', 'No position')}
                             <span className="ml-1.5 font-medium normal-case tracking-normal text-violet-600">· {g.rows.length}</span>
                           </td>
@@ -628,13 +650,15 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
                           const r = index;
                           return (
                             <tr key={e.employeeId}>
-                              <td className="sticky left-0 z-10 bg-white border-b border-r border-gray-200 px-4 py-1.5">
-                                <span className={cn('block text-sm font-bold text-brand-text truncate max-w-[200px]', !e.active && 'text-brand-muted')}>
-                                  {e.name || '—'}
+                              <td className="sticky left-0 z-10 bg-white border-b border-r border-gray-200 px-4">
+                                <span className="flex items-baseline gap-1.5 max-w-[200px]">
+                                  <span className={cn('text-[13px] leading-4 font-bold text-brand-text truncate', !e.active && 'text-brand-muted')}>
+                                    {e.name || '—'}
+                                  </span>
+                                  {!e.active && (
+                                    <span className="shrink-0 text-[11px] leading-4 text-brand-muted font-medium">{t('attendance.tag_removed', 'Removed')}</span>
+                                  )}
                                 </span>
-                                {!e.active && (
-                                  <span className="block text-[11px] text-brand-muted font-medium">{t('attendance.tag_removed', 'Removed')}</span>
-                                )}
                               </td>
                               {dates.map((d, c) => {
                                 const entry = entryOf(e.employeeId, d);
@@ -657,7 +681,7 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
                                       }
                                     }}
                                     className={cn(
-                                      'border-b border-r border-gray-100 p-1 align-middle text-center h-12',
+                                      'border-b border-r border-gray-100 px-0.5 align-middle text-center',
                                       dayColWidth,
                                       canSet && 'cursor-pointer hover:bg-brand-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
                                       isWeekend(d) && 'bg-gray-50',
@@ -679,11 +703,11 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td className="sticky left-0 bottom-0 z-30 bg-gray-50 border-t border-r border-gray-200 px-4 py-2 text-xs font-bold text-brand-muted">
+                    <td className="sticky left-0 z-30 bg-gray-50 border-t border-r border-gray-200 px-4 py-1 text-xs font-bold text-brand-muted">
                       {t('attendance.on_shift_per_day', 'On shift')}
                     </td>
                     {onShiftPerDay.map((n, i) => (
-                      <td key={dates[i]} className="sticky bottom-0 z-20 bg-gray-50 border-t border-r border-gray-200 px-1 py-2 text-center text-sm font-bold tabular-nums text-brand-text">
+                      <td key={dates[i]} className="bg-gray-50 border-t border-r border-gray-200 px-1 py-1 text-center text-sm font-bold tabular-nums text-brand-text">
                         {n || <span className="text-gray-300">0</span>}
                       </td>
                     ))}

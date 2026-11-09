@@ -2806,6 +2806,7 @@
 		"time_in": "Time in",
 		"time_out": "Time out",
 		"view_month": "Month",
+		"view_cutoff": "Cutoff",
 		"view_week": "Week",
 		"exclude_attendance": "Exclude from schedules and attendance",
 		"exclude_attendance_hint": "For a system or IT account on the device (like 3Core’s), not someone who works shifts. They’re left out of Schedules and Attendance Logs (summary, timesheets, exports) and the Employees page’s counts, but stay on the Employees page so the device account can still be managed. Their punches are kept; untick to bring them back.",

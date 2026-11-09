@@ -2185,6 +2185,7 @@
 		"time_in": "上班",
 		"time_out": "下班",
 		"view_month": "月",
+		"view_cutoff": "期",
 		"view_week": "周",
 		"exclude_attendance": "不计入排班和考勤",
 		"exclude_attendance_hint": "用于设备上的系统或 IT 账号（如 3Core 的账号），而不是需要上班的员工。他们不会出现在排班和考勤记录（汇总、工时表、导出）中，也不计入员工页面的统计，但仍保留在员工页面上，以便管理设备账号。打卡记录会保留；取消勾选即可恢复。",
