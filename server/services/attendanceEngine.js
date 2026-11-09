@@ -213,12 +213,6 @@ function computeDay(ymd, shifts, ctx) {
 			open: e.isOpen,
 		})),
 		punches: shifts.flatMap((s) => s.punches.map((p) => p.ref)),
-		// Minute intervals at work, for the staffing-by-hour chart (an open shift runs until now).
-		presence: evaluated.flatMap((e) => {
-			if (e.minutes != null) return [[e.shift.in.min, e.shift.out.min]];
-			if (e.isOpen) return [[e.shift.in.min, ctx.nowMin]];
-			return [];
-		}),
 	};
 }
 
@@ -285,6 +279,7 @@ const emptyTotals = () => ({
 	undertimeDays: 0,
 	undertimeMinutes: 0,
 	excusedDays: 0,
+	dayOffDays: 0,
 	scheduledDays: 0,
 	averageMinutes: 0,
 });
@@ -292,7 +287,8 @@ const emptyTotals = () => ({
 /**
  * Range totals for one person. daysWorked: days with a time-in. daysWithHours: days with counted
  * hours (the average is over these, so an unfixed or still-running day doesn't drag it down).
- * excusedDays: days on leave. scheduledDays: days with a shift.
+ * excusedDays / dayOffDays: days on leave / off that they actually took (coming in anyway makes it a
+ * worked day, so it isn't counted twice). scheduledDays: days with a shift.
  */
 function summarize(days) {
 	const t = emptyTotals();
@@ -303,7 +299,8 @@ function summarize(days) {
 		if (d.status === 'absent') t.absentDays += 1;
 		if (d.lateMinutes > 0) t.lateDays += 1;
 		if (d.undertimeMinutes > 0) t.undertimeDays += 1;
-		if (d.offDuty?.type === 'leave') t.excusedDays += 1;
+		if (d.status === 'excused') t.excusedDays += 1;
+		if (d.status === 'rest_day') t.dayOffDays += 1;
 		if (d.shift) t.scheduledDays += 1;
 		t.workedMinutes += d.workedMinutes;
 		t.regularMinutes += d.regularMinutes;
@@ -315,8 +312,28 @@ function summarize(days) {
 	return t;
 }
 
+/**
+ * Where someone stands today, for the Attendance Logs summary. `days` is computeAttendance's result
+ * ending today and starting yesterday (a night shift that started yesterday can still be running).
+ * notInYet: their shift has started, there's no punch for it and they aren't still clocked in.
+ */
+function todayOf(days, now) {
+	const today = days[days.length - 1];
+	const open = days.flatMap((d) => d.shifts).find((s) => s.open) ?? null;
+	return {
+		shift: today.shift,
+		offDuty: today.offDuty,
+		timeIn: today.shifts.find((s) => s.in)?.in ?? open?.in ?? null,
+		atWork: Boolean(open),
+		lateMinutes: today.lateMinutes,
+		notInYet: !open && Boolean(today.shift) && today.status === 'upcoming' && toMin(now) > toMin(`${today.date} ${today.shift.start}`),
+		needsFixing: today.status === 'incomplete',
+	};
+}
+
 module.exports = {
 	ISSUE_FLAGS,
+	todayOf,
 	LONG_SHIFT_MINUTES,
 	computeAttendance,
 	summarize,

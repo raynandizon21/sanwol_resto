@@ -11,7 +11,7 @@
 const ZktecoModel = require('../models/zktecoModel');
 const EmployeeModel = require('../models/employeeModel');
 const ScheduleModel = require('../models/scheduleModel');
-const { computeAttendance, addDays, ymdOf, ISSUE_FLAGS, toMin, emptyTotals } = require('./attendanceEngine');
+const { computeAttendance, addDays, ISSUE_FLAGS, toMin, emptyTotals, todayOf } = require('./attendanceEngine');
 
 const MAX_RANGE_DAYS = 366;
 // The Timesheet tab shows one column per day.
@@ -77,7 +77,7 @@ const loadRange = (branchIds, startYmd, endYmd) =>
 	ZktecoModel.getPunchesForAttendance(branchIds, `${addDays(startYmd, -1)} 00:00:00`, `${addDays(endYmd, 2)} 00:00:00`);
 
 /** Drops the internal fields the API doesn't send. */
-const publicDay = ({ presence, punches, ...day }) => day;
+const publicDay = ({ punches, ...day }) => day;
 
 /**
  * Attendance for everyone in scope over the range: everyone on the device, people removed from it
@@ -139,8 +139,8 @@ function sumTotals(list) {
 }
 
 /**
- * Summary for the Attendance Logs page: per-person totals for the range, a daily series, average
- * staffing by hour, problems to fix, and a live block for today (who is on shift now).
+ * Summary for the Attendance Logs page: per-person totals for the range, problems to fix, and today
+ * (the schedule against who actually punched), overall and per person.
  */
 async function getSummary(branchIds, startYmd, endYmd) {
 	const now = String(await ZktecoModel.deviceNow());
@@ -151,88 +151,39 @@ async function getSummary(branchIds, startYmd, endYmd) {
 		loadRange(branchIds, addDays(today, -1), today),
 	]);
 	const results = await computeEveryone(people, rangePunches, startYmd, endYmd, now);
+	const { counts, byPerson } = await summarizeToday(people, todayPunches, now);
 
-	// Daily series: hours (regular / over) and people at work (complete / needs fixing).
-	const daily = [];
-	for (let ymd = startYmd; ymd <= endYmd; ymd = addDays(ymd, 1)) {
-		daily.push({ date: ymd, regularMinutes: 0, overMinutes: 0, people: 0, incomplete: 0 });
-	}
-	const dailyIndex = new Map(daily.map((d, i) => [d.date, i]));
 	const issues = [];
-
-	// Staffing: how many people are at work at half past each hour on a typical working day.
-	// Averaged only over dates someone was at work (closed days would drag it toward 0) and only
-	// over hours that have passed (today's later hours haven't happened yet). Presence is checked
-	// as intervals, so a night shift's hours after midnight count on the calendar date they fall on.
-	const nowMin = toMin(now);
-	const presenceByPerson = results.map(({ days }) => days.flatMap((d) => d.presence));
-	const rangeStart = toMin(`${startYmd} 00:00`);
-	const rangeEnd = toMin(`${addDays(endYmd, 1)} 00:00`);
-	const workDates = new Set();
-	for (const presence of presenceByPerson) {
-		for (const [a, b] of presence) {
-			for (let m = Math.max(a, rangeStart); m < Math.min(b, rangeEnd, nowMin); m = toMin(`${addDays(ymdOf(m), 1)} 00:00`)) {
-				workDates.add(ymdOf(m));
-			}
-		}
-	}
-	const hourTotals = new Array(24).fill(0);
-	const hourDays = new Array(24).fill(0);
-	for (const date of workDates) {
-		const dayStart = toMin(`${date} 00:00`);
-		for (let h = 0; h < 24; h += 1) {
-			const mark = dayStart + h * 60 + 30;
-			if (mark > nowMin) continue;
-			hourDays[h] += 1;
-			for (const presence of presenceByPerson) {
-				if (presence.some(([a, b]) => a <= mark && mark < b)) hourTotals[h] += 1;
-			}
-		}
-	}
-
 	for (const { person, days } of results) {
 		for (const d of days) {
-			const bucket = daily[dailyIndex.get(d.date)];
-			bucket.regularMinutes += d.regularMinutes;
-			bucket.overMinutes += d.overMinutes;
-			if (d.status === 'incomplete') bucket.incomplete += 1;
-			else if (d.status === 'worked' || d.status === 'on_shift') bucket.people += 1;
-
 			const problems = d.flags.filter((f) => ISSUE_FLAGS.has(f));
 			if (problems.length) {
 				issues.push({ employeeId: person.employeeId, name: person.name, pin: person.pin, date: d.date, flags: problems });
 			}
 		}
 	}
-	const hourly = hourTotals.map((total, hour) => ({
-		hour,
-		average: hourDays[hour] ? Math.round((total / hourDays[hour]) * 10) / 10 : 0,
-		// Days that hour was counted over (shown in the tooltip).
-		days: hourDays[hour],
-	}));
-
-	const employees = results.map(({ person, totals }) => ({ ...publicPerson(person), totals }));
-	const totals = sumTotals(employees.map((e) => e.totals));
 
 	return {
 		range: { start: startYmd, end: endYmd },
 		now,
-		today: summarizeToday(people, todayPunches, now),
-		employees,
-		daily,
-		hourly,
+		today: { date: today, ...counts },
+		employees: results.map(({ person, totals }) => ({
+			...publicPerson(person),
+			totals,
+			today: byPerson.get(person.employeeId) ?? null,
+		})),
 		issues: issues.sort((a, b) => (a.date === b.date ? String(a.name).localeCompare(String(b.name)) : a.date < b.date ? 1 : -1)),
-		totals,
 	};
 }
 
-/** Live block: who is on shift right now, who came in today, and today's days to fix. */
-function summarizeToday(people, punches, now) {
+/** Today for everyone on the device: each person's schedule against their punches, and the counts. */
+async function summarizeToday(people, punches, now) {
 	const today = now.slice(0, 10);
 	const yesterday = addDays(today, -1);
 	const { byEmployee } = groupPunches(punches);
-	const onShift = [];
-	const counts = { cameIn: 0, needsFixing: 0 };
+	const rosterMaps = await ScheduleModel.getDayMaps([...people.keys()], yesterday, today);
+	const byPerson = new Map();
+	const counts = { scheduled: 0, inNow: 0, notInYet: 0, late: 0, needsFixing: 0 };
 	for (const person of people.values()) {
 		if (!person.active || person.excludeFromAttendance) continue;
 		const { days } = computeAttendance({
@@ -240,18 +191,19 @@ function summarizeToday(people, punches, now) {
 			startYmd: yesterday,
 			endYmd: today,
 			now,
+			roster: rosterMaps.get(person.employeeId) || new Map(),
+			hired: person.profile?.DATE_STARTED || null,
+			separated: person.profile?.DATE_SEPARATED || null,
 		});
-		// A night shift that started yesterday can still be running.
-		for (const d of days) {
-			for (const shift of d.shifts) {
-				if (shift.open) onShift.push({ employeeId: person.employeeId, name: person.name, pin: person.pin, since: shift.in });
-			}
-		}
-		const t = days[1];
-		if (t.shifts.some((s) => s.in)) counts.cameIn += 1;
-		if (t.status === 'incomplete') counts.needsFixing += 1;
+		const status = todayOf(days, now);
+		byPerson.set(person.employeeId, status);
+		if (status.shift) counts.scheduled += 1;
+		if (status.atWork) counts.inNow += 1;
+		if (status.notInYet) counts.notInYet += 1;
+		if (status.lateMinutes > 0) counts.late += 1;
+		if (status.needsFixing) counts.needsFixing += 1;
 	}
-	return { date: today, onShift: onShift.sort((a, b) => String(a.since).localeCompare(String(b.since))), ...counts };
+	return { counts, byPerson };
 }
 
 /**

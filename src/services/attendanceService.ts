@@ -55,6 +55,8 @@ export interface AttendanceTotals {
   undertimeMinutes: number;
   /** Days on leave. */
   excusedDays: number;
+  /** Days off. */
+  dayOffDays: number;
   /** Days with a shift on their schedule. */
   scheduledDays: number;
   averageMinutes: number;
@@ -114,23 +116,31 @@ export interface SummaryEmployee {
   branchId: number | null;
   active: boolean;
   totals: AttendanceTotals;
+  /** Where they stand today; null for someone no longer on the device. */
+  today: SummaryToday | null;
+}
+
+/** One person today: their schedule against their punches. */
+export interface SummaryToday {
+  shift: DayShift | null;
+  offDuty: { type: OffDutyType; note: string | null } | null;
+  /** "YYYY-MM-DD HH:mm", device-local. */
+  timeIn: string | null;
+  atWork: boolean;
+  lateMinutes: number;
+  /** Their shift has started and there's no punch yet. */
+  notInYet: boolean;
+  needsFixing: boolean;
 }
 
 export interface AttendanceSummary {
   range: { start: string; end: string };
   now: string;
-  today: {
-    date: string;
-    onShift: { employeeId: number; name: string | null; pin: string; since: string | null }[];
-    cameIn: number;
-    needsFixing: number;
-  };
+  /** Today's counts: the schedule against who actually punched. */
+  today: { date: string; scheduled: number; inNow: number; notInYet: number; late: number; needsFixing: number };
   employees: SummaryEmployee[];
-  daily: { date: string; regularMinutes: number; overMinutes: number; people: number; incomplete: number }[];
-  /** People at work at each hour, averaged over the days someone worked (`days` of them so far). */
-  hourly: { hour: number; average: number; days: number }[];
+  /** Newest first. */
   issues: { employeeId: number | null; name: string | null; pin: string; date: string; flags: DayFlag[] }[];
-  totals: AttendanceTotals;
 }
 
 export interface Timesheet {

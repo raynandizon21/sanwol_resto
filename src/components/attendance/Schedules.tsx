@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Filter, Printer } from 'lucide-react';
+import { ChevronDown, Download, Printer } from 'lucide-react';
 import { SkeletonTable } from '../ui/Skeleton';
 import { type Branch } from '../partials/Header';
 import { cn } from '../../lib/utils';
@@ -27,7 +27,8 @@ import {
   weekdayOf,
   weekdayShort,
 } from './attendanceShared';
-import { positionRank } from './profileFields';
+import { groupsOf, positionsOf } from './profileFields';
+import { PeriodStepper, PositionFilter, ViewToggle, periodLabel, toolbarButton } from './ScheduleControls';
 import { OFF_DUTY_STYLES, ScheduleCellDialog } from './ScheduleCellDialog';
 import { buildSchedulePdf } from './schedulePdf';
 import { printPdf } from './printPdf';
@@ -51,12 +52,6 @@ const downloadBlob = (blob: Blob, filename: string) => {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-const toolbarButton =
-  'bg-white text-brand-text px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:hover:bg-white';
-
-/** The toolbar's views, widest first. */
-const VIEWS: View[] = ['month', 'cutoff', 'week'];
-
 // The grid fills the screen: its height is the window minus what's above and below it (app header,
 // toolbar, legend, app footer, room for the grid's sideways scrollbar). A table's height works
 // as a minimum, so with too many people for the window it just grows and the page scrolls; the grid
@@ -79,35 +74,6 @@ const sameEntry = (a: ScheduleEntry | null, b: ScheduleEntry | null) => {
   if (a.type !== b.type) return false;
   if (a.type === 'shift' && b.type === 'shift') return a.shiftTypeId === b.shiftTypeId && a.start === b.start && a.end === b.end;
   return a.type !== 'shift' && b.type !== 'shift' && a.note === b.note;
-};
-
-const positionKey = (p: string | null) => String(p ?? '').trim().toLowerCase();
-
-/** The positions present, in the Position dropdown's order (for the filter and the groups). */
-const positionsOf = (employees: ScheduleEmployee[]) => {
-  const seen = new Map<string, string>();
-  for (const e of employees) if (!seen.has(positionKey(e.position))) seen.set(positionKey(e.position), e.position?.trim() || '');
-  return [...seen.entries()]
-    .sort((a, b) => {
-      const [ra, ka] = positionRank(a[1]);
-      const [rb, kb] = positionRank(b[1]);
-      return ra - rb || ka.localeCompare(kb);
-    })
-    .map(([key, label]) => ({ key, label }));
-};
-
-/** Rows grouped by position (dropdown order), names A–Z inside each group; `filter` = position keys. */
-const groupsOf = (employees: ScheduleEmployee[], filter: string[]) => {
-  const shown = employees.filter((e) => !filter.length || filter.includes(positionKey(e.position)));
-  return positionsOf(employees)
-    .map(({ key, label }) => ({
-      key,
-      label,
-      rows: shown
-        .filter((e) => positionKey(e.position) === key)
-        .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''))),
-    }))
-    .filter((g) => g.rows.length > 0);
 };
 
 /** Entries by "employeeId|date". */
@@ -144,7 +110,6 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [positionFilter, setPositionFilter] = useState<string[]>([]);
-  const [filterOpen, setFilterOpen] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dialogCells, setDialogCells] = useState<Cell[] | null>(null);
   // Print and Download each pick a cutoff: the menu open, and the one being prepared.
@@ -155,7 +120,6 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   // grid can still be scrolled on a phone or tablet).
   const touchTap = useRef<{ r: number; c: number; x: number; y: number } | null>(null);
   const selectionRef = useRef<Selection | null>(null);
-  const filterRef = useRef<HTMLDivElement>(null);
   const sheetActionsRef = useRef<HTMLDivElement>(null);
 
   const range = periodOf(view, anchor);
@@ -186,16 +150,15 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   // Changes from other screens (schedules, shift types) and new people reload the grid silently.
   useZkLiveReload(branchId, ['attendance', 'users'], () => void load(true));
 
-  // Close the position filter and the cutoff menus on an outside click.
+  // Close the cutoff menus on an outside click.
   useEffect(() => {
-    if (!filterOpen && !cutoffMenu) return;
+    if (!cutoffMenu) return;
     const close = (e: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false);
       if (sheetActionsRef.current && !sheetActionsRef.current.contains(e.target as Node)) setCutoffMenu(null);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
-  }, [filterOpen, cutoffMenu]);
+  }, [cutoffMenu]);
 
   const today = data?.today ?? getManilaTodayYmd();
   const canSet = Boolean(data?.permissions.setDays);
@@ -216,9 +179,9 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
 
   // ---- Navigation ----
 
-  const step = (delta: number) => {
+  const step = (delta: -1 | 1) => {
     setSelection(null);
-    setAnchor(stepPeriod(view, range, delta as -1 | 1).start);
+    setAnchor(stepPeriod(view, range, delta).start);
   };
   const switchView = (next: View) => {
     if (next === view) return;
@@ -227,12 +190,7 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
     // The new period holds today when today is on screen, else the first day on screen.
     setAnchor(periodOf(next, range.start <= today && today <= range.end ? today : range.start).start);
   };
-  const rangeLabel =
-    view === 'month'
-      ? new Date(`${anchor}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-      : view === 'cutoff'
-        ? `${shortRangeLabel(range)}, ${range.start.slice(0, 4)}`
-        : `${formatYmdDisplay(range.start)} – ${formatYmdDisplay(range.end)}`;
+  const rangeLabel = periodLabel(view, range);
 
   // ---- Selecting days (click, or drag a rectangle across days and people) ----
 
@@ -417,9 +375,6 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
   const dayColWidth = view === 'month' ? 'min-w-[60px] w-[60px]' : view === 'cutoff' ? 'min-w-[72px]' : 'min-w-[120px]';
   const gridMaxPx = rows.length * ROW_MAX_PX + groups.length * GROUP_ROW_PX + HEAD_AND_FOOT_PX;
   const isWeekend = (d: string) => weekdayOf(d) === 0 || weekdayOf(d) === 6;
-  const filterLabel = positionFilter.length
-    ? t('attendance.positions_n', { count: positionFilter.length, defaultValue: `Positions (${positionFilter.length})` })
-    : t('attendance.all_positions', 'All positions');
 
   const renderEntry = (entry: ScheduleEntry | null) => {
     if (!entry) return null;
@@ -459,67 +414,9 @@ export const Schedules: React.FC<SchedulesProps> = ({ selectedBranch }) => {
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="inline-flex bg-white rounded-xl p-1 shadow-sm" role="tablist">
-              {VIEWS.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === v}
-                  onClick={() => switchView(v)}
-                  className={cn(
-                    'px-3.5 py-1.5 rounded-lg text-sm font-bold transition-colors',
-                    view === v ? 'bg-brand-primary text-white' : 'text-brand-muted hover:text-brand-text',
-                  )}
-                >
-                  {v === 'month'
-                    ? t('attendance.view_month', 'Month')
-                    : v === 'cutoff'
-                      ? t('attendance.view_cutoff', 'Cutoff')
-                      : t('attendance.view_week', 'Week')}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 bg-white rounded-xl shadow-sm px-1 py-1">
-              <button type="button" onClick={() => step(-1)} className="p-1.5 rounded-lg text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10" aria-label={t('attendance.previous', 'Previous')}>
-                <ChevronLeft size={18} />
-              </button>
-              <span className="text-sm font-bold text-brand-text min-w-[190px] text-center tabular-nums">{rangeLabel}</span>
-              <button type="button" onClick={() => step(1)} className="p-1.5 rounded-lg text-brand-muted hover:text-brand-primary hover:bg-brand-primary/10" aria-label={t('attendance.next', 'Next')}>
-                <ChevronRight size={18} />
-              </button>
-            </div>
-            <div className="relative" ref={filterRef}>
-              <button type="button" onClick={() => setFilterOpen((o) => !o)} className={cn(toolbarButton, positionFilter.length && 'text-brand-primary')}>
-                <Filter size={16} />
-                {filterLabel}
-                <ChevronDown size={14} />
-              </button>
-              {filterOpen && (
-                <div className="absolute z-30 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-100 p-2 max-h-80 overflow-y-auto">
-                  <button
-                    type="button"
-                    onClick={() => setPositionFilter([])}
-                    className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold text-brand-primary hover:bg-brand-primary/5"
-                  >
-                    {t('attendance.all_positions', 'All positions')}
-                  </button>
-                  {positions.map((p) => (
-                    <label key={p.key} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={positionFilter.includes(p.key)}
-                        onChange={(e) =>
-                          setPositionFilter((f) => (e.target.checked ? [...f, p.key] : f.filter((x) => x !== p.key)))
-                        }
-                        className="accent-brand-primary"
-                      />
-                      {p.label || <span className="italic text-brand-muted">{t('attendance.no_position', 'No position')}</span>}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ViewToggle value={view} onChange={switchView} />
+            <PeriodStepper label={rangeLabel} onStep={step} />
+            <PositionFilter positions={positions} value={positionFilter} onChange={setPositionFilter} />
           </div>
 
           <div className="flex flex-wrap items-center gap-3">

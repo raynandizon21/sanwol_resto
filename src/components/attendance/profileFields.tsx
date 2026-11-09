@@ -47,6 +47,35 @@ export const positionRank = (position: string | null | undefined): [number, stri
   return i >= 0 ? [0, String(i).padStart(3, '0')] : [1, p.toLowerCase()];
 };
 
+export const positionKey = (p: string | null | undefined) => String(p ?? '').trim().toLowerCase();
+
+/** The positions present, in the Position dropdown's order (for the filter and the groups). */
+export const positionsOf = <T extends { position: string | null }>(people: T[]) => {
+  const seen = new Map<string, string>();
+  for (const e of people) if (!seen.has(positionKey(e.position))) seen.set(positionKey(e.position), e.position?.trim() || '');
+  return [...seen.entries()]
+    .sort((a, b) => {
+      const [ra, ka] = positionRank(a[1]);
+      const [rb, kb] = positionRank(b[1]);
+      return ra - rb || ka.localeCompare(kb);
+    })
+    .map(([key, label]) => ({ key, label }));
+};
+
+/** Rows grouped by position (dropdown order), names A–Z inside each group; `filter` = position keys. */
+export const groupsOf = <T extends { name: string | null; position: string | null }>(people: T[], filter: string[]) => {
+  const shown = people.filter((e) => !filter.length || filter.includes(positionKey(e.position)));
+  return positionsOf(people)
+    .map(({ key, label }) => ({
+      key,
+      label,
+      rows: shown
+        .filter((e) => positionKey(e.position) === key)
+        .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''))),
+    }))
+    .filter((g) => g.rows.length > 0);
+};
+
 export const inputClass =
   'w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-primary/20 outline-none disabled:bg-gray-50 disabled:text-brand-muted';
 export const labelClass = 'block text-xs font-bold uppercase tracking-wider text-brand-muted mb-1.5';

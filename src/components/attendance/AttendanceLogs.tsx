@@ -20,6 +20,7 @@ import { EditPunchDialog, DeletePunchDialog, AddPunchDialog } from './PunchDialo
 import { AttendanceSummary } from './AttendanceSummary';
 import { TimesheetPanel } from './Timesheet';
 import { AttendanceTimesheets } from './AttendanceTimesheets';
+import { capAtToday, cutoffPeriodOf, type PeriodKind } from './timesheetPeriods';
 import {
   DeviceStatusCards,
   LiveBadge,
@@ -61,6 +62,14 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
   const canEdit = canUpdate('attendance_logs');
   const canRemove = canDelete('attendance_logs');
   const [view, setView] = useState<View>('summary');
+  // Summary's Month / Cutoff / Week choice (here so it survives switching tabs).
+  const [summaryPeriod, setSummaryPeriod] = useState<PeriodKind>('cutoff');
+  // The page opens on the current cutoff.
+  useEffect(() => {
+    const today = getManilaTodayYmd();
+    onDateRangeChange?.(capAtToday(cutoffPeriodOf(today), today));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [timesheetFor, setTimesheetFor] = useState<{ employee: { employeeId: number; name: string | null; pin: string }; date?: string } | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
 
@@ -339,6 +348,34 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
       : []),
   ];
 
+  // At the right end of each view's toolbar, so they stay in the same place on every tab.
+  const viewTabs = (
+    <div className="inline-flex bg-white rounded-xl shadow-sm p-1 gap-1" role="tablist">
+      {(
+        [
+          ['summary', BarChart3, t('attendance.view_summary', 'Summary')],
+          ['timesheet', Table2, t('attendance.view_timesheet', 'Timesheet')],
+          ['punches', List, t('attendance.view_punches', 'Punches')],
+        ] as const
+      ).map(([key, Icon, label]) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={view === key}
+          onClick={() => setView(key)}
+          className={cn(
+            'flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-bold transition-colors',
+            view === key ? 'bg-brand-primary text-white' : 'text-brand-muted hover:bg-gray-50',
+          )}
+        >
+          <Icon size={16} />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="space-y-8 pt-6">
       <motion.div
@@ -349,36 +386,15 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
       >
         {devicesLoaded && <DeviceStatusCards devices={devices} showBranch={isAllBranches} />}
 
-        <div className="inline-flex bg-white rounded-xl shadow-sm p-1 gap-1" role="tablist">
-          {(
-            [
-              ['summary', BarChart3, t('attendance.view_summary', 'Summary')],
-              ['timesheet', Table2, t('attendance.view_timesheet', 'Timesheet')],
-              ['punches', List, t('attendance.view_punches', 'Punches')],
-            ] as const
-          ).map(([key, Icon, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={view === key}
-              onClick={() => setView(key)}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors',
-                view === key ? 'bg-brand-primary text-white' : 'text-brand-muted hover:bg-gray-50',
-              )}
-            >
-              <Icon size={16} />
-              {label}
-            </button>
-          ))}
-        </div>
-
         {view === 'summary' ? (
           <AttendanceSummary
             branchId={branchId}
             dateRange={dateRange}
+            period={summaryPeriod}
+            onPeriodChange={setSummaryPeriod}
+            onDateRangeChange={onDateRangeChange}
             onOpenTimesheet={(employee, date) => setTimesheetFor({ employee, date })}
+            tabs={viewTabs}
           />
         ) : view === 'timesheet' ? (
           <AttendanceTimesheets
@@ -387,10 +403,11 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
             dateRange={dateRange}
             onDateRangeChange={onDateRangeChange}
             onOpenTimesheet={(employee, date) => setTimesheetFor({ employee, date })}
+            tabs={viewTabs}
           />
         ) : (
         <>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="relative">
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" />
             <input
@@ -401,7 +418,7 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <LiveBadge live={live} />
             <ShowDeletedToggle value={showDeleted} onChange={setShowDeleted} />
             <button
@@ -423,6 +440,7 @@ export const AttendanceLogs: React.FC<AttendanceLogsProps> = ({ selectedBranch, 
                 {t('attendance.add_punch_title', 'Add punch')}
               </button>
             )}
+            {viewTabs}
           </div>
         </div>
 

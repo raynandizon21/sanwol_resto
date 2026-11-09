@@ -111,6 +111,7 @@ const ZERO_TOTALS: AttendanceTotals = {
   undertimeDays: 0,
   undertimeMinutes: 0,
   excusedDays: 0,
+  dayOffDays: 0,
   scheduledDays: 0,
   averageMinutes: 0,
 };
@@ -123,6 +124,8 @@ interface AttendanceTimesheetsProps {
   dateRange: Range;
   /** Sets the header's date range (the period buttons). */
   onDateRangeChange?: (range: Range) => void;
+  /** The Summary / Timesheet / Punches tabs, shown at the end of the toolbar. */
+  tabs?: React.ReactNode;
   /** Opens a person's timesheet on a date (to see the punches and fix them). */
   onOpenTimesheet: (employee: { employeeId: number; name: string | null; pin: string }, date?: string) => void;
 }
@@ -138,6 +141,7 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
   branchName,
   dateRange,
   onDateRangeChange,
+  tabs,
   onOpenTimesheet,
 }) => {
   const { t } = useTranslation();
@@ -494,9 +498,10 @@ export const AttendanceTimesheets: React.FC<AttendanceTimesheetsProps> = ({
             {t('attendance.hide_no_punches', 'Hide people with no punches')}
           </label>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {periodBar}
           {exportButtons}
+          {tabs}
         </div>
       </div>
 
