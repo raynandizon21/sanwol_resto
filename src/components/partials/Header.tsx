@@ -40,6 +40,8 @@ type HeaderProps = {
   onOpenAccountSettings: () => void;
   selectedBranch: Branch | null;
   onBranchChange: (branch: Branch) => void;
+  /** Hides the notification bell (Staff-only branches: its sample alerts are about hidden pages). */
+  hideNotifications?: boolean;
 };
 
 const localeForLanguage = (lng: string) => {
@@ -78,6 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAccountSettings,
   selectedBranch,
   onBranchChange,
+  hideNotifications,
 }) => {
   const { user } = useUser();
   const is3core = (user?.username || '').trim().toLowerCase() === '3coredev';
@@ -306,7 +309,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </h2>
           <p className="text-brand-muted text-sm mt-1">
-            {subtitleForTab(activeTab)}
+            {activeTab ? subtitleForTab(activeTab) : ''}
           </p>
         </div>
 
@@ -505,12 +508,14 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Globe size={20} />
             </button>
-            <button
-              onClick={onOpenNotifications}
-              className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-brand-muted hover:text-brand-text transition-colors cursor-pointer"
-            >
-              <Bell size={20} />
-            </button>
+            {!hideNotifications && (
+              <button
+                onClick={onOpenNotifications}
+                className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm text-brand-muted hover:text-brand-text transition-colors cursor-pointer"
+              >
+                <Bell size={20} />
+              </button>
+            )}
             {is3core && (
               <button
                 onClick={onOpenSystemSettings}

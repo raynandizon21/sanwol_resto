@@ -62,6 +62,20 @@ on by branch ID.
 See `.claude/skills/branch-scope/SKILL.md` for where each setting lives and
 the rules for writing branch-aware queries.
 
+## Hiding pages per branch (Staff-only presentation)
+
+An admin can hide sidebar pages for one branch: **All Branches → User Management →
+Control Panel → Branches**, untick the pages, Save. The setting is stored in each
+database (`branch_sidebar_permissions`), so local and production are set separately.
+
+A hidden page is closed, not only left out of the menu: login, typed links and the
+back button go to the branch's first allowed page. When a branch shows only the
+Staff section, the notification bell is hidden too. It applies to every web login
+viewing that branch; admins still see everything under All Branches. Nothing is
+removed, so ticking the pages again and saving brings everything back (people
+already logged in need a page refresh). The server doesn't block a hidden page's
+API, so this hides pages from people using the app rather than securing them.
+
 ## ZKTeco MB160 (attendance)
 
 The restaurant's MB160 time-attendance terminal pushes punches and its user

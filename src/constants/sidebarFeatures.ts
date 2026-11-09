@@ -234,6 +234,56 @@ const flattenFeatureKeys = (
 
 export const SIDEBAR_FEATURE_KEYS = flattenFeatureKeys(SIDEBAR_FEATURES) as readonly SidebarFeatureKey[];
 
+/** The pages each feature opens; the first one is where that feature lands. */
+const FEATURE_PATHS: Record<string, string[]> = {
+  dashboard: ['/dashboard'],
+  sales_analytics: ['/sales-report/sales-analytics'],
+  menu: ['/sales-report/menu'],
+  category: ['/sales-report/category'],
+  payment_type: ['/sales-report/payment-type'],
+  receipt: ['/sales-report/receipt'],
+  expenses: ['/expenses', '/expenses-mock'],
+  orders: ['/orders'],
+  billing: ['/billing'],
+  table_settings: ['/users/tables'],
+  menu_management: ['/menu-management', '/menu'],
+  ingredients: ['/ingredients'],
+  inventory: ['/inventory'],
+  employee: ['/employee', '/device-users'],
+  schedules: ['/schedules'],
+  attendance_logs: ['/attendance-logs'],
+};
+
+const isUnder = (pathname: string, path: string) => pathname === path || pathname.startsWith(`${path}/`);
+
+const featureForPath = (pathname: string) =>
+  Object.keys(FEATURE_PATHS).find((key) => FEATURE_PATHS[key].some((path) => isUnder(pathname, path))) ?? null;
+
+/** True when the branch's list leaves out at least one sidebar page. */
+export const hidesSomeFeature = (allowed: readonly string[]) =>
+  SIDEBAR_FEATURE_KEYS.some((key) => !allowed.includes(key));
+
+/** Where someone goes when a page is hidden: the first allowed page in sidebar order. */
+export const firstAllowedPath = (allowed: readonly string[]) => {
+  const key = SIDEBAR_FEATURE_KEYS.find((k) => allowed.includes(k) && FEATURE_PATHS[k]);
+  return key ? FEATURE_PATHS[key][0] : null;
+};
+
+/**
+ * Whether a page may open under the branch's list. Pages outside the sidebar are closed too, except
+ * User Management for admins (the Control Panel that turns these pages back on is there).
+ */
+export const isPathAllowed = (pathname: string, allowed: readonly string[], isAdmin: boolean) => {
+  const key = featureForPath(pathname);
+  return key ? allowed.includes(key) : isAdmin && isUnder(pathname, '/users');
+};
+
+/** True when the branch shows only the Staff section (the presentation setup: see README). */
+export const isStaffOnly = (allowed: readonly string[]) => {
+  const staffKeys = SIDEBAR_FEATURES.filter((f) => f.section === 'staff').map((f) => f.key);
+  return allowed.length > 0 && allowed.every((key) => staffKeys.includes(key));
+};
+
 /** Display labels for User Access matrix (can use i18n keys later) */
 export const SIDEBAR_FEATURE_LABELS: Record<string, string> = Object.fromEntries(
   flattenFeatureKeys(SIDEBAR_FEATURES).map((key) => {

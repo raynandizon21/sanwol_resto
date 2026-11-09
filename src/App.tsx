@@ -56,7 +56,13 @@ import { CategoryReport } from './components/analytics/CategoryReport';
 import { PaymentReport } from './components/analytics/PaymentReport';
 import { ReceiptReport } from './components/analytics/ReceiptReport';
 import { AnalyticsAiAssistant } from './components/analytics/AnalyticsAiAssistant';
-import { SHOW_AI_SALES_ASSISTANT } from './constants/sidebarFeatures';
+import {
+  SHOW_AI_SALES_ASSISTANT,
+  firstAllowedPath,
+  hidesSomeFeature,
+  isPathAllowed,
+  isStaffOnly,
+} from './constants/sidebarFeatures';
 import { PoweredByCoreSystem } from './components/ui/PoweredByCoreSystem';
 import { cn } from './lib/utils';
 
@@ -414,6 +420,8 @@ export default function App() {
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(() => parseBranchFromSearch(location.search));
   const [branchSidebarPermissions, setBranchSidebarPermissions] = useState<string[] | null>(null);
+  // The branch `branchSidebarPermissions` was loaded for.
+  const [sidebarPermissionsBranchId, setSidebarPermissionsBranchId] = useState<string | null>(null);
   const [inventoryCrumbById, setInventoryCrumbById] = useState<Record<string, string>>({});
 
   const handleInventoryCategoryResolved = useCallback((id: string, name: string) => {
@@ -511,10 +519,17 @@ export default function App() {
   // Fetch sidebar permissions for selected branch (so sidebar shows only allowed items per branch)
   useEffect(() => {
     const branchId = selectedBranch?.id;
-    if (branchId == null || branchId === 'all') {
+    if (!isLoggedIn || branchId == null || branchId === 'all') {
       setBranchSidebarPermissions(null);
+      setSidebarPermissionsBranchId(null);
       return;
     }
+    let cancelled = false;
+    const finish = (list: string[] | null) => {
+      if (cancelled) return;
+      setBranchSidebarPermissions(list);
+      setSidebarPermissionsBranchId(String(branchId));
+    };
     const token = localStorage.getItem('token');
     fetch(`/branch/${branchId}/sidebar-permissions`, {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -522,10 +537,32 @@ export default function App() {
       .then((res) => res.json())
       .then((json) => {
         const list = json?.data?.features ?? json?.features;
-        setBranchSidebarPermissions(Array.isArray(list) ? list : null);
+        finish(Array.isArray(list) ? list : null);
       })
-      .catch(() => setBranchSidebarPermissions(null));
-  }, [selectedBranch?.id]);
+      .catch(() => finish(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, selectedBranch?.id]);
+
+  // Pages hidden for this branch (User Access → Branches) don't open at all: nothing shows until
+  // its list has loaded, then a hidden page sends the person to the first allowed one.
+  const isAdminUser = Number(user?.permissions) === 1;
+  const specificBranchId =
+    selectedBranch?.id != null && selectedBranch.id !== 'all' ? String(selectedBranch.id) : null;
+  const sidebarPermissionsPending =
+    isLoggedIn &&
+    (specificBranchId
+      ? sidebarPermissionsBranchId !== specificBranchId
+      : selectedBranch == null && !isAdminUser && Boolean(user?.branch_id));
+  const branchFeatures = sidebarPermissionsPending ? null : branchSidebarPermissions;
+  const hiddenPageRedirect =
+    branchFeatures && hidesSomeFeature(branchFeatures) ? firstAllowedPath(branchFeatures) : null;
+  const pageIsHidden =
+    branchFeatures != null &&
+    hiddenPageRedirect != null &&
+    !isPathAllowed(location.pathname, branchFeatures, isAdminUser);
+  const holdPage = sidebarPermissionsPending || pageIsHidden;
 
   // Parse active tab from URL path
   const pathParts = location.pathname.split('/').filter(Boolean);
@@ -681,13 +718,15 @@ export default function App() {
           activeTab={displayActiveTab}
           onTabChange={handleTabChange}
           selectedBranch={selectedBranch}
-          allowedFeatures={branchSidebarPermissions}
+          allowedFeatures={branchFeatures}
+          featuresPending={sidebarPermissionsPending}
         />
 
         <main className="flex-1 flex flex-col overflow-hidden">
           <Header
-            activeTab={displayActiveTab}
-            breadcrumbs={breadcrumbs}
+            activeTab={holdPage ? '' : displayActiveTab}
+            breadcrumbs={holdPage ? [] : breadcrumbs}
+            hideNotifications={sidebarPermissionsPending || (branchFeatures != null && isStaffOnly(branchFeatures))}
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
             onOpenNotifications={() => setIsNotificationOpen(true)}
@@ -698,6 +737,9 @@ export default function App() {
           />
 
           <div className="flex-1 overflow-y-auto p-8 pt-0 custom-scrollbar" data-app-scroll-container>
+            {sidebarPermissionsPending ? null : pageIsHidden ? (
+              <Navigate to={`${hiddenPageRedirect}${location.search || ''}`} replace />
+            ) : (
             <AnimatePresence mode="wait">
               <Routes location={location} key={location.pathname}>
                 <Route path="/" element={<Navigate to={`/dashboard${location.search || ''}`} replace />} />
@@ -982,6 +1024,7 @@ export default function App() {
                 } />
               </Routes>
             </AnimatePresence>
+            )}
           </div>
 
           <Footer />

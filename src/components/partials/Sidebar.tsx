@@ -44,6 +44,8 @@ type SidebarProps = {
   selectedBranch: Branch | null;
   /** When set, only show sidebar items whose key is in this array (per-branch permissions from User Access). */
   allowedFeatures?: string[] | null;
+  /** The branch's list is still loading: show no pages yet, so hidden ones never flash. */
+  featuresPending?: boolean;
 };
 
 type SidebarItemProps = {
@@ -319,7 +321,7 @@ const SubItem: React.FC<{ label: string; active?: boolean; onClick?: () => void 
   </button>
 );
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, selectedBranch, allowedFeatures }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, selectedBranch, allowedFeatures, featuresPending }) => {
   // Menu tab is only visible when a specific branch is selected (not 'all' or null)
   const isSpecificBranch = selectedBranch != null && String(selectedBranch.id) !== 'all';
   const { logout, user } = useUser();
@@ -434,6 +436,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, select
     item.i18nKey ? t(item.i18nKey, item.label) : item.label;
 
   const isItemVisible = (item: SidebarFeatureConfig) => {
+    if (featuresPending) return false;
     if (item.kind === 'admin-only') return false;
     if (item.requiresSpecificBranch && !isSpecificBranch) return false;
     if (item.kind === 'item') return hasFeature(item.key);
